@@ -1,0 +1,172 @@
+/* EDUCO Global & Custom Utility Stylesheet */
+
+:root {
+  color-scheme: light;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+*, ::before, ::after, body, button, input, select, textarea, h1, h2, h3, h4, h5, h6, table, th, td, span, p, label {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #f1f5f9;
+  color: #1e293b;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
+
+/* Base dark mode body & container adjustments */
+html.dark body {
+  background-color: #0B132B;
+  color: #F8FAFC;
+}
+
+/* Dynamic dark backgrounds & cards */
+html.dark .bg-white,
+html.dark [class*="bg-white/"] {
+  background-color: rgba(30, 41, 59, 0.92) !important;
+  border-color: rgba(51, 65, 85, 0.8) !important;
+}
+
+html.dark .bg-gray-50,
+html.dark .bg-gray-100,
+html.dark .bg-slate-50 {
+  background-color: #1E293B !important;
+}
+
+html.dark .bg-gray-200,
+html.dark .bg-slate-100 {
+  background-color: #334155 !important;
+}
+
+/* Dark mode text colors */
+html.dark .text-gray-900,
+html.dark .text-gray-800,
+html.dark .text-gray-700,
+html.dark .text-slate-900,
+html.dark .text-slate-800,
+html.dark .text-slate-700 {
+  color: #F8FAFC !important;
+}
+
+html.dark .text-gray-600,
+html.dark .text-gray-500,
+html.dark .text-slate-600,
+html.dark .text-slate-500 {
+  color: #94A3B8 !important;
+}
+
+html.dark .text-gray-400,
+html.dark .text-slate-400 {
+  color: #64748B !important;
+}
+
+html.dark .text-\[\#1F4A59\] {
+  color: #38BDF8 !important;
+}
+
+/* Dark mode borders */
+html.dark .border-gray-100,
+html.dark .border-gray-200,
+html.dark .border-gray-300,
+html.dark .border-slate-200,
+html.dark .border-slate-300,
+html.dark [class*="border-white/"] {
+  border-color: #334155 !important;
+}
+
+/* Dark mode form controls */
+html.dark input:not([type="checkbox"]):not([type="radio"]),
+html.dark select,
+html.dark textarea {
+  background-color: #0F172A !important;
+  border-color: #334155 !important;
+  color: #F8FAFC !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #64748B !important;
+}
+
+/* Dark mode header */
+html.dark header {
+  background-color: rgba(15, 23, 42, 0.9) !important;
+  border-color: #334155 !important;
+}
+
+/* Dark mode sidebar */
+html.dark aside {
+  background-color: #091824 !important;
+  border-right: 1px solid #1E293B !important;
+}
+
+/* Dark mode tables */
+html.dark table th {
+  background-color: #0F172A !important;
+  color: #CBD5E1 !important;
+  border-color: #334155 !important;
+}
+
+html.dark table td {
+  border-color: #334155 !important;
+}
+
+html.dark table tbody tr:hover {
+  background-color: rgba(51, 65, 85, 0.35) !important;
+}
+
+/* Dark mode Modals and Popups */
+html.dark .modal-content,
+html.dark div[role="dialog"],
+html.dark .fixed.inset-0 .bg-white {
+  background-color: #1E293B !important;
+  color: #F8FAFC !important;
+  border-color: #334155 !important;
+}
+
+/* Focus styles for buttons and inputs */
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid #1F4A59;
+  outline-offset: 1px;
+}
+
+/* Entry Animation: Progressive Fade-In with Slide-Up */
+@keyframes fadeSlideUp {
+  0% {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-slide-up {
+  animation: fadeSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+

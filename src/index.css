@@ -1,0 +1,407 @@
+/* ==========================================================================
+   COMPREHENSIVE PRINT MEDIA STYLES & OPTIMIZATIONS (EDUCO APP)
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Global Print Page Configuration (5mm margins to eliminate browser headers/footers)
+   -------------------------------------------------------------------------- */
+@page {
+  size: A4 portrait;
+  margin: 5mm;
+}
+
+@media print {
+  /* Reset Root Canvas & Colors */
+  html, body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 11pt !important;
+    line-height: 1.4 !important;
+    width: 100% !important;
+    min-width: 100% !important;
+    height: auto !important;
+    min-height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* --------------------------------------------------------------------------
+     2. HIDE ALL NAVIGATION, SIDEBARS, HEADERS, MODALS & FLOATING CONTROLS
+     -------------------------------------------------------------------------- */
+  header,
+  aside,
+  nav,
+  .sidebar,
+  [data-sidebar],
+  .lg\:pl-72,
+  div[class*="lg:pl-72"],
+  div[class*="fixed inset-0"]:not(.allow-print-modal),
+  div[class*="fixed top-"],
+  div[class*="fixed bottom-"],
+  div[class*="fixed right-"],
+  div[class*="z-50"]:not(.allow-print-modal),
+  div[class*="z-40"]:not(.allow-print-modal),
+  div[class*="z-30"],
+  button:not(.print-include-btn),
+  input,
+  select,
+  textarea,
+  .no-print,
+  .print-hidden,
+  .print\:hidden,
+  .hide-on-print,
+  [aria-label="Ouvrir le menu"],
+  [title*="WhatsApp"],
+  [title*="Rechercher"],
+  [title*="Fermer"] {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* --------------------------------------------------------------------------
+     3. FORCE MAIN CONTENT TO EXPAND TO FULL PAGE WIDTH
+     -------------------------------------------------------------------------- */
+  div[class*="lg:pl-72"],
+  main,
+  #root,
+  .app-container,
+  div[class*="min-h-screen"] {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    position: static !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: transparent !important;
+  }
+
+  main {
+    padding: 0 !important;
+  }
+
+  /* --------------------------------------------------------------------------
+     4. BULLETIN DE NOTES DEDICATED PRINT STYLES (5mm Margin Optimization)
+     -------------------------------------------------------------------------- */
+  body[data-print-mode="bulletin"],
+  .printing-bulletin {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  #bulletin-content,
+  .bulletin-print-wrapper {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    padding: 4mm 6mm !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    transform: none !important;
+    font-size: 9pt !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  #bulletin-content table {
+    font-size: 8.5pt !important;
+  }
+
+  #bulletin-content th,
+  #bulletin-content td {
+    padding: 4px 6px !important;
+  }
+
+  #bulletin-content header {
+    display: flex !important;
+    visibility: visible !important;
+    border-bottom: 3px solid #0f172a !important;
+    padding-bottom: 8px !important;
+    margin-bottom: 12px !important;
+  }
+
+  #bulletin-content footer {
+    display: flex !important;
+    visibility: visible !important;
+    margin-top: 14px !important;
+    padding-top: 8px !important;
+    border-top: 3px solid #0f172a !important;
+  }
+
+  /* --------------------------------------------------------------------------
+     5. STUDENT ID CARD (CARTE D'IDENTITÉ SCOLAIRE) PRINT VIEW
+     -------------------------------------------------------------------------- */
+  /* Hidden on screen, displayed only during print when requested */
+  .print-id-card-view {
+    display: none !important;
+  }
+
+  /* When printing in ID Card mode: hide all standard profile elements and reveal the ID card */
+  body[data-print-target="id-card"] .print-id-card-view,
+  body.printing-id-card .print-id-card-view,
+  .show-id-card-print .print-id-card-view {
+    display: block !important;
+    visibility: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    padding: 10mm 5mm !important;
+    background: #ffffff !important;
+  }
+
+  body[data-print-target="id-card"] .hide-on-id-card-print,
+  body.printing-id-card .hide-on-id-card-print {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Realistic Card Container for Print */
+  .id-card-print-badge {
+    box-shadow: none !important;
+    border: 1.5px solid #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Cut guides for paper cards */
+  .id-card-cut-guide {
+    border: 1px dashed #94a3b8 !important;
+  }
+
+  /* --------------------------------------------------------------------------
+     6. SHOW PRINT-ONLY ELEMENTS
+     -------------------------------------------------------------------------- */
+  .print-only,
+  .print\:block,
+  .show-on-print {
+    display: block !important;
+    visibility: visible !important;
+  }
+
+  .print\:flex {
+    display: flex !important;
+    visibility: visible !important;
+  }
+
+  .print\:grid {
+    display: grid !important;
+    visibility: visible !important;
+  }
+
+  /* --------------------------------------------------------------------------
+     7. GENERAL CARDS, BORDERS & SHADOWS OPTIMIZATION
+     -------------------------------------------------------------------------- */
+  div, section, article {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  .border,
+  [class*="border-"] {
+    border-color: #cbd5e1 !important;
+  }
+
+  /* --------------------------------------------------------------------------
+     8. TABLE OPTIMIZATIONS FOR PRINT
+     -------------------------------------------------------------------------- */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tfoot {
+    display: table-footer-group !important;
+  }
+
+  th, td {
+    border-bottom: 1px solid #cbd5e1 !important;
+    padding: 5px 7px !important;
+    font-size: 9pt !important;
+    color: #0f172a !important;
+  }
+
+  th {
+    background-color: #f1f5f9 !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+  }
+
+  /* --------------------------------------------------------------------------
+     9. PAGE BREAK UTILITIES
+     -------------------------------------------------------------------------- */
+  .page-break,
+  .break-before-page,
+  .page-break-before {
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+
+  .break-after-page,
+  .page-break-after {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  .break-inside-avoid,
+  .page-break-inside-avoid,
+  .avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* --------------------------------------------------------------------------
+     10. TYPOGRAPHY & FOOTER STYLING IN PRINT
+     -------------------------------------------------------------------------- */
+  h1, h2, h3, h4, h5, h6 {
+    color: #0f172a !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  p, span, li, dt, dd {
+    color: #1e293b !important;
+    orphans: 3 !important;
+    widows: 3 !important;
+  }
+
+  a {
+    text-decoration: none !important;
+    color: inherit !important;
+  }
+
+  /* Hide default persistent layout footer when in ID card or bulletin print mode */
+  body[data-print-target="id-card"] footer,
+  body[data-print-mode="bulletin"] footer:not(#bulletin-content footer) {
+    display: none !important;
+  }
+}
+
+/* ==========================================================================
+   MOBILE EXPERIENCE & TOUCH ENHANCEMENTS
+   ========================================================================== */
+
+/* Safe Area Inset Support (iPhone Notch & Home Indicator) */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 1rem);
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0.5rem);
+}
+
+.mb-safe {
+  margin-bottom: env(safe-area-inset-bottom, 1rem);
+}
+
+/* ==========================================================================
+   ANTI-FLICKER & STABLE TYPOGRAPHY / RENDERING ENHANCEMENTS
+   ========================================================================== */
+
+/* Prevent subpixel font jittering, text snapping, and visual flashing */
+*, *::before, *::after {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+html, body {
+  touch-action: manipulation;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Eliminate tap delay and highlight flicker on mobile */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Ultra-smooth, non-flickering fade-in transitions */
+.animate-fade-in {
+  animation: smoothFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: opacity;
+}
+
+@keyframes smoothFadeIn {
+  from {
+    opacity: 0.92;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Stable table rendering to eliminate column width jumping and flickering */
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+  text-rendering: optimizeLegibility;
+}
+
+tr, td, th {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Mobile Scrollbar Clean & Minimalist */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Smooth Horizontal Scroll indicators for Mobile Tables */
+.mobile-table-container {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+}
+
+/* Touch-optimized tap areas (44px minimum) */
+@media (max-width: 1024px) {
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Prevent text selection when rapid clicking buttons */
+  button, a {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+}
+

@@ -1,0 +1,11 @@
+{
+  "name": "EDUCO",
+  "description": "Plateforme complète de gestion scolaire (administration, finances, notes, caisse, emplois du temps et communication).",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

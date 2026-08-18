@@ -1,0 +1,65 @@
+{
+  "short_name": "EDUCO",
+  "name": "EDUCO - Gestion Scolaire & Financière",
+  "description": "Application PWA complète de gestion scolaire, comptabilité, notes, bulletins et paie de l'établissement",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    }
+  ],
+  "start_url": "/",
+  "scope": "/",
+  "id": "/?source=pwa",
+  "background_color": "#1F4A59",
+  "theme_color": "#1F4A59",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "lang": "fr-FR",
+  "dir": "ltr",
+  "categories": ["education", "finance", "productivity", "business"],
+  "shortcuts": [
+    {
+      "name": "Tableau de Bord",
+      "short_name": "Dashboard",
+      "description": "Accéder directement au tableau de bord",
+      "url": "/?page=Tableau+de+Bord",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Paiements & Caisse",
+      "short_name": "Caisse",
+      "description": "Enregistrer un paiement de frais scolaire",
+      "url": "/?page=Paiements",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Gestion des Élèves",
+      "short_name": "Élèves",
+      "description": "Consulter la liste et les dossiers des élèves",
+      "url": "/?page=Élèves",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
