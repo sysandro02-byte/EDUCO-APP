@@ -41,6 +41,15 @@ export const BiometricLoginButton: React.FC<BiometricLoginButtonProps> = ({
     );
   }
 
+  const description = userEmail
+    ? `Continuer avec la clé biométrique enregistrée pour ${userEmail}.`
+    : "Utilisez une passkey, l'empreinte, la reconnaissance faciale ou le verrouillage sécurisé de votre appareil.";
+  const availabilityLabel = hasPlatformAuth === null
+    ? 'Vérification...'
+    : hasPlatformAuth
+    ? 'Passkey disponible'
+    : 'Passkey / clé';
+
   return (
     <div className="w-full space-y-2">
       <button
@@ -64,21 +73,21 @@ export const BiometricLoginButton: React.FC<BiometricLoginButtonProps> = ({
           <div className="text-left min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="font-extrabold text-sm text-white tracking-tight flex items-center gap-1.5">
-                🔐 Se connecter avec la biométrie
+                Se connecter avec la biométrie
               </span>
               <span className="px-2 py-0.5 bg-emerald-400/20 border border-emerald-300/30 text-emerald-100 font-extrabold text-[10px] rounded-full hidden sm:inline-block">
                 Passkeys / Touch ID
               </span>
             </div>
             <p className="text-[11px] text-emerald-100/90 font-medium truncate mt-0.5">
-              Utilisez l'empreinte, la reconnaissance faciale ou le verrouillage sécurisé de votre appareil.
+              {description}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 backdrop-blur-sm rounded-xl text-xs font-bold text-white shrink-0 border border-white/20">
           <Scan className="w-3.5 h-3.5 animate-pulse text-emerald-200" />
-          <span className="hidden xs:inline">Identifier</span>
+          <span className="hidden xs:inline">{availabilityLabel}</span>
         </div>
       </button>
 

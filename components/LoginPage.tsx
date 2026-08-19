@@ -3,7 +3,6 @@ import { LogoIcon, MailIcon, LockClosedIcon } from './Icons';
 import SchoolRegistrationPage from './SchoolRegistrationPage';
 import Modal from './Modal';
 import { Fingerprint, Scan, ShieldCheck, Sparkles, Building2, UserCheck, CheckCircle2, AlertCircle, Phone, ArrowLeft, ArrowRight, User, KeyRound, Check } from 'lucide-react';
-import BiometricAuthModal from './BiometricAuthModal';
 import { BiometricLoginButton } from './auth/BiometricLoginButton';
 import { loginWithWebAuthn } from '../src/services/webauthnService';
 import { LoadingDots } from './LoadingDots';
@@ -22,8 +21,8 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
   const [error, setError] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
   const [isParentRegistering, setIsParentRegistering] = useState(false);
-  const [modalType, setModalType] = useState<'none' | 'accountNotFound' | 'incorrectPassword' | 'invalidCredentials'>('none');
-  const [isBiometricModalOpen, setIsBiometricModalOpen] = useState(false);
+  const [modalType, setModalType] = useState<'none' | 'accountNotFound' | 'incorrectPassword' | 'invalidCredentials' | 'biometricError'>('none');
+  const [modalMessage, setModalMessage] = useState('');
   
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
@@ -90,39 +89,20 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
         if (!result.success) {
           const message = result.error || `Échec de connexion biométrique pour ${res.userEmail}.`;
           setError(message);
-          alert(message);
+          setModalMessage(message);
+          setModalType('biometricError');
         }
       } else {
         const message = res.error || 'Erreur lors de la vérification biométrique.';
         setError(message);
-        alert(message);
+        setModalMessage(message);
+        setModalType('biometricError');
       }
     } catch (err: any) {
       const message = err?.message || "Erreur lors de l'accès biométrique.";
       setError(message);
-      alert(message);
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
-
-  const handleBiometricSuccess = async (authenticatedUser?: any) => {
-    const userEmail = (typeof authenticatedUser === 'string' ? authenticatedUser : authenticatedUser?.email) || email || 'sysandro02@gmail.com';
-    setEmail(userEmail);
-    setIsBiometricModalOpen(false);
-    setIsLoggingIn(true);
-    setError('');
-    try {
-      const result = await onLogin(userEmail, 'BIOMETRIC_PASS', true);
-      if (!result.success) {
-        const message = result.error || `Échec de connexion biométrique pour ${userEmail}.`;
-        setError(message);
-        alert(message);
-      }
-    } catch (err: any) {
-      const message = err?.message || "Erreur lors de l'accès biométrique.";
-      setError(message);
-      alert(message);
+      setModalMessage(message);
+      setModalType('biometricError');
     } finally {
       setIsLoggingIn(false);
     }
@@ -800,13 +780,15 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
         </p>
       </div>
 
-      <Modal isOpen={modalType !== 'none'} onClose={() => setModalType('none')} title={modalType === 'accountNotFound' ? 'Compte non trouvé' : modalType === 'incorrectPassword' ? 'Mot de passe incorrect' : 'Erreur de connexion'}>
+      <Modal isOpen={modalType !== 'none'} onClose={() => setModalType('none')} title={modalType === 'accountNotFound' ? 'Compte non trouvé' : modalType === 'incorrectPassword' ? 'Mot de passe incorrect' : modalType === 'biometricError' ? 'Connexion biométrique' : 'Erreur de connexion'}>
         <div className="p-4">
           <p className="text-gray-700 dark:text-slate-300">
             {modalType === 'accountNotFound' 
               ? 'Le compte associé à cet e-mail n\'existe pas. Voulez-vous créer un nouveau compte ?'
               : modalType === 'incorrectPassword'
               ? 'Le mot de passe saisi est incorrect. Veuillez réessayer.'
+              : modalType === 'biometricError'
+              ? modalMessage || "La connexion biométrique n'a pas pu être vérifiée."
               : 'Identifiants invalides. Veuillez réessayer.'
             }
           </p>
@@ -819,13 +801,6 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
         </div>
       </Modal>
 
-      {/* Biometric Authentication Modal */}
-      <BiometricAuthModal
-        isOpen={isBiometricModalOpen}
-        onClose={() => setIsBiometricModalOpen(false)}
-        onSuccess={handleBiometricSuccess}
-        availableUsers={users}
-      />
     </div>
   );
 };
