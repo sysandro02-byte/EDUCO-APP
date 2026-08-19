@@ -58,31 +58,6 @@ const SchoolOverview: React.FC<SchoolOverviewProps> = ({
   const [isSeedingDb, setIsSeedingDb] = useState(false);
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
 
-  const handleTestCreateSchool = async () => {
-    setIsTestingDb(true);
-    try {
-      const res = await fetch('/api/db/test-create-school', { method: 'POST' });
-      const data = await res.json();
-      setDbTestResult(data);
-    } catch (err: any) {
-      setDbTestResult({ success: false, message: 'Erreur réseau ou support local' });
-    } finally {
-      setIsTestingDb(false);
-    }
-  };
-
-  const handleSeedAllSupabase = async () => {
-    setIsSeedingDb(true);
-    try {
-      const res = await fetch('/api/db/seed-all', { method: 'POST' });
-      const data = await res.json();
-      setDbTestResult(data);
-    } catch (err: any) {
-      setDbTestResult({ success: false, message: 'Erreur lors du peuplage de la base de données' });
-    } finally {
-      setIsSeedingDb(false);
-    }
-  };
 
   const enrolledStudentsCount = users.filter(u => u.role === 'Élève').length;
   const personnelCount = personnel.length;
@@ -122,24 +97,6 @@ const SchoolOverview: React.FC<SchoolOverviewProps> = ({
             >
                 <Database className="w-4 h-4 text-slate-950" />
                 <span>⚡ Console Base de Données</span>
-            </button>
-
-            <button
-                onClick={handleSeedAllSupabase}
-                disabled={isSeedingDb}
-                className="flex items-center gap-2 px-3.5 py-2 bg-emerald-700/80 hover:bg-emerald-600 active:scale-95 text-white rounded-xl font-bold text-xs transition-all shadow-md border border-emerald-400 cursor-pointer disabled:opacity-50"
-            >
-                <Sparkles className={`w-4 h-4 ${isSeedingDb ? 'animate-spin' : ''}`} />
-                <span>{isSeedingDb ? 'Injection...' : '🚀 Peupler la Base'}</span>
-            </button>
-
-            <button
-                onClick={handleTestCreateSchool}
-                disabled={isTestingDb}
-                className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs transition-all shadow-sm border border-slate-600 cursor-pointer disabled:opacity-50"
-            >
-                <Building2 className={`w-4 h-4 ${isTestingDb ? 'animate-spin' : ''}`} />
-                <span>{isTestingDb ? 'Création...' : '+ Établissement BD'}</span>
             </button>
 
             <button 

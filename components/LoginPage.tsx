@@ -8,7 +8,7 @@ import { BiometricLoginButton } from './auth/BiometricLoginButton';
 import { loginWithWebAuthn } from '../src/services/webauthnService';
 import { LoadingDots } from './LoadingDots';
 import { brevoEmailService } from '../src/services/brevoEmailService';
-import { getSupabaseClient, getStoredSupabaseConfig } from '../src/lib/supabase';
+import { getSupabaseClient, getStoredSupabaseConfig, isPlaceholderSupabaseUrl } from '../src/lib/supabase';
 
 interface LoginPageProps {
   onLogin: (email: string, password: string, isBiometric?: boolean) => Promise<{ success: boolean; error?: string }>;
@@ -222,10 +222,10 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
       }
 
       // 2. Try Supabase Auth SignUp if configured
-      let userUid = `parent_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      let userUid: string | null = null;
       try {
         const { url } = getStoredSupabaseConfig();
-        if (url && !url.includes('demo-educo.supabase.co')) {
+        if (!isPlaceholderSupabaseUrl(url)) {
           const supabase = getSupabaseClient();
           const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
             email: parentForm.parentEmail,
@@ -238,13 +238,21 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
             }
           });
           if (signUpError) {
-            console.warn("Supabase Auth parent registration fallback:", signUpError.message);
+            setParentRegError(signUpError.message || "Impossible de créer le compte parent dans Supabase Auth.");
+            setIsSubmittingParent(false);
+            return;
           } else if (signUpData?.user?.id) {
             userUid = signUpData.user.id;
           }
+        } else {
+          setParentRegError("Supabase Auth doit être configuré avant de créer un compte parent.");
+          setIsSubmittingParent(false);
+          return;
         }
       } catch (authErr: any) {
-        console.warn("Supabase Auth not available for parent registration, creating locally.");
+        setParentRegError(authErr?.message || "Supabase Auth indisponible pour l'inscription parent.");
+        setIsSubmittingParent(false);
+        return;
       }
 
       // 3. Complete Parent Registration in DB
@@ -394,7 +402,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
                     maxLength={6}
                     value={parentOtpCode}
                     onChange={(e) => setParentOtpCode(e.target.value.replace(/\D/g, ''))}
-                    placeholder="123456"
+                    placeholder="------"
                     className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center font-mono font-black text-xl tracking-widest text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1F4A59]"
                   />
                 </div>
@@ -637,7 +645,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
                     maxLength={6}
                     required
                     className="w-full pl-10 pr-3 py-3 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-white rounded-xl text-center font-mono font-black text-xl tracking-widest text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1F4A59]"
-                    placeholder="123456"
+                    placeholder="------"
                     value={resetOtpCode}
                     onChange={(e) => setResetOtpCode(e.target.value.replace(/\D/g, ''))}
                   />
@@ -823,3 +831,4 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
 };
 
 export default LoginPage;
+

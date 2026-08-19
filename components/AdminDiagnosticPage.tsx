@@ -21,7 +21,6 @@ import {
   getSupabaseClient, 
   testSupabaseConnection 
 } from '../src/lib/supabase';
-import { seedSupabaseDirectly } from '../src/lib/supabaseSeeder';
 
 export const AdminDiagnosticPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
@@ -29,13 +28,11 @@ export const AdminDiagnosticPage: React.FC = () => {
   const [connStatus, setConnStatus] = useState<any>(null);
   const [tableCounts, setTableCounts] = useState<{ [key: string]: number }>({});
   const [recentLogs, setRecentLogs] = useState<any[]>([]);
-  const [repairStatus, setRepairStatus] = useState<string | null>(null);
 
   const tables = ['users', 'schools', 'classes', 'payments', 'transactions', 'attendance', 'grades', 'subscriptions'];
 
   const runFullHealthCheck = async () => {
     setLoading(true);
-    setRepairStatus(null);
     const start = performance.now();
 
     try {
@@ -99,22 +96,6 @@ export const AdminDiagnosticPage: React.FC = () => {
     }
   };
 
-  const handleRepairDatabase = async () => {
-    setLoading(true);
-    try {
-      const res = await seedSupabaseDirectly();
-      if (res.success) {
-        setRepairStatus('✅ Tables et schémas Supabase vérifiés et réinitialisés avec succès !');
-        runFullHealthCheck();
-      } else {
-        setRepairStatus(`⚠️ ${res.message || 'Erreur lors de la synchronisation'}`);
-      }
-    } catch (err: any) {
-      setRepairStatus(`⚠️ Erreur : ${err?.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
     runFullHealthCheck();
@@ -148,24 +129,8 @@ export const AdminDiagnosticPage: React.FC = () => {
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             <span>Actualiser Diagnostic</span>
           </button>
-
-          <button
-            onClick={handleRepairDatabase}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-black text-xs rounded-2xl shadow-lg shadow-emerald-950/40 transition-all cursor-pointer disabled:opacity-50"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>Auto-Réparation BD</span>
-          </button>
         </div>
       </div>
-
-      {repairStatus && (
-        <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 rounded-2xl text-xs font-bold flex items-center gap-2">
-          <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-          <span>{repairStatus}</span>
-        </div>
-      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -257,3 +222,6 @@ export const AdminDiagnosticPage: React.FC = () => {
 };
 
 export default AdminDiagnosticPage;
+
+
+

@@ -140,21 +140,6 @@ const AdminSchoolsDirectory: React.FC<AdminSchoolsDirectoryProps> = ({ onOpenLic
     }
   };
 
-  const handleCreateTestSchool = async () => {
-    try {
-      showToast("⏳ Création de l'établissement test en cours...");
-      const res = await fetch('/api/db/test-create-school', { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        showToast(data.message || "✅ Compte test créé avec succès dans la base de données !");
-        loadSchools();
-      } else {
-        showToast("⚠️ " + (data.error || "Impossible de créer le compte test"));
-      }
-    } catch (err: any) {
-      showToast("⚠️ Erreur lors de la création de l'établissement test");
-    }
-  };
 
   const handleGenerateFinancialReportPDF = (school: SchoolDossier) => {
     try {
@@ -229,21 +214,6 @@ const AdminSchoolsDirectory: React.FC<AdminSchoolsDirectoryProps> = ({ onOpenLic
     }
   };
 
-  const handleSeedAllSupabase = async () => {
-    try {
-      showToast("🚀 Injection des données dans la base de données Supabase...");
-      const res = await fetch('/api/db/seed-all', { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        showToast("✅ Peuplage et synchronisation Supabase effectués avec succès !");
-        loadSchools();
-      } else {
-        showToast("⚠️ " + (data.error || "Impossible de peupler Supabase"));
-      }
-    } catch (err: any) {
-      showToast("⚠️ Erreur lors du peuplement Supabase");
-    }
-  };
 
   const loadSchools = async () => {
     setIsLoading(true);
@@ -356,22 +326,6 @@ const AdminSchoolsDirectory: React.FC<AdminSchoolsDirectoryProps> = ({ onOpenLic
           >
             <Database className="w-3.5 h-3.5 text-slate-950" />
             <span>⚡ Console Supabase</span>
-          </button>
-
-          <button
-            onClick={handleSeedAllSupabase}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700/80 hover:bg-emerald-600 text-white rounded-lg text-[11px] font-bold transition-all shadow-sm active:scale-95 cursor-pointer border border-emerald-400/60 whitespace-nowrap"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            <span>🚀 Peupler Base Supabase</span>
-          </button>
-
-          <button
-            onClick={handleCreateTestSchool}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[11px] font-bold transition-all shadow-sm active:scale-95 cursor-pointer whitespace-nowrap"
-          >
-            <Building2 className="w-3.5 h-3.5" />
-            <span>+ Créer Établissement BD</span>
           </button>
 
           <button
@@ -976,3 +930,4 @@ const AdminSchoolsDirectory: React.FC<AdminSchoolsDirectoryProps> = ({ onOpenLic
 };
 
 export default AdminSchoolsDirectory;
+

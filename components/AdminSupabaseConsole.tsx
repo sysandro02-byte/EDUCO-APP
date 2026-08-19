@@ -28,14 +28,13 @@ import {
   resetSupabaseClient,
   generateSupabaseSetupSQL 
 } from '../src/lib/supabase';
-import { seedSupabaseDirectly } from '../src/lib/supabaseSeeder';
 
 interface AdminSupabaseConsoleProps {
   onNavigate?: (page: string) => void;
 }
 
 export const AdminSupabaseConsole: React.FC<AdminSupabaseConsoleProps> = ({ onNavigate }) => {
-  const [activeTab, setActiveTab] = useState<'tables' | 'sql' | 'status' | 'seeder'>('tables');
+  const [activeTab, setActiveTab] = useState<'tables' | 'sql' | 'status'>('tables');
   const [selectedTable, setSelectedTable] = useState('users');
   const [tableData, setTableData] = useState<any[]>([]);
   const [tableCount, setTableCount] = useState<number>(0);
@@ -55,9 +54,6 @@ SELECT id, name, role, email, status FROM users ORDER BY created_at DESC LIMIT 1
   const [pingLatency, setPingLatency] = useState<number | null>(null);
   const [isTestingConn, setIsTestingConn] = useState(false);
 
-  // Seeder State
-  const [seedingResult, setSeedingResult] = useState<any>(null);
-  const [isSeeding, setIsSeeding] = useState(false);
 
   const availableTables = [
     { name: 'users', label: 'Utilisateurs (users)', icon: '👥' },
@@ -101,7 +97,6 @@ SELECT id, name, role, email, status FROM users ORDER BY created_at DESC LIMIT 1
         .limit(50);
 
       if (error) {
-        // Fallback demo local dataset if table not initialized
         setTableData([]);
         setTableCount(0);
       } else {
@@ -169,19 +164,6 @@ SELECT id, name, role, email, status FROM users ORDER BY created_at DESC LIMIT 1
     }
   };
 
-  const handleSeedDatabase = async () => {
-    setIsSeeding(true);
-    setSeedingResult(null);
-    try {
-      const res = await seedSupabaseDirectly();
-      setSeedingResult(res);
-      fetchTableRows(selectedTable);
-    } catch (err: any) {
-      setSeedingResult({ success: false, error: err?.message || 'Erreur lors de l’injection' });
-    } finally {
-      setIsSeeding(false);
-    }
-  };
 
   useEffect(() => {
     fetchTableRows(selectedTable);
@@ -237,36 +219,9 @@ SELECT id, name, role, email, status FROM users ORDER BY created_at DESC LIMIT 1
             <RefreshCw className={`w-4 h-4 ${isTestingConn ? 'animate-spin' : ''}`} />
             <span>Tester Connectivité</span>
           </button>
-
-          <button
-            onClick={handleSeedDatabase}
-            disabled={isSeeding}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-black text-[11px] rounded-lg shadow-md transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"
-          >
-            <Sparkles className={`w-3.5 h-3.5 ${isSeeding ? 'animate-spin' : ''}`} />
-            <span>{isSeeding ? 'Injection...' : '🚀 Réensemencer Tables'}</span>
-          </button>
         </div>
       </div>
 
-      {/* Seeding Feedback Notification */}
-      {seedingResult && (
-        <div className={`p-4 rounded-2xl border flex items-start justify-between gap-4 animate-in fade-in ${
-          seedingResult.success 
-            ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200' 
-            : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200'
-        }`}>
-          <div className="flex items-center gap-3">
-            {seedingResult.success ? (
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-            ) : (
-              <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0" />
-            )}
-            <p className="text-xs font-bold">{seedingResult.message || (seedingResult.success ? 'Tables Supabase peuplées avec succès !' : 'Erreur d’injection')}</p>
-          </div>
-          <button onClick={() => setSeedingResult(null)} className="text-xs font-bold underline opacity-70 hover:opacity-100">Fermer</button>
-        </div>
-      )}
 
       {/* Navigation Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2 overflow-x-auto">
@@ -397,7 +352,7 @@ SELECT id, name, role, email, status FROM users ORDER BY created_at DESC LIMIT 1
               <div className="py-16 text-center text-slate-400 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
                 <Table className="w-8 h-8 mx-auto mb-2 opacity-50" />
                 <p className="font-bold text-xs">Aucun enregistrement trouvé dans la table "{selectedTable}".</p>
-                <p className="text-[11px] text-slate-400 mt-1">Cliquez sur "Réensemencer Tables" pour injecter le jeu de données par défaut.</p>
+                <p className="text-[11px] text-slate-400 mt-1">Ajoutez des donnees reelles depuis les formulaires metier ou via une importation controlee.</p>
               </div>
             )}
           </div>
@@ -559,3 +514,7 @@ SELECT id, name, role, email, status FROM users ORDER BY created_at DESC LIMIT 1
 };
 
 export default AdminSupabaseConsole;
+
+
+
+

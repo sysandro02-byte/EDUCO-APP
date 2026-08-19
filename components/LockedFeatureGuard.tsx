@@ -28,7 +28,7 @@ const LockedFeatureGuard: React.FC<LockedFeatureGuardProps> = ({
   onNavigateToRegistration,
 }) => {
   const [copied, setCopied] = React.useState(false);
-  const schoolId = subscriptionInfo?.schoolIdentifier || 'EDUCO-SCH-DEMO';
+  const schoolId = subscriptionInfo?.schoolIdentifier || 'Non renseigné';
 
   const handleCopyId = () => {
     navigator.clipboard.writeText(schoolId);

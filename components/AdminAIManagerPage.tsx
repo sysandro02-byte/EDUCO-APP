@@ -73,7 +73,7 @@ export const AdminAIManagerPage: React.FC<AdminAIManagerPageProps> = ({ schools 
   });
 
   // Test Console State
-  const [promptText, setPromptText] = useState('Génère une appréciation trimestrielle bienveillante et encourageante pour un élève de 3ème ayant 14.5/20 de moyenne en mathématiques.');
+  const [promptText, setPromptText] = useState('');
   const [aiResponse, setAiResponse] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
@@ -105,15 +105,10 @@ export const AdminAIManagerPage: React.FC<AdminAIManagerPageProps> = ({ schools 
         const data = await res.json();
         setAiResponse(data.reply || data.text || 'Réponse générée avec succès.');
       } else {
-        // High quality demonstration output
-        setTimeout(() => {
-          setAiResponse(`« Excellent travail ce trimestre ! L'élève démontre une solide rigueur dans le raisonnement mathématique et une belle progression dans la résolution de problèmes complexes. Continuez ainsi avec la même régularité et le même engagement au second trimestre ! »`);
-          setIsGenerating(false);
-        }, 1000);
-        return;
+        setAiResponse("Le service IA est indisponible. Configurez une cle API valide avant utilisation.");
       }
     } catch (e: any) {
-      setAiResponse(`« Trimestre très satisfaisant. Les efforts constants et la participation active portent leurs fruits. Félicitations pour ces résultats prometteurs. »`);
+      setAiResponse(e?.message || "Erreur lors de appel au service IA.");
     } finally {
       setIsGenerating(false);
     }
@@ -401,3 +396,4 @@ export const AdminAIManagerPage: React.FC<AdminAIManagerPageProps> = ({ schools 
 };
 
 export default AdminAIManagerPage;
+

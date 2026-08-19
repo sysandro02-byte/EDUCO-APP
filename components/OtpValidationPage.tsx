@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { LogoIcon, LockClosedIcon } from './Icons';
 import { brevoEmailService } from '../src/services/brevoEmailService';
-import { Mail, CheckCircle2, AlertCircle, RefreshCw, Sparkles, KeyRound } from 'lucide-react';
+import { Mail, CheckCircle2, AlertCircle, RefreshCw, KeyRound } from 'lucide-react';
 
 interface OtpValidationPageProps {
   email: string;
@@ -36,10 +36,10 @@ const OtpValidationPage: React.FC<OtpValidationPageProps> = ({ email, onValidate
       if (res && res.success !== false) {
         setSuccessMsg("Un code de vérification à 6 chiffres a été généré et envoyé à votre adresse e-mail.");
       } else {
-        setSuccessMsg("Code de sécurité généré. Vous pouvez renseigner votre code ou le code de test 123456.");
+        setError(res?.error || "Impossible d'envoyer le code OTP.");
       }
     } catch (err: any) {
-      setSuccessMsg("Code de sécurité actif. Renseignez votre code ou 123456 pour continuer.");
+      setError(err?.message || "Erreur lors de l'envoi du code OTP.");
     } finally {
       setIsSending(false);
     }
@@ -65,10 +65,10 @@ const OtpValidationPage: React.FC<OtpValidationPageProps> = ({ email, onValidate
       if (res && res.success !== false) {
         setSuccessMsg("Un nouveau code OTP a été transmis !");
       } else {
-        setSuccessMsg("Nouveau code généré. Utilisez votre code ou 123456.");
+        setError(res?.error || "Impossible d'envoyer un nouveau code OTP.");
       }
     } catch (err: any) {
-      setSuccessMsg("Code actualisé. Entrez le code à 6 chiffres ou 123456.");
+      setError(err?.message || "Erreur lors de l'envoi du nouveau code OTP.");
     } finally {
       setIsSending(false);
     }
@@ -81,14 +81,14 @@ const OtpValidationPage: React.FC<OtpValidationPageProps> = ({ email, onValidate
 
     try {
       const cleanOtp = otp.trim();
-      if (cleanOtp === '123456' || cleanOtp.length === 6) {
+      if (cleanOtp.length === 6) {
         const res = await brevoEmailService.verifyOtp({
           email,
           otpCode: cleanOtp,
           purpose: mode === 'register' ? 'school_registration' : 'login_2fa',
         });
 
-        if (res.success || cleanOtp === '123456') {
+        if (res.success) {
           onValidate();
           return;
         } else {
@@ -101,13 +101,8 @@ const OtpValidationPage: React.FC<OtpValidationPageProps> = ({ email, onValidate
       setError("Veuillez saisir un code à 6 chiffres valide.");
       setLoading(false);
     } catch (err: any) {
-      // Fallback validate
-      if (otp.trim().length === 6) {
-        onValidate();
-      } else {
-        setError(err.message || "Erreur lors de la validation. Essayez le code 123456.");
-        setLoading(false);
-      }
+      setError(err.message || "Erreur lors de la validation du code OTP.");
+      setLoading(false);
     }
   };
 
@@ -151,21 +146,6 @@ const OtpValidationPage: React.FC<OtpValidationPageProps> = ({ email, onValidate
             <span>{error}</span>
           </div>
         )}
-
-        {/* Rapid Test Tip */}
-        <div className="p-2.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400">
-          <span className="flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-            <span>Code de test rapide :</span>
-          </span>
-          <button
-            type="button"
-            onClick={() => setOtp('123456')}
-            className="font-mono font-bold text-[#1F4A59] dark:text-sky-400 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer shadow-2xs"
-          >
-            123456 (Cliquer pour insérer)
-          </button>
-        </div>
 
         <form className="mt-4 space-y-5" onSubmit={handleSubmit}>
           <div className="space-y-1">

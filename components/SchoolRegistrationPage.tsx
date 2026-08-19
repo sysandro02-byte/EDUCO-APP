@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { LogoIcon } from './Icons';
-import { getSupabaseClient, getStoredSupabaseConfig } from '../src/lib/supabase';
+import { getSupabaseClient, getStoredSupabaseConfig, isPlaceholderSupabaseUrl } from '../src/lib/supabase';
 import { registerSchool } from '../src/services/api';
 import { brevoEmailService } from '../src/services/brevoEmailService';
 import WelcomeEmailModal from './WelcomeEmailModal';
@@ -102,7 +102,7 @@ const SchoolRegistrationPage: React.FC<SchoolRegistrationPageProps> = ({ onBackT
 
   // Welcome Email Modal State
   const [showWelcomeEmail, setShowWelcomeEmail] = useState(false);
-  const [createdSchoolIdentifier, setCreatedSchoolIdentifier] = useState('EDUCO-SCH-8492');
+  const [createdSchoolIdentifier, setCreatedSchoolIdentifier] = useState('');
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -283,11 +283,11 @@ const SchoolRegistrationPage: React.FC<SchoolRegistrationPageProps> = ({ onBackT
         return;
       }
 
-      // 1. Create User in Supabase Auth (or fallback if provider is disabled / not allowed)
-      let userUid = `promoter_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      // 1. Create User in Supabase Auth.
+      let userUid: string | null = null;
       try {
         const { url } = getStoredSupabaseConfig();
-        if (url && !url.includes('demo-educo.supabase.co')) {
+        if (!isPlaceholderSupabaseUrl(url)) {
           const supabase = getSupabaseClient();
           const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
             email: formData.adminEmail,
@@ -301,13 +301,21 @@ const SchoolRegistrationPage: React.FC<SchoolRegistrationPageProps> = ({ onBackT
           });
           
           if (signUpError) {
-            console.warn("Supabase Auth indisponible, création d'utilisateur locale :", signUpError.message);
+            setOtpError(signUpError.message || "Impossible de créer le compte promoteur dans Supabase Auth.");
+            setIsVerifyingOtp(false);
+            return;
           } else if (signUpData?.user?.id) {
             userUid = signUpData.user.id;
           }
+        } else {
+          setOtpError("Supabase Auth doit être configuré avant de créer un établissement.");
+          setIsVerifyingOtp(false);
+          return;
         }
       } catch (authErr: any) {
-        console.warn("Auth Supabase non disponible, passage en mode base de données locale.");
+        setOtpError(authErr?.message || "Supabase Auth indisponible pour l'inscription.");
+        setIsVerifyingOtp(false);
+        return;
       }
       
       // 2. Register School in DB with full dossier
@@ -327,7 +335,11 @@ const SchoolRegistrationPage: React.FC<SchoolRegistrationPageProps> = ({ onBackT
       } as any);
       
       if (result && !result.error) {
-        const schId = result.schoolIdentifier || result.school?.identifier || `EDUCO-SCH-${Math.floor(1000 + Math.random() * 9000)}`;
+        const schId = result.schoolIdentifier || result.school?.identifier;
+        if (!schId) {
+          setOtpError("L'établissement a été créé mais aucun matricule réel n'a été renvoyé par le serveur.");
+          return;
+        }
         setCreatedSchoolIdentifier(schId);
         
         // Save local subscription initial state (discovery mode)

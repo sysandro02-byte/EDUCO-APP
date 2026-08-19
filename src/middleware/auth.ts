@@ -6,15 +6,6 @@ export interface AuthRequest extends Request {
   user?: any;
 }
 
-const DEFAULT_ADMIN = { 
-  id: 1, 
-  uid: 'admin_seed_001', 
-  email: 'admin@educo-ecole.com', 
-  name: 'Administrateur',
-  role: 'Admin', 
-  schoolId: 1 
-};
-
 export const requireAuth = async (
   req: AuthRequest,
   res: Response,
@@ -31,15 +22,7 @@ export const requireAuth = async (
   }
 
   if (!isDbConfigured()) {
-    req.user = {
-      id: 1,
-      uid: token,
-      email: token.includes('@') ? token : 'admin@educo-ecole.com',
-      name: 'Administrateur',
-      role: 'Admin',
-      schoolId: 1,
-    };
-    return next();
+    return res.status(503).json({ error: 'Base de données non configurée : authentification réelle indisponible.' });
   }
 
   try {
@@ -57,12 +40,10 @@ export const requireAuth = async (
             matched = allUsers.find(u => u.email === userEmail || u.uid === payload.sub);
             if (!matched) {
               matched = {
-                id: 1,
                 uid: payload.sub || token,
-                email: userEmail || 'admin@educo-ecole.com',
-                name: payload.user_metadata?.full_name || userEmail.split('@')[0] || 'Administrateur',
-                role: payload.user_metadata?.role || (userEmail.includes('admin') || token.includes('admin') ? 'Admin' : 'Promoteur'),
-                schoolId: 1
+                email: userEmail,
+                name: payload.user_metadata?.full_name || userEmail.split('@')[0] || 'Utilisateur',
+                role: payload.user_metadata?.role || 'Promoteur',
               } as any;
             }
           }
@@ -71,31 +52,13 @@ export const requireAuth = async (
     }
 
     if (!matched) {
-      if (token === 'admin_seed_001' || token.toLowerCase().includes('admin')) {
-        req.user = DEFAULT_ADMIN;
-        return next();
-      }
-      if (token.includes('@')) {
-        req.user = {
-          id: 1,
-          uid: token,
-          email: token,
-          name: token.split('@')[0],
-          role: token.includes('admin') ? 'Admin' : 'Promoteur',
-          schoolId: 1
-        };
-        return next();
-      }
-      // Safe fallback to default admin to prevent API network errors
-      req.user = DEFAULT_ADMIN;
-      return next();
+      return res.status(401).json({ error: 'Accès non autorisé : utilisateur introuvable.' });
     }
     
     req.user = matched;
     next();
   } catch (error) {
     console.error('Auth middleware error:', error);
-    req.user = DEFAULT_ADMIN;
-    next();
+    return res.status(500).json({ error: 'Erreur serveur lors de la vérification de session.' });
   }
 };

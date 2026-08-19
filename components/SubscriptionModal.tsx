@@ -56,7 +56,7 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 
   if (!isOpen) return null;
 
-  const schoolId = subscriptionInfo?.schoolIdentifier || 'EDUCO-SCH-DEMO';
+  const schoolId = subscriptionInfo?.schoolIdentifier || 'Non renseigné';
   const isActive = subscriptionInfo?.isActive || false;
   const planType = subscriptionInfo?.planType;
   const daysRemaining = subscriptionInfo?.daysRemaining ?? 0;

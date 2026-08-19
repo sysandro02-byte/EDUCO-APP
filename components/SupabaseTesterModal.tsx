@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase, testSupabaseConnection, getStoredSupabaseConfig, getSupabaseClient, resetSupabaseClient, generateSupabaseSetupSQL, isValidSupabaseUrl } from '../src/lib/supabase';
-import { seedSupabaseDirectly } from '../src/lib/supabaseSeeder';
-import { Database, ShieldCheck, Key, Play, RefreshCw, CheckCircle2, AlertTriangle, X, Sparkles, Layers, Code, Copy, Check } from 'lucide-react';
+import { Database, ShieldCheck, Key, Play, RefreshCw, CheckCircle2, AlertTriangle, X, Layers, Code, Copy, Check } from 'lucide-react';
 
 interface SupabaseTesterModalProps {
   isOpen: boolean;
@@ -9,9 +8,8 @@ interface SupabaseTesterModalProps {
 }
 
 export const SupabaseTesterModal: React.FC<SupabaseTesterModalProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'test' | 'seed' | 'raw' | 'sql'>('test');
+  const [activeTab, setActiveTab] = useState<'test' | 'raw' | 'sql'>('test');
   const [testResult, setTestResult] = useState<any>(null);
-  const [seedResult, setSeedResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [customTable, setCustomTable] = useState('users');
   const [rawQueryResult, setRawQueryResult] = useState<any>(null);
@@ -111,32 +109,6 @@ export const SupabaseTesterModal: React.FC<SupabaseTesterModalProps> = ({ isOpen
     }
   };
 
-  const handleRunFullSeeder = async () => {
-    setLoading(true);
-    try {
-      const resRest = await seedSupabaseDirectly();
-      
-      let resBackend = null;
-      try {
-        const bRes = await fetch('/api/db/seed-all', { method: 'POST' });
-        resBackend = await bRes.json();
-      } catch (e: any) {
-        resBackend = { success: false, error: e?.message };
-      }
-
-      setSeedResult({
-        restSeeder: resRest,
-        backendSeeder: resBackend,
-        timestamp: new Date().toLocaleTimeString('fr-FR'),
-      });
-
-      await runAuthSessionTest();
-    } catch (err: any) {
-      setSeedResult({ error: err?.message || 'Erreur lors du peuplement' });
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const copySqlToClipboard = () => {
     navigator.clipboard.writeText(generateSupabaseSetupSQL());
@@ -229,17 +201,6 @@ export const SupabaseTesterModal: React.FC<SupabaseTesterModalProps> = ({ isOpen
           >
             <Code className="w-3.5 h-3.5 text-blue-400" />
             2) Script SQL & Création Tables
-          </button>
-          <button
-            onClick={() => setActiveTab('seed')}
-            className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
-              activeTab === 'seed'
-                ? 'border-emerald-400 text-emerald-400 bg-slate-900'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            3) Peupler (Seeder) Données
           </button>
           <button
             onClick={() => setActiveTab('raw')}
@@ -372,47 +333,6 @@ export const SupabaseTesterModal: React.FC<SupabaseTesterModalProps> = ({ isOpen
             </div>
           )}
 
-          {/* TAB 3: SEED */}
-          {activeTab === 'seed' && (
-            <div className="space-y-4">
-              <div className="p-5 bg-gradient-to-r from-emerald-950/80 to-teal-950/80 rounded-2xl border border-emerald-500/40 space-y-3">
-                <div className="flex items-start gap-3">
-                  <div className="p-2.5 bg-emerald-500/20 text-emerald-300 rounded-xl border border-emerald-500/30">
-                    <Sparkles className="w-5 h-5 text-amber-300" />
-                  </div>
-                  <div>
-                    <h4 className="font-extrabold text-sm text-white">Injection des données initiales (Seeder)</h4>
-                    <p className="text-slate-300 text-xs mt-1 leading-relaxed">
-                      Insère les écoles, utilisateurs, classes, personnel, élèves, et transactions dans Supabase. (Assurez-vous d'avoir exécuté le script SQL dans l'onglet précédent si vos tables ne sont pas encore créées).
-                    </p>
-                  </div>
-                </div>
-
-                <div className="pt-2 flex justify-end">
-                  <button
-                    onClick={handleRunFullSeeder}
-                    disabled={loading}
-                    className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs flex items-center gap-2 shadow-lg transition-all active:scale-95 cursor-pointer disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                    <span>{loading ? 'Injection en cours...' : '🚀 Exécuter le Peuplage Supabase'}</span>
-                  </button>
-                </div>
-              </div>
-
-              {seedResult && (
-                <div className="space-y-3 animate-fade-slide-up">
-                  <h5 className="font-bold text-emerald-400 text-xs flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4" /> Rapport d'injection Supabase
-                  </h5>
-                  <pre className="p-4 bg-slate-950 rounded-xl text-emerald-300 font-mono text-[11px] max-h-72 overflow-y-auto border border-slate-800">
-                    {JSON.stringify(seedResult, null, 2)}
-                  </pre>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* TAB 4: RAW SELECT */}
           {activeTab === 'raw' && (
             <div className="space-y-4">
@@ -480,3 +400,4 @@ export const SupabaseTesterModal: React.FC<SupabaseTesterModalProps> = ({ isOpen
     </div>
   );
 };
+

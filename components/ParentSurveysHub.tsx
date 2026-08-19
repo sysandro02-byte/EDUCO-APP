@@ -221,39 +221,7 @@ const ParentSurveysHub: React.FC = () => {
       if (res && res.surveys && res.surveys.length > 0) {
         setSurveysList(res.surveys);
       } else {
-        // Fallback demo surveys
-        setSurveysList([
-          {
-            id: 101,
-            title: "Sondage : Activités Parascolaires du Samedi (Trimestre 2)",
-            description: "Chers parents, aidez-nous à choisir les ateliers du samedi matin pour nos élèves (Robotique, Échecs, Théâtre, Arts).",
-            category: "Activités parascolaires",
-            targetAudience: "Toutes les classes",
-            deadline: new Date(Date.now() + 14 * 86400000).toISOString(),
-            status: "active",
-            questions: TEMPLATES[0].questions,
-            creatorName: "Direction Générale",
-            creatorRole: "Promoteur",
-            createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
-            responsesCount: 48,
-            latestResponseAt: new Date().toISOString()
-          },
-          {
-            id: 102,
-            title: "Participation & Ateliers : Journée Portes Ouvertes 2026",
-            description: "Planification de notre grand événement annuel avec les familles et nouveaux inscrits.",
-            category: "Journées portes ouvertes",
-            targetAudience: "Toutes les classes",
-            deadline: new Date(Date.now() + 25 * 86400000).toISOString(),
-            status: "active",
-            questions: TEMPLATES[1].questions,
-            creatorName: "Directeur des Études (DE)",
-            creatorRole: "DE",
-            createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
-            responsesCount: 32,
-            latestResponseAt: new Date(Date.now() - 86400000).toISOString()
-          }
-        ]);
+        setSurveysList([]);
       }
     } catch (err) {
       console.error(err);
@@ -276,58 +244,7 @@ const ParentSurveysHub: React.FC = () => {
       if (res && res.analytics) {
         setReportData(res);
       } else {
-        // Build mock report if standalone
-        const targetSurvey = surveysList.find(s => s.id === surveyId);
-        if (targetSurvey) {
-          setReportData({
-            survey: targetSurvey,
-            totalResponses: targetSurvey.responsesCount || 48,
-            analytics: targetSurvey.questions.map(q => {
-              if (q.type === 'multiple_choice' || q.type === 'single_choice') {
-                const dist: Record<string, number> = {};
-                (q.options || []).forEach((opt, idx) => {
-                  dist[opt] = Math.floor(10 + Math.random() * 25);
-                });
-                return {
-                  questionId: q.id,
-                  questionText: q.text,
-                  type: q.type,
-                  options: q.options || [],
-                  totalAnswered: targetSurvey.responsesCount || 48,
-                  distribution: dist,
-                  textResponses: []
-                };
-              } else if (q.type === 'rating') {
-                return {
-                  questionId: q.id,
-                  questionText: q.text,
-                  type: q.type,
-                  options: [],
-                  totalAnswered: targetSurvey.responsesCount || 48,
-                  distribution: { '5 étoiles': 24, '4 étoiles': 16, '3 étoiles': 6, '2 étoiles': 2 },
-                  averageRating: '4.6',
-                  textResponses: []
-                };
-              } else {
-                return {
-                  questionId: q.id,
-                  questionText: q.text,
-                  type: q.type,
-                  options: [],
-                  totalAnswered: 18,
-                  distribution: {},
-                  textResponses: [
-                    "Excellente initiative ! Mon fils a hâte de démarrer la robotique.",
-                    "Serait-il possible de prévoir un tarif dégressif pour les fratries ?",
-                    "Nous apprécierions également un atelier d'anglais conversationnel."
-                  ]
-                };
-              }
-            }),
-            channels: { whatsapp: 38, email: 10 },
-            responses: []
-          });
-        }
+        setReportData(null);
       }
     } catch (err) {
       console.error(err);
@@ -510,11 +427,11 @@ const ParentSurveysHub: React.FC = () => {
   const handleOpenVoteTester = (survey: Survey) => {
     setVotingSurvey(survey);
     setVoteForm({
-      parentName: 'Parent Testeur (Mme Diallo)',
-      parentPhone: '+229 97 00 11 22',
-      parentEmail: 'parent.diallo@gmail.com',
-      studentName: 'Amina Diallo',
-      studentClass: 'CM2 A',
+      parentName: '',
+      parentPhone: '',
+      parentEmail: '',
+      studentName: '',
+      studentClass: '',
       channel: 'whatsapp',
       answers: {},
       comment: ''
@@ -637,7 +554,7 @@ const ParentSurveysHub: React.FC = () => {
             }`}
           >
             <MessageSquare className="w-4 h-4 text-amber-500" />
-            <span>Simulateur Réponse Parent</span>
+            <span>R�ponse Parent</span>
           </button>
         )}
       </div>
@@ -696,7 +613,7 @@ const ParentSurveysHub: React.FC = () => {
                     className="flex items-center justify-center gap-1.5 px-2.5 py-2 bg-amber-50 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 hover:bg-amber-100 border border-amber-300 dark:border-amber-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
                   >
                     <Vote className="w-3.5 h-3.5" />
-                    <span>Tester vote</span>
+                    <span>Saisir réponse</span>
                   </button>
 
                   <button
@@ -1107,12 +1024,12 @@ const ParentSurveysHub: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 4: SIMULATEUR RÉPONSE PARENT / VOTE DIRECT                            */}
+      {/* TAB 4: R�PONSE PARENT / VOTE DIRECT                            */}
       {/* ========================================================================= */}
       {activeTab === 'vote_tester' && votingSurvey && (
         <div className="max-w-2xl mx-auto bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xl space-y-6">
           <div className="border-b border-slate-200 dark:border-slate-700 pb-4">
-            <span className="text-[10px] font-black text-amber-500 uppercase">Simulateur Réponse Parent</span>
+            <span className="text-[10px] font-black text-amber-500 uppercase">R�ponse Parent</span>
             <h2 className="text-lg font-black text-slate-900 dark:text-slate-100">{votingSurvey.title}</h2>
             <p className="text-xs text-slate-500">{votingSurvey.description}</p>
           </div>
@@ -1316,3 +1233,5 @@ const ParentSurveysHub: React.FC = () => {
 };
 
 export default ParentSurveysHub;
+
+

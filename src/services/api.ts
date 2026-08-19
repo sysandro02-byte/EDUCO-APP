@@ -8,7 +8,7 @@ export interface DbStatus {
   error?: string;
 }
 
-import { getSupabaseClient, getStoredSupabaseConfig } from '../lib/supabase';
+import { getSupabaseClient, getStoredSupabaseConfig, isPlaceholderSupabaseUrl } from '../lib/supabase';
 import { getApiUrl } from '../lib/apiConfig';
 
 async function getAuthHeaders() {
@@ -18,7 +18,7 @@ async function getAuthHeaders() {
     let token = localStorage.getItem('EDUCO_USER_TOKEN') || '';
 
     // Skip Supabase auth check if using a placeholder URL to avoid DNS timeouts
-    if (sbConfig.url && !sbConfig.url.includes('demo-educo.supabase.co') && !sbConfig.url.includes('your-project.supabase.co')) {
+    if (!isPlaceholderSupabaseUrl(sbConfig.url)) {
       const supabase = getSupabaseClient();
       try {
         const sessionRes = await Promise.race([
@@ -38,16 +38,12 @@ async function getAuthHeaders() {
       if (savedUserStr) {
         try {
           const parsed = JSON.parse(savedUserStr);
-          token = parsed.uid || parsed.email || 'admin_seed_001';
+          token = parsed.uid || parsed.email || '';
         } catch (e) {}
       }
     }
-    if (!token) {
-      token = 'admin_seed_001';
-    }
-
     const sbHeaders: Record<string, string> = {};
-    if (sbConfig.url && !sbConfig.url.includes('demo-educo.supabase.co')) {
+    if (!isPlaceholderSupabaseUrl(sbConfig.url)) {
       sbHeaders['x-supabase-url'] = sbConfig.url;
     }
     if (sbConfig.key && !sbConfig.key.includes('placeholder')) {
@@ -62,7 +58,7 @@ async function getAuthHeaders() {
   } catch (e) {
     return { 
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer admin_seed_001'
+      'Authorization': ''
     };
   }
 }
@@ -300,15 +296,7 @@ export async function fetchCurrentSubscription(): Promise<SchoolSubscriptionInfo
         return JSON.parse(saved);
       } catch (e) {}
     }
-    return {
-      isActive: true,
-      isPreSubscription: false,
-      planType: 'standard',
-      isAiEnabled: true,
-      daysRemaining: 365,
-      schoolIdentifier: 'EDUCO-SCH-DEMO',
-      schoolName: 'Établissement Démo',
-    };
+    return null;
   }
 }
 
@@ -631,9 +619,9 @@ export async function runSupabaseDeepDiagnostic() {
     logs.push(`Diagnostic serveur échoué: ${err.message || err}`);
   }
 
-  // Graceful Local Fallback instead of raw browser-to-Supabase direct REST fetch (which fails inside iframe sandbox)
+  // Graceful local failure instead of raw browser-to-Supabase direct REST fetch.
   logs.push(`Note: Requêtes directes Supabase désactivées pour prévenir les restrictions de sandbox du navigateur.`);
-  logs.push(`Résolution: Données locales simulées pour la sécurité.`);
+  logs.push(`Résolution: reconnectez-vous avec une session valide pour lire les données réelles.`);
   
   return {
     success: false,
@@ -711,4 +699,3 @@ export async function fetchConsolidatedFinancials(schoolId: string = 'all') {
     return { success: false, monthlyData: [] };
   }
 }
-

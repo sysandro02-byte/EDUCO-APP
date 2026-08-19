@@ -87,246 +87,7 @@ const {
 } = schema;
 
 async function seedDatabaseWithFullInitialData() {
-  if (!isDbConfigured()) {
-    return false;
-  }
-  try {
-    let mainSchoolId = 1;
-    try {
-      const existingSchools = await db.select().from(schools).limit(1);
-      if (existingSchools.length > 0 && existingSchools[0]?.id) {
-        mainSchoolId = existingSchools[0].id;
-      } else {
-        const [sch1] = await db.insert(schools).values({
-          name: "Complexe Scolaire EDUCO Excelsior",
-          identifier: "EDUCO-SCH-8492",
-          address: "Avenue Ganhi, Cotonou, Bénin",
-          phone: "+229 97 00 11 22",
-          email: "contact@educo-excelsior.com",
-          creationDate: "2020-09-15",
-          promoterName: "Dr. Marc TEST-PROMOTEUR",
-          promoterContact: "+229 95 88 77 66",
-          promoterEmail: "promoteur@educo-ecole.com",
-          levels: { maternelle: true, primaire: true, secondaireCollege: true, secondaireLycee: true },
-          status: "active",
-          settings: { currency: "FCFA", academicYear: "2025-2026" }
-        }).returning();
-        if (sch1?.id) mainSchoolId = sch1.id;
-
-        await db.insert(schools).values({
-          name: "Lycée Blaise Pascal",
-          identifier: "EDUCO-SCH-1002",
-          address: "Quartier Haie Vive, Cotonou",
-          phone: "+229 21 30 15 80",
-          email: "contact@lycee-blaise.com",
-          creationDate: "2018-10-01",
-          promoterName: "Prof. Alain SOSSOU",
-          promoterContact: "+229 96 11 22 33",
-          promoterEmail: "alain.sossou@lycee-blaise.com",
-          levels: { secondaireCollege: true, secondaireLycee: true },
-          status: "active",
-          settings: { currency: "FCFA" }
-        }).onConflictDoNothing();
-      }
-    } catch (err: any) {
-      console.warn("Notice during schools seed:", err?.cause?.message || err?.message || err);
-    }
-
-    // Seed Users
-    try {
-      const existingUsers = await db.select().from(users).limit(1);
-      if (existingUsers.length === 0) {
-        const userSeeds = [
-          { uid: "admin_seed_001", schoolId: mainSchoolId, name: "M. Auguste LOUKOU", email: "admin@educo-ecole.com", role: "Admin", status: "active" },
-          { uid: "promoter_seed_001", schoolId: mainSchoolId, name: "Dr. Marc TEST-PROMOTEUR", email: "promoteur@educo-ecole.com", role: "Promoteur", status: "active" },
-          { uid: "cashier_seed_001", schoolId: mainSchoolId, name: "Mme Fatou SOW", email: "caisse@educo-ecole.com", role: "Caissière", status: "active" },
-          { uid: "raf_seed_001", schoolId: mainSchoolId, name: "M. Ibrahim DIOP", email: "raf@educo-ecole.com", role: "Responsable des finances", status: "active" },
-          { uid: "de_seed_001", schoolId: mainSchoolId, name: "M. Jean-Paul KOFFI", email: "de@educo-ecole.com", role: "Directeur des Etudes", status: "active" },
-          { uid: "teacher_seed_001", schoolId: mainSchoolId, name: "M. Robert OKEMBA", email: "enseignant@educo-ecole.com", role: "Enseignant", status: "active" },
-          { uid: "student_seed_001", schoolId: mainSchoolId, name: "Amadou DIOP", email: "amadou.diop@educo-ecole.com", role: "Élève", status: "active" },
-          { uid: "student_seed_002", schoolId: mainSchoolId, name: "Marie KOFFI", email: "marie.koffi@educo-ecole.com", role: "Élève", status: "active" },
-          { uid: "parent_seed_001", schoolId: mainSchoolId, name: "Mme Charlotte KOFFI", email: "parent@educo-ecole.com", role: "Parent", status: "active" },
-        ];
-
-        for (const u of userSeeds) {
-          await db.insert(users).values(u).onConflictDoNothing();
-        }
-      }
-    } catch (err: any) {
-      console.warn("Notice during users seed:", err?.cause?.message || err?.message || err);
-    }
-
-    // Seed Classes
-    try {
-      const existingClasses = await db.select().from(classes).limit(1);
-      if (existingClasses.length === 0) {
-        const classSeeds = [
-          { schoolId: mainSchoolId, name: "6ème A", level: "Collège", capacity: 45 },
-          { schoolId: mainSchoolId, name: "5ème B", level: "Collège", capacity: 42 },
-          { schoolId: mainSchoolId, name: "4ème C", level: "Collège", capacity: 40 },
-          { schoolId: mainSchoolId, name: "3ème A", level: "Collège", capacity: 38 },
-          { schoolId: mainSchoolId, name: "2nde C", level: "Lycée", capacity: 35 },
-          { schoolId: mainSchoolId, name: "1ère D", level: "Lycée", capacity: 36 },
-          { schoolId: mainSchoolId, name: "Tle D", level: "Lycée", capacity: 32 },
-        ];
-        for (const c of classSeeds) {
-          await db.insert(classes).values(c);
-        }
-      }
-    } catch (err: any) {
-      console.warn("Notice during classes seed:", err?.message || err);
-    }
-
-    // Seed Fees
-    try {
-      const existingFees = await db.select().from(fees).limit(1);
-      if (existingFees.length === 0) {
-        const feeSeeds = [
-          { schoolId: mainSchoolId, name: "Scolarité 1ère Tranche", amount: 150000, type: "tuition", dueDate: "2025-10-15" },
-          { schoolId: mainSchoolId, name: "Scolarité 2ème Tranche", amount: 100000, type: "tuition", dueDate: "2026-01-15" },
-          { schoolId: mainSchoolId, name: "Frais d'Inscription", amount: 25000, type: "registration", dueDate: "2025-09-01" },
-          { schoolId: mainSchoolId, name: "Uniforme & Fournitures", amount: 35000, type: "other", dueDate: "2025-09-10" },
-        ];
-        for (const f of feeSeeds) {
-          await db.insert(fees).values(f);
-        }
-      }
-    } catch (err: any) {
-      console.warn("Notice during fees seed:", err?.message || err);
-    }
-
-    // Seed Personnel
-    try {
-      const existingPersonnel = await db.select().from(personnel).limit(1);
-      if (existingPersonnel.length === 0) {
-        const allUsers = await db.select().from(users);
-        const teacherUser = allUsers.find(u => u.role === 'Enseignant');
-        const cashierUser = allUsers.find(u => u.role === 'Caissière');
-        const rafUser = allUsers.find(u => u.role === 'Responsable des finances');
-
-        const personnelSeeds = [
-          { schoolId: mainSchoolId, userId: teacherUser?.id || null, matricule: "PER-2026-001", role: "Enseignant Mathématiques", baseSalary: 280000, hireDate: "2022-09-01" },
-          { schoolId: mainSchoolId, userId: cashierUser?.id || null, matricule: "PER-2026-002", role: "Caissière Principale", baseSalary: 200000, hireDate: "2023-01-15" },
-          { schoolId: mainSchoolId, userId: rafUser?.id || null, matricule: "PER-2026-003", role: "Responsable Administratif et Financier (RAF)", baseSalary: 450000, hireDate: "2021-09-01" },
-        ];
-        for (const p of personnelSeeds) {
-          await db.insert(personnel).values(p);
-        }
-      }
-    } catch (err: any) {
-      console.warn("Notice during personnel seed:", err?.message || err);
-    }
-
-    // Seed Students
-    try {
-      const existingStudents = await db.select().from(students).limit(1);
-      if (existingStudents.length === 0) {
-        const allUsers = await db.select().from(users);
-        const student1User = allUsers.find(u => u.name === 'Amadou DIOP');
-        const student2User = allUsers.find(u => u.name === 'Marie KOFFI');
-        const allClasses = await db.select().from(classes);
-
-        if (student1User) {
-          await db.insert(students).values({
-            schoolId: mainSchoolId,
-            userId: student1User.id,
-            studentId: "MAT-2026-001",
-            classId: allClasses[0]?.id || null,
-            parentName: "M. Ousmane DIOP",
-            parentPhone: "+229 97 11 22 33",
-            address: "Cotonou Ganhi",
-            dateOfBirth: "2010-05-14",
-            enrollmentDate: "2025-09-01",
-            status: "active"
-          }).onConflictDoNothing();
-        }
-
-        if (student2User) {
-          await db.insert(students).values({
-            schoolId: mainSchoolId,
-            userId: student2User.id,
-            studentId: "MAT-2026-002",
-            classId: allClasses[1]?.id || null,
-            parentName: "Mme Charlotte KOFFI",
-            parentPhone: "+229 96 44 55 66",
-            address: "Cotonou Haie Vive",
-            dateOfBirth: "2011-08-22",
-            enrollmentDate: "2025-09-01",
-            status: "active"
-          }).onConflictDoNothing();
-        }
-      }
-    } catch (err: any) {
-      console.warn("Notice during students seed:", err?.message || err);
-    }
-
-    // Seed Transactions
-    try {
-      const existingTxns = await db.select().from(transactions).limit(1);
-      if (existingTxns.length === 0) {
-        const txnSeeds = [
-          { schoolId: mainSchoolId, type: "income", category: "Scolarité", amount: 150000, description: "Versement Scolarité 1ère Tranche - Amadou DIOP" },
-          { schoolId: mainSchoolId, type: "expense", category: "Salaires", amount: 280000, description: "Paiement Salaire Enseignant M. Robert OKEMBA" },
-          { schoolId: mainSchoolId, type: "expense", category: "Fournitures", amount: 850000, description: "Achat Rames de papier & fournitures examens" },
-          { schoolId: mainSchoolId, type: "income", category: "Scolarité", amount: 100000, description: "Acompte Scolarité 2ème Tranche - Marie KOFFI" },
-        ];
-        for (const t of txnSeeds) {
-          await db.insert(transactions).values(t);
-        }
-      }
-    } catch (err: any) {
-      console.warn("Notice during transactions seed:", err?.message || err);
-    }
-
-    // Seed Subjects
-    try {
-      const existingSubjects = await db.select().from(subjects).limit(1);
-      if (existingSubjects.length === 0) {
-        const subjectSeeds = [
-          { schoolId: mainSchoolId, name: "Mathématiques", coefficient: 4 },
-          { schoolId: mainSchoolId, name: "Physique-Chimie", coefficient: 3 },
-          { schoolId: mainSchoolId, name: "Français", coefficient: 3 },
-          { schoolId: mainSchoolId, name: "Anglais", coefficient: 2 },
-          { schoolId: mainSchoolId, name: "Sciences de la Vie et de la Terre (SVT)", coefficient: 2 },
-          { schoolId: mainSchoolId, name: "Histoire-Géographie", coefficient: 2 },
-        ];
-        for (const s of subjectSeeds) {
-          await db.insert(subjects).values(s);
-        }
-      }
-    } catch (err: any) {
-      console.warn("Notice during subjects seed:", err?.message || err);
-    }
-
-    // Seed Subscriptions
-    try {
-      const existingSubscriptions = await db.select().from(subscriptions).limit(1);
-      if (existingSubscriptions.length === 0) {
-        await db.insert(subscriptions).values({
-          code: "EDUCO-STD-2026-X8F9-Q2M1",
-          schoolId: mainSchoolId,
-          schoolName: "Complexe Scolaire EDUCO Excelsior",
-          schoolIdentifier: "EDUCO-SCH-8492",
-          promoterName: "Dr. Marc TEST-PROMOTEUR",
-          promoterContact: "+229 95 88 77 66",
-          planType: "standard",
-          amountPaid: 10000,
-          months: 12,
-          status: "active",
-          endDate: new Date("2027-08-31"),
-          autoRenew: true
-        }).onConflictDoNothing();
-      }
-    } catch (err: any) {
-      console.warn("Notice during subscriptions seed:", err?.message || err);
-    }
-
-    console.log("✅ Seed complet de la base de données Supabase effectué avec succès !");
-    return true;
-  } catch (err: any) {
-    console.warn("Notice during full seed process:", err?.message || err);
-    return false;
-  }
+  return false;
 }
 
 async function startServer() {
@@ -404,6 +165,10 @@ async function startServer() {
 
   // Explicit Seed All Endpoint
   app.post('/api/db/seed-all', async (req, res) => {
+    return res.status(410).json({
+      success: false,
+      error: "Le peuplement automatique de données fictives est désactivé."
+    });
     try {
       const ok = await seedDatabaseWithFullInitialData();
       const userList = await db.select().from(users);
@@ -479,6 +244,10 @@ async function startServer() {
 
   // Test Endpoint to Create a Test School in Database
   app.post('/api/db/test-create-school', async (req, res) => {
+    return res.status(410).json({
+      success: false,
+      error: "La création d'établissement test est désactivée. Utilisez le formulaire réel d'inscription."
+    });
     try {
       const testSuffix = Math.floor(1000 + Math.random() * 9000);
       const testIdentifier = `EDUCO-SCH-TEST-${testSuffix}`;
@@ -3236,19 +3005,10 @@ async function startServer() {
   });
 
   // =========================================================================
-  // AUTHENTICATION & CREDENTIALS REGISTRY (Admin, Promoteur, Personnel, Parents)
+  // AUTHENTICATION (Admin, Promoteur, Personnel, Parents)
   // =========================================================================
   const registeredAccountsStore = new Map<string, { password: string; user: any }>();
-
-  // Preload default admin and promoter credentials for robust zero-failure login
-  registeredAccountsStore.set('admin@educo.school', {
-    password: 'password123',
-    user: { id: 1, uid: 'admin_master_1', name: 'Administrateur Principal', email: 'admin@educo.school', role: 'Admin', schoolId: 1, status: 'active' }
-  });
-  registeredAccountsStore.set('sysandro02@gmail.com', {
-    password: 'password123',
-    user: { id: 2, uid: 'admin_sysandro_2', name: 'Administrateur Système', email: 'sysandro02@gmail.com', role: 'Admin', schoolId: 1, status: 'active' }
-  });
+  const adminRoles = new Set(['Admin', 'Co-admin']);
 
   // UNIFIED LOGIN ENDPOINT (Supports Email/Password, Identifiers & Biometrics)
   app.post(['/api/auth/login', '/api/users/login'], async (req, res) => {
@@ -3279,11 +3039,16 @@ async function startServer() {
           });
         }
 
-        // Rule: Admin cannot log in from the public home page interface
-        if ((authUser.role === 'Admin' || authUser.role === 'Co-admin') && !isAdminPortal) {
+        if (adminRoles.has(authUser.role) && !isAdminPortal) {
           return res.status(403).json({
             success: false,
             error: "Accès refusé : L'administrateur n'est pas autorisé à se connecter depuis la page d'accueil. Veuillez utiliser le portail d'administration dédié."
+          });
+        }
+        if (!adminRoles.has(authUser.role) && isAdminPortal) {
+          return res.status(403).json({
+            success: false,
+            error: "Accès refusé : ce portail est réservé aux administrateurs et co-administrateurs."
           });
         }
 
@@ -3303,13 +3068,18 @@ async function startServer() {
       // 1. Check registered accounts store
       if (registeredAccountsStore.has(targetIdentifier)) {
         const entry = registeredAccountsStore.get(targetIdentifier)!;
-        if (entry.password === password || password === 'password123' || password === 'admin123') {
+        if (entry.password === password) {
           const authUser = entry.user;
-          // Rule: Admin cannot log in from the public home page interface
-          if ((authUser.role === 'Admin' || authUser.role === 'Co-admin') && !isAdminPortal) {
+          if (adminRoles.has(authUser.role) && !isAdminPortal) {
             return res.status(403).json({
               success: false,
               error: "Accès refusé : L'administrateur n'est pas autorisé à se connecter depuis la page d'accueil. Veuillez utiliser le portail d'administration dédié."
+            });
+          }
+          if (!adminRoles.has(authUser.role) && isAdminPortal) {
+            return res.status(403).json({
+              success: false,
+              error: "Accès refusé : ce portail est réservé aux administrateurs et co-administrateurs."
             });
           }
 
@@ -3334,15 +3104,38 @@ async function startServer() {
       }
 
       if (dbUser) {
-        // Rule: Admin cannot log in from the public home page interface
-        if ((dbUser.role === 'Admin' || dbUser.role === 'Co-admin') && !isAdminPortal) {
+        if (adminRoles.has(dbUser.role) && !isAdminPortal) {
           return res.status(403).json({
             success: false,
             error: "Accès refusé : L'administrateur n'est pas autorisé à se connecter depuis la page d'accueil. Veuillez utiliser le portail d'administration dédié."
           });
         }
+        if (!adminRoles.has(dbUser.role) && isAdminPortal) {
+          return res.status(403).json({
+            success: false,
+            error: "Accès refusé : ce portail est réservé aux administrateurs et co-administrateurs."
+          });
+        }
 
-        // For simple validation, we accept password matching and record in cache
+        const supabaseAuth = getSupabaseAdmin(req);
+        if (supabaseAuth) {
+          const { data: authData, error: authError } = await supabaseAuth.auth.signInWithPassword({
+            email: targetIdentifier,
+            password
+          });
+          if (authError || !authData?.session) {
+            return res.status(401).json({
+              success: false,
+              error: 'Identifiants invalides.'
+            });
+          }
+        } else {
+          return res.status(503).json({
+            success: false,
+            error: 'Authentification indisponible : configurez Supabase/Auth avant de connecter des comptes.'
+          });
+        }
+
         registeredAccountsStore.set(targetIdentifier, { password, user: dbUser });
         return res.json({
           success: true,
@@ -3897,3 +3690,4 @@ async function startServer() {
 startServer().catch(err => {
   console.error('Failed to start server:', err);
 });
+

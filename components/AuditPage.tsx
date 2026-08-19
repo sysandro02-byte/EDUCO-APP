@@ -47,119 +47,7 @@ export interface SecurityLoginEvent {
   failureReason?: string;
 }
 
-const INITIAL_SECURITY_EVENTS: SecurityLoginEvent[] = [
-  {
-    id: 'SEC-1008',
-    timestamp: '2026-08-15T09:14:22',
-    userName: 'Mme MBOUNGOU Clarisse',
-    userRole: 'Directrice Générale',
-    userEmail: 'admin@ecole.cg',
-    schoolName: "Groupe Scolaire Les Hirondelles d'Excellence",
-    ipAddress: '197.218.45.12',
-    location: 'Brazzaville, CG',
-    device: 'Windows PC (x64)',
-    browser: 'Chrome 127.0',
-    status: 'Succès',
-    riskLevel: 'Faible',
-  },
-  {
-    id: 'SEC-1007',
-    timestamp: '2026-08-15T08:52:10',
-    userName: 'M. LOUBOU Michel',
-    userRole: 'Responsable Financier',
-    userEmail: 'finance@ecole.cg',
-    schoolName: "Groupe Scolaire Les Hirondelles d'Excellence",
-    ipAddress: '197.218.45.88',
-    location: 'Brazzaville, CG',
-    device: 'macOS Sonoma',
-    browser: 'Safari 17.4',
-    status: 'Session active',
-    riskLevel: 'Faible',
-  },
-  {
-    id: 'SEC-1006',
-    timestamp: '2026-08-15T07:30:45',
-    userName: 'M. KOUMBA Alain',
-    userRole: 'Enseignant Principal',
-    userEmail: 'koumba@ecole.cg',
-    schoolName: "Complexe Scolaire La Renaissance",
-    ipAddress: '102.64.12.204',
-    location: 'Pointe-Noire, CG',
-    device: 'iPhone 15 Pro',
-    browser: 'Mobile Safari',
-    status: 'Succès',
-    riskLevel: 'Faible',
-  },
-  {
-    id: 'SEC-1005',
-    timestamp: '2026-08-14T23:45:00',
-    userName: 'Tentative Anonyme',
-    userRole: 'Inconnu',
-    userEmail: 'admin.test@ecole.cg',
-    schoolName: "Portail Général",
-    ipAddress: '185.220.101.5',
-    location: 'Francfort, DE (VPN/Proxy)',
-    device: 'Linux / Script',
-    browser: 'Python-requests',
-    status: 'Bloqué',
-    riskLevel: 'Élevé',
-    failureReason: 'Brute-force détecté (5 essais infructueux)',
-  },
-  {
-    id: 'SEC-1004',
-    timestamp: '2026-08-14T18:20:15',
-    userName: 'Mme DIALLO Amina',
-    userRole: 'Parent d\'élève',
-    userEmail: 'parent.diallo@gmail.com',
-    schoolName: "Complexe Scolaire La Renaissance",
-    ipAddress: '41.202.207.15',
-    location: 'Brazzaville, CG',
-    device: 'Android 14',
-    browser: 'WhatsApp Web Browser',
-    status: 'Succès',
-    riskLevel: 'Faible',
-  },
-  {
-    id: 'SEC-1003',
-    timestamp: '2026-08-14T14:10:05',
-    userName: 'M. BIKINDOU Paul',
-    userRole: 'Administrateur Système',
-    userEmail: 'paul.bikindou@ecole.cg',
-    ipAddress: '197.218.46.10',
-    location: 'Brazzaville, CG',
-    device: 'Windows PC (x64)',
-    browser: 'Edge 126.0',
-    status: 'Session active',
-    riskLevel: 'Faible',
-  },
-  {
-    id: 'SEC-1002',
-    timestamp: '2026-08-13T21:05:30',
-    userName: 'M. LOUTALA Marc',
-    userRole: 'Administrateur',
-    userEmail: 'm.loutala@gmail.com',
-    ipAddress: '102.64.99.11',
-    location: 'Dolisie, CG',
-    device: 'Windows PC',
-    browser: 'Opera 110.0',
-    status: 'Échec',
-    riskLevel: 'Moyen',
-    failureReason: 'Mot de passe erroné (1ère tentative)',
-  },
-  {
-    id: 'SEC-1001',
-    timestamp: '2026-08-13T10:15:00',
-    userName: 'Mme MBOUNGOU Clarisse',
-    userRole: 'Directrice Générale',
-    userEmail: 'admin@ecole.cg',
-    ipAddress: '197.218.45.12',
-    location: 'Brazzaville, CG',
-    device: 'iPadOS 17',
-    browser: 'Mobile Safari',
-    status: 'Succès',
-    riskLevel: 'Faible',
-  },
-];
+const INITIAL_SECURITY_EVENTS: SecurityLoginEvent[] = [];
 
 // --- SUB-COMPONENT: TabButton ---
 const TabButton: React.FC<{ tabKey: string, label: string, activeTab: string, setActiveTab: (key: string) => void }> = ({ tabKey, label, activeTab, setActiveTab }) => (
@@ -653,7 +541,7 @@ const SecurityAuditTable: React.FC = () => {
         });
         
         // Dedup and merge: database logs first, then fallback initial events
-        setEvents([...mapped, ...INITIAL_SECURITY_EVENTS]);
+        setEvents(mapped);
       }
     } catch (err) {
       console.warn('Error fetching db logs in SecurityAuditTable:', err);
@@ -1082,7 +970,7 @@ const BrevoEmailAuditTable: React.FC = () => {
                 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' 
                 : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
             }`}>
-              {liveMode ? '🟢 Service API E-mail Direct' : '🟡 Mode Simulation / Local'}
+              {liveMode ? '🟢 Service API E-mail Direct' : 'Service e-mail non connecté'}
             </span>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -1117,9 +1005,9 @@ const BrevoEmailAuditTable: React.FC = () => {
         </div>
 
         <div className="p-4 bg-amber-50/50 dark:bg-amber-950/20 rounded-xl border border-amber-200/60 dark:border-amber-800/40">
-          <span className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider block">Mode Simulation</span>
+          <span className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider block">Non transmis</span>
           <span className="text-xl font-extrabold text-amber-800 dark:text-amber-300 mt-1 block">{simulatedCount}</span>
-          <span className="text-[10px] text-amber-600 dark:text-amber-500 font-medium">Dev / Démo local</span>
+          <span className="text-[10px] text-amber-600 dark:text-amber-500 font-medium">Envois sans preuve Brevo</span>
         </div>
 
         <div className="p-4 bg-rose-50/50 dark:bg-rose-950/20 rounded-xl border border-rose-200/60 dark:border-rose-800/40">
@@ -1320,3 +1208,4 @@ const AuditPage: React.FC<AuditPageProps> = (props) => {
 };
 
 export default AuditPage;
+

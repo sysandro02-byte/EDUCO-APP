@@ -580,7 +580,7 @@ const CommunicationTab: React.FC<{
                     success: true,
                     msg: res.mode === 'brevo_live' 
                       ? "Email de test transmis en direct avec succès !" 
-                      : "Email simulé avec succès (mode démonstration). Pour l'envoi réel, renseignez votre clé API de service de messagerie.",
+                      : "Le service email a répondu sans confirmer un envoi direct. Vérifiez la configuration Brevo.",
                     mode: res.mode
                 });
             } else {

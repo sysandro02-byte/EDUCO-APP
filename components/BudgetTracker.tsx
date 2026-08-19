@@ -37,20 +37,14 @@ const BudgetTracker: React.FC<BudgetTrackerProps> = ({ spent, total, onEdit, cur
     const percentage = total > 0 ? Math.round((spent / total) * 100) : 0;
     const canEdit = currentUserRole === 'Responsable des finances';
     
-    // Fake data for visual similarity to mockup
-    const spentPart1 = spent * 0.6; // blue
-    const spentPart2 = spent * 0.25; // green
-    const spentPart3 = spent * 0.15; // red
     const remaining = Math.max(0, total - spent);
     
     const data = [
-        { name: 'Dépenses Salariales', value: spentPart1 },
-        { name: 'Charges Opérationnelles', value: spentPart2 },
-        { name: 'Investissements & Autres', value: spentPart3 },
+        { name: 'Budget engagé', value: spent },
         { name: 'Budget Disponible', value: remaining },
     ];
     
-    const COLORS = ['#3B82F6', '#10B981', '#EF4444', '#1F4A59'];
+    const COLORS = ['#3B82F6', '#1F4A59'];
 
     return (
         <div className="bg-white/70 backdrop-blur-md p-6 rounded-xl shadow-md border border-white/80 h-full flex flex-col justify-between">

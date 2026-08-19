@@ -87,13 +87,6 @@ class OtpManager {
     const cleanEmail = email.toLowerCase().trim();
     const record = this.store.get(cleanEmail);
 
-    // Support demo bypass code '123456' for rapid preview testing if enabled or if no live record
-    if (code === '123456') {
-      if (record) {
-        this.store.delete(cleanEmail);
-      }
-      return { valid: true };
-    }
 
     if (!record) {
       return { valid: false, error: "Aucun code OTP actif pour cette adresse email ou code expiré." };
@@ -152,32 +145,7 @@ export interface DispatchedEmailLogItem {
   templateIdUsed?: number | null;
 }
 
-const localDispatchedLogs: DispatchedEmailLogItem[] = [
-  {
-    id: "log_init_001",
-    messageId: "202608150912.981273@smtp-relay.brevo.com",
-    timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
-    toEmail: "promoteur.moungabio@gmail.com",
-    toName: "Dr. Marc MOUNGABIO",
-    subject: "Votre code de vérification EDUCO : 849201",
-    tag: "OTP Inscription",
-    mode: "brevo_live",
-    status: "Délivré",
-    templateIdUsed: null
-  },
-  {
-    id: "log_init_002",
-    messageId: "202608151015.441928@smtp-relay.brevo.com",
-    timestamp: new Date(Date.now() - 3600000 * 1.2).toISOString(),
-    toEmail: "directeur.ecole@loukatech.com",
-    toName: "Mme Clarisse MBOUNGOU",
-    subject: "Bienvenue sur EDUCO - Accès pour Complexe Scolaire Excelsior",
-    tag: "Email Bienvenue",
-    mode: "brevo_live",
-    status: "Délivré",
-    templateIdUsed: null
-  }
-];
+const localDispatchedLogs: DispatchedEmailLogItem[] = [];
 
 export function recordDispatchedEmailLog(item: Omit<DispatchedEmailLogItem, 'id'>): DispatchedEmailLogItem {
   const log: DispatchedEmailLogItem = {
@@ -499,34 +467,12 @@ export async function sendBrevoEmail(options: SendBrevoEmailOptions): Promise<Br
     };
   }
 
-  // If no Brevo API key is available, log and return simulation mode
+  // Do not pretend to send transactional email without a real Brevo key.
   if (!apiKey) {
-    const simMsgId = `sim_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-    console.log(`[BREVO SIMULATION] No BREVO_API_KEY set. Simulated sending "${options.subject}" to ${sanitizedTo.map(t => t.email).join(', ')}`);
-    console.log(`[BREVO SIMULATION PARAMS]`, options.params || {});
-    
-    recordDispatchedEmailLog({
-      messageId: simMsgId,
-      timestamp: new Date().toISOString(),
-      toEmail: sanitizedTo[0]?.email || 'Inconnu',
-      toName: sanitizedTo[0]?.name || sanitizedTo[0]?.email?.split('@')[0] || 'Destinataire',
-      subject: options.subject,
-      tag: options.tags?.[0] || 'Simulation',
-      mode: 'simulation_fallback',
-      status: 'Simulé',
-      templateIdUsed: options.templateId ? Number(options.templateId) : null,
-    });
-
     return {
-      success: true,
-      mode: 'simulation_fallback',
-      messageId: simMsgId,
-      details: {
-        notice: "Email simulé avec succès. Pour l'envoi réel, renseignez BREVO_API_KEY dans les paramètres ou variables d'environnement.",
-        to: sanitizedTo,
-        subject: options.subject,
-        params: options.params
-      }
+      success: false,
+      error: "BREVO_API_KEY est requis pour envoyer un e-mail transactionnel réel.",
+      status: 503,
     };
   }
 
@@ -585,31 +531,25 @@ export async function sendBrevoEmail(options: SendBrevoEmailOptions): Promise<Br
       const errMsg = data?.message || data?.error || `Erreur Brevo ${response.status}`;
       console.warn(`[BREVO API NOTICE] (${response.status}): ${errMsg}`);
       
-      const fallbackMsgId = `fallback_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-
       recordDispatchedEmailLog({
-        messageId: fallbackMsgId,
+        messageId: `failed_${Date.now()}_${Math.random().toString(36).substring(7)}`,
         timestamp: new Date().toISOString(),
         toEmail: options.to[0]?.email || 'Inconnu',
         toName: options.to[0]?.name || options.to[0]?.email?.split('@')[0] || 'Destinataire',
         subject: options.subject,
-        tag: options.tags?.[0] || 'Brevo Fallback',
-        mode: 'simulation_fallback',
-        status: 'Simulé',
+        tag: options.tags?.[0] || 'Brevo',
+        mode: 'brevo_live',
+        status: 'Échec',
         errorDetails: errMsg,
         templateIdUsed: options.templateId ? Number(options.templateId) : null,
       });
 
-      // Provide seamless fallback so app functionality is never blocked
       return {
-        success: true,
-        mode: 'simulation_fallback',
+        success: false,
+        mode: 'brevo_live',
         status: response.status,
-        messageId: fallbackMsgId,
-        details: {
-          notice: `Envoi pris en charge par le relais de secours EDUCO (${errMsg}).`,
-          originalResponse: data,
-        }
+        error: errMsg,
+        details: data,
       };
     }
 
@@ -643,20 +583,18 @@ export async function sendBrevoEmail(options: SendBrevoEmailOptions): Promise<Br
       toEmail: options.to[0]?.email || 'Inconnu',
       toName: options.to[0]?.name || 'Destinataire',
       subject: options.subject,
-      tag: options.tags?.[0] || 'Réseau Fallback',
-      mode: 'simulation_fallback',
-      status: 'Simulé',
+      tag: options.tags?.[0] || 'Brevo',
+      mode: 'brevo_live',
+      status: 'Échec',
       errorDetails: error.message || "Erreur de connexion réseau",
       templateIdUsed: options.templateId ? Number(options.templateId) : null,
     });
 
     return {
-      success: true,
-      mode: 'simulation_fallback',
+      success: false,
+      mode: 'brevo_live',
       messageId: netFallbackId,
-      details: {
-        notice: "Envoi pris en charge par le relais de secours local EDUCO.",
-      }
+      error: error.message || "Erreur de connexion réseau Brevo.",
     };
   }
 }
@@ -1060,7 +998,7 @@ export async function sendAdminSchoolAlertEmail(params: {
   } = params;
 
   if (!adminEmails || adminEmails.length === 0) {
-    return { success: true, mode: 'simulation_fallback' };
+    return { success: false, error: "Aucun administrateur destinataire configuré.", status: 400 };
   }
 
   const recipients = adminEmails.map(e => ({ email: e, name: 'Administrateur EDUCO' }));
@@ -1214,12 +1152,9 @@ export async function sendBrevoSms(options: SendBrevoSmsOptions): Promise<BrevoS
   }
 
   if (!apiKey) {
-    const simId = `sim_sms_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     return {
-      success: true,
-      messageId: simId,
-      smsCount: 1,
-      mode: 'simulation_fallback'
+      success: false,
+      error: "BREVO_API_KEY est requis pour envoyer un SMS transactionnel réel."
     };
   }
 
@@ -1250,10 +1185,7 @@ export async function sendBrevoSms(options: SendBrevoSmsOptions): Promise<BrevoS
       const errMsg = data?.message || data?.error || `Erreur Brevo SMS (${response.status})`;
       console.warn(`[BREVO SMS NOTICE]: ${errMsg}`);
       return {
-        success: true,
-        messageId: `sim_fallback_${Date.now()}`,
-        smsCount: 1,
-        mode: 'simulation_fallback',
+        success: false,
         error: errMsg
       };
     }
@@ -1267,10 +1199,7 @@ export async function sendBrevoSms(options: SendBrevoSmsOptions): Promise<BrevoS
   } catch (err: any) {
     console.warn(`[BREVO SMS ERROR]:`, err?.message);
     return {
-      success: true,
-      messageId: `sim_fallback_${Date.now()}`,
-      smsCount: 1,
-      mode: 'simulation_fallback',
+      success: false,
       error: err?.message
     };
   }
@@ -1535,4 +1464,5 @@ function generateBaseHtml(title: string, message: string): string {
 </html>
   `;
 }
+
 

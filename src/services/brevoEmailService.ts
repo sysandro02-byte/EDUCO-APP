@@ -113,24 +113,20 @@ class BrevoEmailServiceClient {
         return {
           success: true,
           message: res.message || "Code de vérification généré avec succès.",
-          mode: res.mode || 'simulation_fallback',
+          mode: res.mode || 'brevo_live',
           messageId: res.messageId || `otp_${Date.now()}`,
         };
       }
 
-      // Offline / dev fallback: Always provide success response so authentication is not blocked
       return { 
-        success: true, 
-        message: "Code de vérification généré (123456 actif en mode de test).",
-        mode: 'simulation_fallback',
-        messageId: `sim_${Date.now()}` 
+        success: false, 
+        message: res?.error || "Impossible d'envoyer le code OTP.",
       };
     } catch (err: any) {
-      console.warn("sendOtp fallback activated:", err?.message);
+      console.warn("sendOtp failed:", err?.message);
       return { 
-        success: true, 
-        message: "Code de vérification généré (123456 actif en mode test).",
-        mode: 'simulation_fallback' 
+        success: false, 
+        message: "Impossible d'envoyer le code OTP.",
       };
     }
   }
@@ -143,10 +139,6 @@ class BrevoEmailServiceClient {
     verified?: boolean;
     error?: string;
   }> {
-    // Immediate bypass test code
-    if (params.otpCode?.trim() === '123456') {
-      return { success: true, verified: true };
-    }
 
     try {
       const data = await safeFetchJson(getApiUrl('/api/email/verify-otp'), {
@@ -169,16 +161,9 @@ class BrevoEmailServiceClient {
         return { success: false, verified: false, error: data.error };
       }
 
-      // Fallback: If 6 digits provided
-      if (params.otpCode && params.otpCode.length === 6) {
-        return { success: true, verified: true };
-      }
 
-      return { success: false, verified: false, error: "Code OTP invalide ou expiré (Entrez 123456 pour le mode test)" };
+      return { success: false, verified: false, error: "Code OTP invalide ou expiré." };
     } catch (err: any) {
-      if (params.otpCode && params.otpCode.length === 6) {
-        return { success: true, verified: true };
-      }
       return { success: false, verified: false, error: err.message || "Erreur lors de la validation du code" };
     }
   }
@@ -324,3 +309,4 @@ class BrevoEmailServiceClient {
 }
 
 export const brevoEmailService = new BrevoEmailServiceClient();
+

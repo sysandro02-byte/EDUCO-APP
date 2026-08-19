@@ -3,7 +3,7 @@ import {
   XIcon,
   PencilIcon,
 } from './Icons';
-import { USER_PROFILES, ROLE_NAV_ITEMS } from '../constants';
+import { ROLE_NAV_ITEMS } from '../constants';
 import { User } from './UserForm';
 import { ShieldCheck, Sparkles, Database, Building2, BarChart3, Settings, LogOut, ChevronRight, Search, Moon, Sun } from 'lucide-react';
 import { compressBase64Image } from '../utils/imageCompressor';
@@ -67,7 +67,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     return null;
   }
   
-  const userProfile = USER_PROFILES[currentUser.role];
   const navItems = ROLE_NAV_ITEMS[currentUser.role] || [];
 
   const handleNavClick = (label: string) => {
@@ -208,7 +207,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               <h2 className="text-xs font-black text-white truncate">{currentUser.name}</h2>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="px-2 py-0.5 bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 rounded-md text-[9px] font-extrabold uppercase tracking-wider truncate">
-                  {userProfile?.role || currentUser.role}
+                  {currentUser.role}
                 </span>
               </div>
             </div>
@@ -286,4 +285,3 @@ const Sidebar: React.FC<SidebarProps> = ({
 };
 
 export default Sidebar;
-

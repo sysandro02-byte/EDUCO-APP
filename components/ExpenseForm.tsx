@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { SparklesIcon } from './Icons';
 import { TRANSACTION_CATEGORIES_EXPENSE } from '../constants';
 import ControlMatrixStatus, { ControlRule } from './ControlMatrixStatus';
 import LoadingDots from './LoadingDots';
@@ -111,39 +110,29 @@ const ExpenseForm: React.FC<ExpenseFormProps> = ({ onSave, onCancel, currency = 
     }
   };
 
-  const handleOcrSimulation = () => {
-    // Simulate smart data extraction
-    setDescription("Achat de 50 ramettes de papier A4 et cartouches d'encre");
-    setAmount("118000"); // 100 000 HT + 18% TVA = 118 000 TTC
-    setCategory("Fournitures");
-    setThirdParty("Librairie de la Paix - Abidjan");
-    setReferenceNumber("FAC-2026-8094");
-    setHasTva(true);
-    setTvaRate(18);
-    setPaymentMethod("Espèces");
-    alert("✨ IA OCR: Informations lues avec succès sur la facture de la Librairie de la Paix !\nMontant TTC: 118 000 FCFA (incluant 18% TVA).");
+  const handleReceiptUpload = () => {
+    document.getElementById('exp-justification')?.click();
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5 text-slate-800">
       
-      {/* OCR Smart Scan Header */}
+      {/* Receipt attachment shortcut */}
       <div className="bg-gradient-to-r from-amber-50 to-orange-50/50 p-3.5 rounded-xl border border-amber-200/60 relative overflow-hidden">
         <div className="absolute -top-6 -right-6 w-20 h-20 bg-amber-200/20 rounded-full blur-xl" />
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 relative z-10">
           <div className="text-center sm:text-left">
             <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-[9px] font-black uppercase tracking-wider mb-1">
-              ⚡ Détection IA OCR
+              Pièce justificative
             </span>
-            <p className="text-xs text-slate-500 font-medium">Vous disposez d'un reçu ou d'une facture imprimée ? Laissez l'IA l'analyser.</p>
+            <p className="text-xs text-slate-500 font-medium">Joignez une facture, un ticket ou un reçu réel à cette dépense.</p>
           </div>
           <button 
             type="button" 
-            onClick={handleOcrSimulation}
+            onClick={handleReceiptUpload}
             className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs rounded-lg transition-all font-bold shadow-xs cursor-pointer whitespace-nowrap"
           >
-            <SparklesIcon className="w-4 h-4" />
-            <span>Scanner & Remplir</span>
+            <span>Joindre un justificatif</span>
           </button>
         </div>
       </div>

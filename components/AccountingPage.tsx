@@ -63,16 +63,8 @@ const RevenueForm: React.FC<RevenueFormProps> = ({ onSave, onCancel, currency })
     }
   };
 
-  const handleOcrSimulation = () => {
-    setDescription("Subvention spéciale annuelle de l'association des parents d'élèves (APE)");
-    setAmount("500000");
-    setCategory("Subventions");
-    setThirdParty("Association des Parents d'Élèves (APE-Scolaire)");
-    setReferenceNumber("APE-SUBV-2026-04");
-    setPaymentMethod("Virement");
-    setCashBox("Compte Bancaire SGCI");
-    setHasTva(false);
-    alert("✨ IA OCR: Informations lues avec succès sur le bordereau de l'APE !\nMontant: 500 000 FCFA.");
+  const handleReceiptUpload = () => {
+    document.getElementById('rev-justification')?.click();
   };
 
   return (
@@ -90,11 +82,11 @@ const RevenueForm: React.FC<RevenueFormProps> = ({ onSave, onCancel, currency })
           </div>
           <button 
             type="button" 
-            onClick={handleOcrSimulation}
+            onClick={handleReceiptUpload}
             className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs rounded-lg transition-all font-bold shadow-xs cursor-pointer whitespace-nowrap"
           >
             <PlusCircleIcon className="w-4 h-4" />
-            <span>Simuler un Scan Reçu</span>
+            <span>Joindre un reçu</span>
           </button>
         </div>
       </div>

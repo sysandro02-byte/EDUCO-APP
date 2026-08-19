@@ -1,7 +1,11 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const DEFAULT_SUPABASE_URL = 'https://demo-educo.supabase.co';
+const DEFAULT_SUPABASE_URL = 'https://your-project.supabase.co';
 const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder';
+
+export function isPlaceholderSupabaseUrl(url?: string | null): boolean {
+  return !url || url.includes('your-project.supabase.co') || url.includes('demo-educo.supabase.co');
+}
 
 export function isValidSupabaseUrl(urlString: any): boolean {
   if (!urlString || typeof urlString !== 'string') return false;

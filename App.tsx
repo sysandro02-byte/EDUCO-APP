@@ -45,8 +45,6 @@ import { isWebAuthnSupported, fetchUserDevices } from './src/services/webauthnSe
 
 import { MenuIcon, SearchIcon, MoonIcon, SunIcon, ChatIcon, LogoIcon } from './components/Icons';
 import { 
-  USER_CREDENTIALS, 
-  USER_PROFILES, 
   usersData as initialUsers, 
   studentPaymentsData as initialPayments,
   personnelData as initialPersonnel,
@@ -407,6 +405,13 @@ const App: React.FC = () => {
         console.warn('Backend login endpoint check error:', backendErr);
       }
 
+      if (!loggedUser) {
+        return {
+          success: false,
+          error: "Identifiants invalides ou service d'authentification indisponible."
+        };
+      }
+
       // 2. If not found via backend API, check Supabase Auth / DB
       if (!loggedUser) {
         const { url } = getStoredSupabaseConfig();
@@ -481,6 +486,12 @@ const App: React.FC = () => {
         return {
           success: false,
           error: "Accès refusé : L'administrateur n'est pas autorisé à se connecter depuis la page d'accueil. Veuillez utiliser le portail d'administration dédié."
+        };
+      }
+      if (isAdminPortal && loggedUser.role !== 'Admin' && loggedUser.role !== 'Co-admin') {
+        return {
+          success: false,
+          error: "Accès refusé : ce portail est réservé aux administrateurs et co-administrateurs."
         };
       }
 
@@ -1034,8 +1045,11 @@ const App: React.FC = () => {
 
   const addActivityLog = useCallback(async (action: string, details?: string, currentPageName?: string) => {
     if (!loggedInRole) return;
-    const userProfile = USER_PROFILES[loggedInRole];
-    if (!userProfile) return;
+    const userProfile = {
+      name: currentUser?.name || loggedInRole || 'Utilisateur',
+      role: currentUser?.role || loggedInRole || 'Utilisateur',
+      avatar: currentUser?.avatar || ''
+    };
 
     // Retrieve cached or current telemetry
     let ip = telemetry.ipAddress || '197.218.45.12';
@@ -1840,7 +1854,7 @@ const App: React.FC = () => {
           alert("Seul le Responsable Administratif et Financier (RAF), le Directeur Général (DG / Promoteur) ou l'Administrateur est habilité à valider ou rejeter les opérations. La caissière n'a pas ce droit.");
           return;
       }
-      const currentUserProfile = loggedInRole ? USER_PROFILES[loggedInRole] : null;
+      const currentUserProfile = currentUser;
       const approverName = currentUserProfile?.name || 'Responsable';
       const approverTitle = loggedInRole === 'Promoteur' ? 'Directeur Général (DG)' : loggedInRole;
       const approvedByText = `${approverName} (${approverTitle})`;
@@ -1953,7 +1967,7 @@ const App: React.FC = () => {
       }
 
       if (!budget) return;
-      const currentUserProfile = loggedInRole ? USER_PROFILES[loggedInRole] : null;
+      const currentUserProfile = currentUser;
       const isRAFOrDG = loggedInRole === 'Responsable des finances' || loggedInRole === 'Promoteur' || loggedInRole === 'Admin';
       const autoApprovalLimit = rafSettings?.alerts?.approvalThresholdAmount ?? 50000;
       const isUnderThreshold = amount <= autoApprovalLimit;
@@ -2169,7 +2183,7 @@ const App: React.FC = () => {
         id: `msg_${Date.now()}`,
         senderName: currentUser.name,
         senderRole: loggedInRole,
-        avatar: currentUser?.avatar || USER_PROFILES[loggedInRole]?.avatar || 'https://via.placeholder.com/150',
+        avatar: currentUser?.avatar || '',
         text,
         timestamp: new Date().toISOString()
     };
@@ -2730,7 +2744,7 @@ const App: React.FC = () => {
     );
   }
 
-  const userProfile = USER_PROFILES[loggedInRole as keyof typeof USER_PROFILES] || { name: 'Utilisateur', role: loggedInRole, avatar: 'https://via.placeholder.com/150' };
+  const userProfile = { name: currentUser?.name || 'Utilisateur', role: loggedInRole, avatar: currentUser?.avatar || '' };
   const chatEnabledRoles = ['Admin', 'Promoteur', 'Responsable des finances', 'Enseignant', 'Directeur des Etudes'];
 
   // FIX: Converted renderContent from a function call to a proper component
@@ -3670,3 +3684,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+

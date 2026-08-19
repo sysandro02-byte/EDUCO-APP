@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { LogoIcon, MailIcon, LockClosedIcon } from './Icons';
 import { ShieldCheck, Lock, AlertCircle, Sparkles, KeyRound, User, Phone, CheckCircle2, UserPlus, ArrowRight, Eye, EyeOff } from 'lucide-react';
-import { getSupabaseClient, getStoredSupabaseConfig } from '../src/lib/supabase';
+import { getSupabaseClient, getStoredSupabaseConfig, isPlaceholderSupabaseUrl } from '../src/lib/supabase';
 import { getApiUrl } from '../src/lib/apiConfig';
 
 interface AdminSpecialLoginPageProps {
@@ -49,7 +49,7 @@ const AdminSpecialLoginPage: React.FC<AdminSpecialLoginPageProps> = ({ onBack, o
         }
       } else {
         const { url } = getStoredSupabaseConfig();
-        if (url && !url.includes('demo-educo.supabase.co')) {
+        if (!isPlaceholderSupabaseUrl(url)) {
           const supabase = getSupabaseClient();
           const { error: authError } = await supabase.auth.signInWithPassword({
             email: formData.email.trim(),
@@ -117,7 +117,7 @@ const AdminSpecialLoginPage: React.FC<AdminSpecialLoginPageProps> = ({ onBack, o
       // 2. Also register in Supabase Auth if available
       try {
         const { url } = getStoredSupabaseConfig();
-        if (url && !url.includes('demo-educo.supabase.co')) {
+        if (!isPlaceholderSupabaseUrl(url)) {
           const supabase = getSupabaseClient();
           await supabase.auth.signUp({
             email: formData.email.trim().toLowerCase(),
@@ -164,7 +164,7 @@ const AdminSpecialLoginPage: React.FC<AdminSpecialLoginPageProps> = ({ onBack, o
 
     try {
       const { url } = getStoredSupabaseConfig();
-      if (url && !url.includes('demo-educo.supabase.co')) {
+      if (!isPlaceholderSupabaseUrl(url)) {
         const supabase = getSupabaseClient();
         const { error: resetErr } = await supabase.auth.resetPasswordForEmail(formData.email.trim())
           .catch(err => ({ error: { message: err?.message || 'Failed to fetch' } }));
