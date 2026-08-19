@@ -88,19 +88,16 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
         const result = await onLogin(res.userEmail, 'BIOMETRIC_PASS', true);
         if (!result.success) {
           const message = result.error || `Échec de connexion biométrique pour ${res.userEmail}.`;
-          setError(message);
           setModalMessage(message);
           setModalType('biometricError');
         }
       } else {
         const message = res.error || 'Erreur lors de la vérification biométrique.';
-        setError(message);
         setModalMessage(message);
         setModalType('biometricError');
       }
     } catch (err: any) {
       const message = err?.message || "Erreur lors de l'accès biométrique.";
-      setError(message);
       setModalMessage(message);
       setModalType('biometricError');
     } finally {

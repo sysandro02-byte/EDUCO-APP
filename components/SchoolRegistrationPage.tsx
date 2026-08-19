@@ -97,6 +97,7 @@ const SchoolRegistrationPage: React.FC<SchoolRegistrationPageProps> = ({ onBackT
   // OTP State
   const [otpCode, setOtpCode] = useState('');
   const [otpTimer, setOtpTimer] = useState(60);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [otpError, setOtpError] = useState('');
 
@@ -158,7 +159,7 @@ const SchoolRegistrationPage: React.FC<SchoolRegistrationPageProps> = ({ onBackT
   }, [currentStep, otpTimer]);
 
   // Step Validation & Navigation
-  const handleNextStep = () => {
+  const handleNextStep = async () => {
     setStepError('');
 
     if (currentStep === 1) {
@@ -215,20 +216,26 @@ const SchoolRegistrationPage: React.FC<SchoolRegistrationPageProps> = ({ onBackT
         return;
       }
       
-      // Dispatch real Brevo OTP email to promoter's email
-      brevoEmailService.sendOtp({
-        email: formData.adminEmail,
-        name: formData.promoterName,
-        purpose: 'school_registration'
-      }).then(res => {
-        if (!res.success) {
-          console.warn("Notice Brevo OTP:", res.error);
-        }
-      }).catch(err => console.warn("Notice Brevo OTP err:", err));
+      setIsSendingOtp(true);
+      try {
+        const res = await brevoEmailService.sendOtp({
+          email: formData.adminEmail,
+          name: formData.promoterName,
+          purpose: 'school_registration'
+        });
 
-      // Everything ready -> move to OTP verification step
-      setCurrentStep(5);
-      setOtpTimer(60);
+        if (!res.success) {
+          setStepError(res.error || "Impossible d'envoyer le code OTP. Vérifiez la configuration Brevo puis réessayez.");
+          return;
+        }
+
+        setCurrentStep(5);
+        setOtpTimer(60);
+      } catch (err: any) {
+        setStepError(err?.message || "Erreur lors de l'envoi du code OTP.");
+      } finally {
+        setIsSendingOtp(false);
+      }
     }
   };
 
@@ -1005,10 +1012,20 @@ const SchoolRegistrationPage: React.FC<SchoolRegistrationPageProps> = ({ onBackT
                 <button
                   type="button"
                   onClick={handleNextStep}
-                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-black text-xs bg-[#1F4A59] hover:bg-[#285d70] text-white shadow-md transition-all cursor-pointer"
+                  disabled={isSendingOtp}
+                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-black text-xs bg-[#1F4A59] hover:bg-[#285d70] text-white shadow-md transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <span>{currentStep === 4 ? 'Vérifier par OTP' : 'Étape suivante'}</span>
-                  <ArrowRight className="w-4 h-4" />
+                  {isSendingOtp ? (
+                    <>
+                      <RotateCw className="w-4 h-4 animate-spin" />
+                      <span>Envoi du code OTP...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>{currentStep === 4 ? 'Vérifier par OTP' : 'Étape suivante'}</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
                 </button>
               </div>
             )}

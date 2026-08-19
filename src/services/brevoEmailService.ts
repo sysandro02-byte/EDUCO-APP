@@ -120,13 +120,13 @@ class BrevoEmailServiceClient {
 
       return { 
         success: false, 
-        message: res?.error || "Impossible d'envoyer le code OTP.",
+        error: res?.error || res?.message || "Impossible d'envoyer le code OTP.",
       };
     } catch (err: any) {
       console.warn("sendOtp failed:", err?.message);
       return { 
         success: false, 
-        message: "Impossible d'envoyer le code OTP.",
+        error: err?.message || "Impossible d'envoyer le code OTP.",
       };
     }
   }

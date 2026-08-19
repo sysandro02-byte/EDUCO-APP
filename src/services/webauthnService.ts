@@ -12,6 +12,28 @@ export interface WebAuthnDevice {
 }
 
 /**
+ * Reads an API response defensively. When the frontend is served without the
+ * API route (for example by a standalone Vite server), it returns index.html.
+ * Parsing that page with response.json() hid the real problem behind
+ * "Unexpected token '<'".
+ */
+async function readApiJson(response: Response): Promise<any> {
+  const body = await response.text();
+
+  try {
+    return body ? JSON.parse(body) : {};
+  } catch {
+    const contentType = response.headers.get('content-type') || '';
+    const looksLikeHtml = /text\/html/i.test(contentType) || /^\s*</.test(body);
+    throw new Error(
+      looksLikeHtml
+        ? "Le service biométrique est indisponible : la route API a renvoyé une page web au lieu d'une réponse serveur."
+        : "Le service biométrique a renvoyé une réponse invalide."
+    );
+  }
+}
+
+/**
  * Detects if the current environment supports WebAuthn / Passkeys
  */
 export function isWebAuthnSupported(): boolean {
@@ -67,8 +89,18 @@ export function mapWebAuthnError(err: any): string {
 
   const name = err.name || '';
   const message = err.message || String(err);
+  const normalizedMessage = message.toLowerCase();
 
-  if (name === 'NotAllowedError' || message.includes('cancelled') || message.includes('canceled') || message.includes('NotAllowedError')) {
+  if (
+    name === 'NotAllowedError' ||
+    name === 'AbortError' ||
+    normalizedMessage.includes('cancelled') ||
+    normalizedMessage.includes('canceled') ||
+    normalizedMessage.includes('denied') ||
+    normalizedMessage.includes('not allowed') ||
+    normalizedMessage.includes('timed out') ||
+    message.includes('NotAllowedError')
+  ) {
     return 'Authentification biométrique annulée ou refusée par l\'utilisateur.';
   }
   if (name === 'InvalidStateError' || message.includes('InvalidStateError')) {
@@ -110,7 +142,7 @@ export async function registerWebAuthnCredential(
       body: JSON.stringify({ email, userId, userName, deviceName })
     });
 
-    const optionsData = await optionsRes.json();
+    const optionsData = await readApiJson(optionsRes);
     if (!optionsRes.ok || !optionsData.options) {
       throw new Error(optionsData.error || 'Impossible d\'obtenir les options d\'enregistrement biométrique.');
     }
@@ -130,7 +162,7 @@ export async function registerWebAuthnCredential(
       })
     });
 
-    const verifyData = await verifyRes.json();
+    const verifyData = await readApiJson(verifyRes);
     if (!verifyRes.ok || !verifyData.verified) {
       throw new Error(verifyData.error || 'Échec de la validation de la clé biométrique par le serveur.');
     }
@@ -167,7 +199,7 @@ export async function loginWithWebAuthn(
       body: JSON.stringify({ email: email || '' })
     });
 
-    const optionsData = await optionsRes.json();
+    const optionsData = await readApiJson(optionsRes);
     if (!optionsRes.ok || !optionsData.options) {
       throw new Error(optionsData.error || 'Impossible d\'initialiser la biométrie.');
     }
@@ -182,7 +214,7 @@ export async function loginWithWebAuthn(
       body: JSON.stringify({ authenticationResponse })
     });
 
-    const verifyData = await verifyRes.json();
+    const verifyData = await readApiJson(verifyRes);
     if (!verifyRes.ok || !verifyData.verified) {
       throw new Error(verifyData.error || 'Authentification biométrique non reconnue.');
     }
@@ -209,7 +241,7 @@ export async function fetchUserDevices(email: string): Promise<WebAuthnDevice[]>
   try {
     const res = await fetch(getApiUrl(`/api/auth/webauthn/devices?email=${encodeURIComponent(email)}`));
     if (!res.ok) return [];
-    const data = await res.json();
+    const data = await readApiJson(res);
     return data.devices || [];
   } catch (err) {
     console.error('Error fetching devices:', err);

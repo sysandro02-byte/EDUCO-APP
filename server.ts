@@ -3293,12 +3293,11 @@ async function startServer() {
 
       if (!emailResult.success) {
         console.warn(`[OTP Notification] Brevo status notice: ${emailResult.error}. Local OTP code generated: ${otpCode}`);
-        return res.json({
-          success: true,
-          message: "Code de vérification OTP transmis.",
+        return res.status(502).json({
+          success: false,
+          error: emailResult.error || "Impossible d'envoyer le code OTP par e-mail.",
           messageId: `otp_${Date.now()}`,
-          mode: 'simulation_fallback',
-          notice: "Code OTP actif (123456 disponible en mode test)",
+          mode: emailResult.mode || 'brevo_live',
           expiresInSeconds: 600,
         });
       }
@@ -3312,10 +3311,10 @@ async function startServer() {
       });
     } catch (error: any) {
       console.error("Send OTP Error:", error);
-      res.json({ 
-        success: true, 
-        message: "Code de vérification OTP généré.",
-        mode: 'simulation_fallback',
+      res.status(500).json({
+        success: false,
+        error: error.message || "Erreur lors de l'envoi du code OTP.",
+        mode: 'brevo_live',
         expiresInSeconds: 600
       });
     }
