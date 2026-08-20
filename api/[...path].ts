@@ -13,6 +13,8 @@ const getBackendUrl = () => {
   return rawUrl.replace(/\/$/, '');
 };
 
+const isBrevoApiUrl = (url: string) => /(^|\.)brevo\.com(\/|$)/i.test(new URL(url).hostname);
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   const backendUrl = getBackendUrl();
 
@@ -22,6 +24,26 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     res.end(JSON.stringify({
       success: false,
       error: "Configuration Vercel manquante : BACKEND_URL doit pointer vers le backend Render pour envoyer le code OTP.",
+    }));
+    return;
+  }
+
+  if (!/^https?:\/\//i.test(backendUrl)) {
+    res.statusCode = 500;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({
+      success: false,
+      error: "Configuration Vercel invalide : BACKEND_URL doit etre une URL HTTP(S) vers le backend Render.",
+    }));
+    return;
+  }
+
+  if (isBrevoApiUrl(backendUrl)) {
+    res.statusCode = 500;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({
+      success: false,
+      error: "Configuration Vercel invalide : BACKEND_URL ne doit pas pointer vers Brevo. Utilisez l'URL du backend Render.",
     }));
     return;
   }
