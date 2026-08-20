@@ -717,7 +717,7 @@ export async function sendOtpEmail(params: {
     apiKey: customApiKey,
     to: [{ email, name }],
     subject: `Votre code de vérification EDUCO : ${otpCode}`,
-    templateId: templateId || process.env.BREVO_TEMPLATE_OTP_ID || process.env.BREVO_OTP_TEMPLATE_ID || null,
+    templateId: templateId || null,
     params: {
       otpCode,
       userName: name || email.split('@')[0],

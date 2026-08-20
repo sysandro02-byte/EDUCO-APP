@@ -100,13 +100,6 @@ class BrevoEmailServiceClient {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params),
-      }).catch(async () => {
-        // Fallback to alternative endpoint alias if primary fails
-        return await safeFetchJson('/api/send-otp', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(params),
-        }).catch(() => null);
       });
 
       if (res && (res.success !== false)) {
@@ -145,12 +138,6 @@ class BrevoEmailServiceClient {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params),
-      }).catch(async () => {
-        return await safeFetchJson('/api/verify-otp', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(params),
-        }).catch(() => null);
       });
 
       if (data && data.success) {

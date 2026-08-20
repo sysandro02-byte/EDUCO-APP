@@ -20,7 +20,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     res.statusCode = 500;
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({
-      error: "BACKEND_URL, VITE_BACKEND_URL ou VITE_API_URL doit pointer vers le backend Render.",
+      success: false,
+      error: "Configuration Vercel manquante : BACKEND_URL doit pointer vers le backend Render pour envoyer le code OTP.",
     }));
     return;
   }
@@ -51,7 +52,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     res.statusCode = 502;
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({
-      error: error?.message || "Impossible de joindre le backend Render.",
+      success: false,
+      error: error?.message || "Impossible de joindre le backend Render pour envoyer le code OTP.",
     }));
   }
 }
