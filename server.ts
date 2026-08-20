@@ -79,6 +79,7 @@ import {
 import { createWebAuthnRouter } from './server/webauthn.ts';
 
 dotenv.config();
+dotenv.config({ path: '.env.local', override: true });
 
 const { 
   users, students, schools, classes, fees, payments, transactions, personnel, 
@@ -3281,6 +3282,7 @@ async function startServer() {
       }
 
       const otpCode = otpManager.generateOtp(email, purpose || 'general', { name });
+      console.log(`[OTP] /api/email/send-otp called for ${email}. purpose=${purpose || 'general'} brevoKey=${process.env.BREVO_API_KEY ? 'present' : 'missing'}`);
       
       const emailResult = await sendOtpEmail({
         email,

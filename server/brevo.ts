@@ -488,15 +488,14 @@ export async function sendBrevoEmail(options: SendBrevoEmailOptions): Promise<Br
     subject: options.subject,
   };
 
-  // If a template ID is provided (e.g. numeric 42 or parsed string)
-  const templateIdNum = options.templateId ? Number(options.templateId) : NaN;
+  const templateIdValue = typeof options.templateId === 'string' ? options.templateId.trim() : options.templateId;
+  const templateIdNum = templateIdValue ? Number(templateIdValue) : NaN;
   if (!isNaN(templateIdNum) && templateIdNum > 0) {
     requestBody.templateId = templateIdNum;
     if (options.params) {
       requestBody.params = options.params;
     }
   } else {
-    // If no templateId, send HTML content directly with dynamic variables replaced
     requestBody.htmlContent = options.htmlContent || generateBaseHtml(options.subject, options.params?.message || options.subject);
     if (options.params) {
       requestBody.params = options.params;
@@ -511,6 +510,10 @@ export async function sendBrevoEmail(options: SendBrevoEmailOptions): Promise<Br
   }
 
   try {
+    console.log(
+      `[BREVO SEND] endpoint=${endpoint} sender=${cleanSenderEmail} to=${sanitizedTo.map(r => r.email).join(',')} mode=${requestBody.templateId ? `template:${requestBody.templateId}` : 'htmlContent'} apiKey=${apiKey ? 'present' : 'missing'}`
+    );
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -529,7 +532,7 @@ export async function sendBrevoEmail(options: SendBrevoEmailOptions): Promise<Br
 
     if (!response.ok) {
       const errMsg = data?.message || data?.error || `Erreur Brevo ${response.status}`;
-      console.warn(`[BREVO API NOTICE] (${response.status}): ${errMsg}`);
+      console.warn(`[BREVO API NOTICE] (${response.status}): ${errMsg}`, data);
       
       recordDispatchedEmailLog({
         messageId: `failed_${Date.now()}_${Math.random().toString(36).substring(7)}`,
