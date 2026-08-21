@@ -531,13 +531,58 @@ async function startServer() {
         levels,
         openingAuthorizationDoc,
         promoterIdDoc,
-        statutesDoc
+        statutesDoc,
+        adminPassword,
+        password,
+        uid
       } = req.body;
       const firebaseUser = req.user;
 
       // Generate a unique institutional identifier (e.g., EDUCO-SCH-8492)
       const randomSuffix = Math.floor(1000 + Math.random() * 9000).toString();
       const schoolIdentifier = `EDUCO-SCH-${randomSuffix}`;
+      const resolvedEmail = promoterEmail || firebaseUser?.email || `promoter@example.com`;
+      const rawAdminPassword = adminPassword || password;
+      const supabaseAdmin = getSupabaseAdmin(req);
+      let resolvedUid = uid || firebaseUser?.uid || null;
+
+      if (!resolvedUid) {
+        if (!rawAdminPassword) {
+          return res.status(400).json({
+            error: 'Le mot de passe promoteur est obligatoire pour créer le compte établissement.'
+          });
+        }
+
+        if (!supabaseAdmin) {
+          return res.status(503).json({
+            error: 'Supabase Auth serveur doit être configuré avant de créer un établissement.'
+          });
+        }
+
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+          email: resolvedEmail,
+          password: rawAdminPassword,
+          email_confirm: true,
+          user_metadata: {
+            name: promoterName || firebaseUser?.name || 'Promoteur',
+            role: 'Promoteur',
+            schoolName,
+            schoolIdentifier
+          }
+        });
+
+        if (authError || !authData?.user?.id) {
+          const errorMessage = authError?.message || 'Impossible de créer le compte promoteur dans Supabase Auth.';
+          const isDuplicateEmail = /already|exist|registered|duplicate/i.test(errorMessage);
+          return res.status(isDuplicateEmail ? 409 : 502).json({
+            error: isDuplicateEmail
+              ? 'Cette adresse email est déjà associée à un compte.'
+              : errorMessage
+          });
+        }
+
+        resolvedUid = authData.user.id;
+      }
 
       // 1. Create the school with complete dossier
       const [newSchool] = await db.insert(schools).values({
@@ -558,8 +603,6 @@ async function startServer() {
       }).returning();
 
       // 2. Create the promoter/admin user linked to this school
-      const resolvedUid = req.body.uid || firebaseUser?.uid || `promoter_${Date.now()}`;
-      const resolvedEmail = promoterEmail || firebaseUser?.email || `promoter@example.com`;
       const adminUser = await getOrCreateUser(
         resolvedUid,
         resolvedEmail,
@@ -569,7 +612,6 @@ async function startServer() {
       );
 
       // 2b. Sync directly with Supabase DB if configured
-      const supabaseAdmin = getSupabaseAdmin();
       if (supabaseAdmin) {
         try {
           await supabaseAdmin.from('schools').upsert([{

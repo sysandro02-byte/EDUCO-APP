@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { LogoIcon } from './Icons';
-import { getSupabaseClient, getStoredSupabaseConfig, isPlaceholderSupabaseUrl } from '../src/lib/supabase';
 import { registerSchool } from '../src/services/api';
 import { brevoEmailService } from '../src/services/brevoEmailService';
 import WelcomeEmailModal from './WelcomeEmailModal';
@@ -290,42 +289,8 @@ const SchoolRegistrationPage: React.FC<SchoolRegistrationPageProps> = ({ onBackT
         return;
       }
 
-      // 1. Create User in Supabase Auth.
-      let userUid: string | null = null;
-      try {
-        const { url } = getStoredSupabaseConfig();
-        if (!isPlaceholderSupabaseUrl(url)) {
-          const supabase = getSupabaseClient();
-          const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-            email: formData.adminEmail,
-            password: formData.adminPassword,
-            options: {
-              data: {
-                name: formData.promoterName,
-                role: 'Promoteur',
-              }
-            }
-          });
-          
-          if (signUpError) {
-            setOtpError(signUpError.message || "Impossible de créer le compte promoteur dans Supabase Auth.");
-            setIsVerifyingOtp(false);
-            return;
-          } else if (signUpData?.user?.id) {
-            userUid = signUpData.user.id;
-          }
-        } else {
-          setOtpError("Supabase Auth doit être configuré avant de créer un établissement.");
-          setIsVerifyingOtp(false);
-          return;
-        }
-      } catch (authErr: any) {
-        setOtpError(authErr?.message || "Supabase Auth indisponible pour l'inscription.");
-        setIsVerifyingOtp(false);
-        return;
-      }
-      
-      // 2. Register School in DB with full dossier
+      // 1. Register School in DB with full dossier.
+      // The backend owns Supabase Auth creation because only it has the service-role key.
       const result = await registerSchool({
         schoolName: formData.schoolName,
         schoolAddress: formData.schoolAddress,
@@ -338,8 +303,8 @@ const SchoolRegistrationPage: React.FC<SchoolRegistrationPageProps> = ({ onBackT
         openingAuthorizationDoc: files.openingAuthorization ? files.openingAuthorization.name : 'Autorisation_Ouverture_Officielle.pdf',
         promoterIdDoc: files.promoterId ? files.promoterId.name : 'Piece_Identite_Promoteur.pdf',
         statutesDoc: files.statutes ? files.statutes.name : null,
-        uid: userUid, // Send userUid explicitly so backend sets the correct UID!
-      } as any);
+        adminPassword: formData.adminPassword,
+      });
       
       if (result && !result.error) {
         const schId = result.schoolIdentifier || result.school?.identifier;

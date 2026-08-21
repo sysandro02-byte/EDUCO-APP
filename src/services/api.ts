@@ -106,6 +106,7 @@ export async function registerSchool(data: {
   openingAuthorizationDoc?: string | null;
   promoterIdDoc?: string | null;
   statutesDoc?: string | null;
+  adminPassword?: string;
 }) {
   try {
     const headers = await getAuthHeaders();
