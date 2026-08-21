@@ -8,6 +8,7 @@ import { loginWithWebAuthn } from '../src/services/webauthnService';
 import { LoadingDots } from './LoadingDots';
 import { brevoEmailService } from '../src/services/brevoEmailService';
 import { getSupabaseClient, getStoredSupabaseConfig, isPlaceholderSupabaseUrl } from '../src/lib/supabase';
+import { getApiUrl } from '../src/lib/apiConfig';
 
 interface LoginPageProps {
   onLogin: (email: string, password: string, isBiometric?: boolean) => Promise<{ success: boolean; error?: string }>;
@@ -115,7 +116,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
     setVerifiedSchoolInfo(null);
 
     try {
-      const res = await fetch(`/api/auth/verify-school-matricule/${encodeURIComponent(parentForm.schoolMatricule.trim())}`);
+      const res = await fetch(getApiUrl(`/api/auth/verify-school-matricule/${encodeURIComponent(parentForm.schoolMatricule.trim())}`));
       const data = await res.json();
       if (data.valid && data.school) {
         setVerifiedSchoolInfo({ name: data.school.name, identifier: data.school.identifier });
@@ -233,7 +234,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
       }
 
       // 3. Complete Parent Registration in DB
-      const res = await fetch('/api/auth/register-parent', {
+      const res = await fetch(getApiUrl('/api/auth/register-parent'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -769,12 +770,20 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
           </div>
         </form>
 
-        <p className="text-center text-xs text-gray-600 dark:text-slate-400 pt-2 border-t border-gray-100 dark:border-slate-800">
-          Vous êtes un promoteur ?{' '}
-          <button onClick={() => setIsRegistering(true)} className="font-bold text-[#1F4A59] dark:text-sky-400 hover:underline cursor-pointer">
-            Inscrivez votre établissement
-          </button>
-        </p>
+        <div className="pt-2 border-t border-gray-100 dark:border-slate-800 space-y-2 text-center text-xs text-gray-600 dark:text-slate-400">
+          <p>
+            Vous êtes un promoteur ?{' '}
+            <button onClick={() => setIsRegistering(true)} className="font-bold text-[#1F4A59] dark:text-sky-400 hover:underline cursor-pointer">
+              Inscrivez votre établissement
+            </button>
+          </p>
+          <p>
+            Vous êtes un parent ?{' '}
+            <button onClick={() => setIsParentRegistering(true)} className="font-bold text-[#1F4A59] dark:text-sky-400 hover:underline cursor-pointer">
+              Créez votre compte parent
+            </button>
+          </p>
+        </div>
       </div>
 
       <Modal isOpen={modalType !== 'none'} onClose={() => setModalType('none')} title={modalType === 'accountNotFound' ? 'Compte non trouvé' : modalType === 'incorrectPassword' ? 'Mot de passe incorrect' : modalType === 'biometricError' ? 'Connexion biométrique' : 'Erreur de connexion'}>
