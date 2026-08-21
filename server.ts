@@ -38,9 +38,36 @@ import { requireAuth, AuthRequest } from './src/middleware/auth.ts';
 import { getOrCreateUser, getUserByUid } from './src/db/users.ts';
 import { createClient } from '@supabase/supabase-js';
 
+const decodeSupabaseJwtPayload = (key?: string | null): any | null => {
+  if (!key || !key.includes('.')) return null;
+  try {
+    let payload = key.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (payload.length % 4) payload += '=';
+    return JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
+  } catch {
+    return null;
+  }
+};
+
+const getSupabaseServerKey = (req?: any) => (
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_KEY ||
+  (req?.headers?.['x-supabase-key'] as string)
+);
+
+const getSupabaseServerKeyRole = (req?: any) => decodeSupabaseJwtPayload(getSupabaseServerKey(req))?.role;
+
 const getSupabaseAdmin = (req?: any) => {
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || (req?.headers?.['x-supabase-url'] as string);
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || (req?.headers?.['x-supabase-key'] as string);
+  let supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || (req?.headers?.['x-supabase-url'] as string);
+  const serviceRoleKey = getSupabaseServerKey(req);
+  if (!supabaseUrl) {
+    const ref = decodeSupabaseJwtPayload(serviceRoleKey)?.ref;
+    if (ref) {
+      supabaseUrl = `https://${ref}.supabase.co`;
+    }
+  }
   if (supabaseUrl && serviceRoleKey && !supabaseUrl.includes('demo-educo.supabase.co')) {
     try {
       return createClient(supabaseUrl, serviceRoleKey, {
@@ -559,17 +586,30 @@ async function startServer() {
           });
         }
 
-        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-          email: resolvedEmail,
-          password: rawAdminPassword,
-          email_confirm: true,
-          user_metadata: {
+        const authMetadata = {
             name: promoterName || firebaseUser?.name || 'Promoteur',
             role: 'Promoteur',
             schoolName,
             schoolIdentifier
-          }
-        });
+        };
+        const keyRole = getSupabaseServerKeyRole(req);
+        const authResult = keyRole === 'service_role'
+          ? await supabaseAdmin.auth.admin.createUser({
+              email: resolvedEmail,
+              password: rawAdminPassword,
+              email_confirm: true,
+              user_metadata: authMetadata
+            })
+          : await supabaseAdmin.auth.signUp({
+              email: resolvedEmail,
+              password: rawAdminPassword,
+              options: {
+                data: authMetadata
+              }
+            });
+
+        const authData = authResult.data;
+        const authError = authResult.error;
 
         if (authError || !authData?.user?.id) {
           const errorMessage = authError?.message || 'Impossible de créer le compte promoteur dans Supabase Auth.';
