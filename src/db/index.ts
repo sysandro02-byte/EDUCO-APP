@@ -5,6 +5,10 @@ import * as schema from './schema.ts';
 
 dns.setDefaultResultOrder('ipv4first');
 
+const ipv4Lookup = (hostname: string, options: any, callback: any) => {
+  dns.lookup(hostname, { ...(typeof options === 'object' ? options : {}), family: 4 }, callback);
+};
+
 declare global {
   var _postgresPool: Pool | undefined;
 }
@@ -66,6 +70,7 @@ export const createPool = () => {
       global._postgresPool = new Pool({
         connectionString,
         ssl,
+        ...(isLocalhost ? {} : { lookup: ipv4Lookup }),
         max: 10,
         connectionTimeoutMillis: 15000,
       });
@@ -81,6 +86,7 @@ export const createPool = () => {
         database: process.env.SQL_DB_NAME || 'postgres',
         port: process.env.SQL_PORT ? parseInt(process.env.SQL_PORT) : 5432,
         ssl,
+        ...(isLocalhost ? {} : { lookup: ipv4Lookup }),
         max: 10,
         connectionTimeoutMillis: 15000,
       });
