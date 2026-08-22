@@ -573,6 +573,8 @@ async function startServer() {
       const supabaseAdmin = getSupabaseAdmin(req);
       let resolvedUid = uid || firebaseUser?.uid || null;
 
+      await ensureSchemaColumns();
+
       if (!resolvedUid) {
         if (!rawAdminPassword) {
           return res.status(400).json({
@@ -743,7 +745,10 @@ async function startServer() {
       });
     } catch (error: any) {
       console.error('School Registration Error:', error);
-      res.status(500).json({ error: error.message || 'Erreur lors de l\'enregistrement de l\'établissement' });
+      const databaseDetail = error?.cause?.message || error?.detail || error?.hint;
+      res.status(500).json({
+        error: databaseDetail || error.message || 'Erreur lors de l\'enregistrement de l\'établissement'
+      });
     }
   });
 
