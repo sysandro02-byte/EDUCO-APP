@@ -1,6 +1,9 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
+import dns from 'node:dns';
 import * as schema from './schema.ts';
+
+dns.setDefaultResultOrder('ipv4first');
 
 declare global {
   var _postgresPool: Pool | undefined;
