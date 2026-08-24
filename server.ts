@@ -1229,8 +1229,7 @@ async function startServer() {
           role: req.body.role,
           status: req.body.status === 'Inactif' ? 'inactive' : 'active',
           school_id: targetSchoolId,
-          ...(req.body.avatar !== undefined && { avatar: req.body.avatar }),
-          ...(req.body.phone !== undefined && { phone: req.body.phone })
+          ...(req.body.avatar !== undefined && { avatar: req.body.avatar })
         };
 
         const { data: sbUser, error: sbUserError } = existingUser?.id

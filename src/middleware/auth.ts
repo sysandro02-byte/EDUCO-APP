@@ -56,31 +56,33 @@ export const requireAuth = async (
   }
 
   try {
-    const allUsers = isDbConfigured() ? await db.select().from(users).catch(() => []) : [];
-    let matched = allUsers.find(u => u.uid === token || u.email === token || String(u.id) === token);
     const jwtPayload = decodeJwtPayload(token);
-    
-    if (!matched && jwtPayload) {
-      // Decode JWT payload if available
-      try {
-        if (jwtPayload && (jwtPayload.email || jwtPayload.sub)) {
-          const userEmail = jwtPayload.email || '';
-          matched = allUsers.find(u => u.email === userEmail || u.uid === jwtPayload.sub);
-        }
-      } catch (jwtErr) {}
+    let matched: any = null;
+
+    const supabase = getSupabaseAuthClient();
+    const lookupEmail = jwtPayload?.email || (token.includes('@') ? token : '');
+    if (supabase && lookupEmail) {
+      const { data: sbUser } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', lookupEmail.toLowerCase())
+        .limit(1)
+        .maybeSingle();
+      matched = mapSupabaseUser(sbUser) as any;
     }
 
-    if (!matched) {
-      const supabase = getSupabaseAuthClient();
-      const lookupEmail = jwtPayload?.email || (token.includes('@') ? token : '');
-      if (supabase && lookupEmail) {
-        const { data: sbUser } = await supabase
-          .from('users')
-          .select('*')
-          .eq('email', lookupEmail.toLowerCase())
-          .limit(1)
-          .maybeSingle();
-        matched = mapSupabaseUser(sbUser) as any;
+    if (!matched && isDbConfigured()) {
+      const allUsers = await db.select().from(users).catch(() => []);
+      matched = allUsers.find(u => u.uid === token || u.email === token || String(u.id) === token);
+      
+      if (!matched && jwtPayload) {
+        // Decode JWT payload if available
+        try {
+          if (jwtPayload && (jwtPayload.email || jwtPayload.sub)) {
+            const userEmail = jwtPayload.email || '';
+            matched = allUsers.find(u => u.email === userEmail || u.uid === jwtPayload.sub);
+          }
+        } catch (jwtErr) {}
       }
     }
 
