@@ -1251,18 +1251,18 @@ async function startServer() {
           .limit(1)
           .maybeSingle();
 
-        const payload = {
+        const payload: Record<string, any> = {
           uid: resolvedUid,
           name: req.body.name,
           email: req.body.email,
           role: req.body.role,
           status: req.body.status === 'Inactif' ? 'inactive' : 'active',
           school_id: targetSchoolId,
-          avatar: req.body.avatar,
-          phone: req.body.phone,
-          matricule: req.body.matricule,
-          student_id: req.body.studentId,
-          class: req.body.class
+          ...(req.body.avatar !== undefined && { avatar: req.body.avatar }),
+          ...(req.body.phone !== undefined && { phone: req.body.phone }),
+          ...(req.body.matricule !== undefined && { matricule: req.body.matricule }),
+          ...(req.body.studentId !== undefined && { student_id: req.body.studentId }),
+          ...(req.body.className !== undefined && { class_name: req.body.className })
         };
 
         const { data: sbUser, error: sbUserError } = existingUser?.id
