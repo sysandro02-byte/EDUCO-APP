@@ -761,14 +761,42 @@ async function startServer() {
             status: 'registered'
           }], { onConflict: 'id' });
 
-          await supabaseAdmin.from('users').upsert([{
+          const promoterUserPayload = {
             uid: resolvedUid,
             email: resolvedEmail,
             name: promoterName || firebaseUser?.name || 'Promoteur',
             role: 'Promoteur',
             school_id: newSchool.id,
             status: 'active'
-          }], { onConflict: 'email' });
+          };
+
+          const { data: existingPromoterUser } = await supabaseAdmin
+            .from('users')
+            .select('*')
+            .eq('email', resolvedEmail)
+            .limit(1)
+            .maybeSingle();
+
+          const { data: syncedPromoterUser, error: syncedPromoterError } = existingPromoterUser?.id
+            ? await supabaseAdmin
+                .from('users')
+                .update(promoterUserPayload)
+                .eq('id', existingPromoterUser.id)
+                .select('*')
+                .single()
+            : await supabaseAdmin
+                .from('users')
+                .insert([promoterUserPayload])
+                .select('*')
+                .single();
+
+          if (syncedPromoterError) {
+            throw syncedPromoterError;
+          }
+
+          if (syncedPromoterUser) {
+            adminUser = mapSupabaseUser(syncedPromoterUser);
+          }
         } catch (sbSyncErr) {
           console.warn('Supabase school registration sync warning:', sbSyncErr);
         }
