@@ -3409,9 +3409,23 @@ async function startServer() {
         }
       }
 
-      // 2. Check Database users table
+      // 2. Check Supabase users table first to avoid Render/Postgres connection delays
       let dbUser = null;
-      if (isDbConfigured()) {
+      const supabaseDb = getSupabaseAdmin(req);
+      if (supabaseDb) {
+        try {
+          const { data: sbUser } = await supabaseDb
+            .from('users')
+            .select('*')
+            .eq('email', targetIdentifier)
+            .limit(1)
+            .maybeSingle();
+          dbUser = mapSupabaseUser(sbUser);
+        } catch (e) {}
+      }
+
+      // 3. Fallback to Database users table when Supabase REST is unavailable
+      if (!dbUser && isDbConfigured()) {
         try {
           const found = await db.select().from(users).where(eq(users.email, targetIdentifier)).limit(1);
           if (found.length > 0) {
@@ -3420,18 +3434,34 @@ async function startServer() {
         } catch (e) {}
       }
 
-      if (!dbUser) {
-        const supabaseDb = getSupabaseAdmin(req);
-        if (supabaseDb) {
-          try {
-            const { data: sbUser } = await supabaseDb
-              .from('users')
-              .select('*')
-              .eq('email', targetIdentifier)
-              .limit(1)
-              .maybeSingle();
-            dbUser = mapSupabaseUser(sbUser);
-          } catch (e) {}
+      if (dbUser) {
+        try {
+          dbUser.email = dbUser.email || targetIdentifier;
+          dbUser.name = dbUser.name || targetIdentifier.split('@')[0];
+          dbUser.role = dbUser.role || 'Personnel';
+        } catch (e) {}
+      }
+
+      if (dbUser && supabaseDb) {
+        try {
+          const { data: authData, error: authError } = await supabaseDb.auth.signInWithPassword({
+            email: targetIdentifier,
+            password
+          });
+          if (authError || !authData?.session) {
+            return res.status(401).json({
+              success: false,
+              error: 'Identifiants invalides.'
+            });
+          }
+          if (authData.user?.id) {
+            dbUser.uid = authData.user.id;
+          }
+        } catch (e) {
+          return res.status(401).json({
+            success: false,
+            error: 'Identifiants invalides.'
+          });
         }
       }
 
@@ -3449,19 +3479,7 @@ async function startServer() {
           });
         }
 
-        const supabaseAuth = getSupabaseAdmin(req);
-        if (supabaseAuth) {
-          const { data: authData, error: authError } = await supabaseAuth.auth.signInWithPassword({
-            email: targetIdentifier,
-            password
-          });
-          if (authError || !authData?.session) {
-            return res.status(401).json({
-              success: false,
-              error: 'Identifiants invalides.'
-            });
-          }
-        } else {
+        if (!supabaseDb) {
           return res.status(503).json({
             success: false,
             error: 'Authentification indisponible : configurez Supabase/Auth avant de connecter des comptes.'
