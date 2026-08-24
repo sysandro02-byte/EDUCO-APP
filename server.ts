@@ -59,6 +59,39 @@ const getSupabaseServerKey = (req?: any) => (
 
 const getSupabaseServerKeyRole = (req?: any) => decodeSupabaseJwtPayload(getSupabaseServerKey(req))?.role;
 
+const mapSupabaseSchool = (school: any) => school ? ({
+  id: school.id,
+  name: school.name,
+  identifier: school.identifier,
+  address: school.address,
+  phone: school.phone,
+  email: school.email,
+  logo: school.logo,
+  creationDate: school.creation_date || school.creationDate,
+  promoterName: school.promoter_name || school.promoterName,
+  promoterContact: school.promoter_contact || school.promoterContact,
+  promoterEmail: school.promoter_email || school.promoterEmail,
+  levels: school.levels || {},
+  openingAuthorizationDoc: school.opening_authorization_doc || school.openingAuthorizationDoc,
+  promoterIdDoc: school.promoter_id_doc || school.promoterIdDoc,
+  statutesDoc: school.statutes_doc || school.statutesDoc,
+  status: school.status,
+  settings: school.settings || {},
+  createdAt: school.created_at || school.createdAt,
+}) : null;
+
+const mapSupabaseUser = (user: any) => user ? ({
+  id: user.id,
+  uid: user.uid,
+  schoolId: user.school_id || user.schoolId,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  avatar: user.avatar,
+  status: user.status,
+  createdAt: user.created_at || user.createdAt,
+}) : null;
+
 const getSupabaseAdmin = (req?: any) => {
   let supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || (req?.headers?.['x-supabase-url'] as string);
   const serviceRoleKey = getSupabaseServerKey(req);
@@ -627,7 +660,7 @@ async function startServer() {
       }
 
       // 1. Create the school with complete dossier
-      const [newSchool] = await db.insert(schools).values({
+      const schoolValues = {
         name: schoolName,
         identifier: schoolIdentifier,
         address: schoolAddress,
@@ -642,16 +675,72 @@ async function startServer() {
         promoterIdDoc: promoterIdDoc || (req.body.hasPromoterDoc ? 'Piece_Identite_Promoteur.pdf' : null),
         statutesDoc: statutesDoc || null,
         status: 'registered',
-      }).returning();
+      };
+
+      let newSchool: any;
+      try {
+        [newSchool] = await db.insert(schools).values(schoolValues).returning();
+      } catch (dbSchoolErr) {
+        if (!supabaseAdmin) throw dbSchoolErr;
+        console.warn('Postgres school insert failed, falling back to Supabase REST:', dbSchoolErr);
+        const { data: sbSchool, error: sbSchoolError } = await supabaseAdmin
+          .from('schools')
+          .insert([{
+            name: schoolValues.name,
+            identifier: schoolValues.identifier,
+            address: schoolValues.address,
+            phone: schoolValues.phone,
+            email: resolvedEmail,
+            creation_date: schoolValues.creationDate,
+            promoter_name: schoolValues.promoterName,
+            promoter_contact: schoolValues.promoterContact,
+            promoter_email: resolvedEmail,
+            levels: schoolValues.levels,
+            opening_authorization_doc: schoolValues.openingAuthorizationDoc,
+            promoter_id_doc: schoolValues.promoterIdDoc,
+            statutes_doc: schoolValues.statutesDoc,
+            status: schoolValues.status,
+          }])
+          .select('*')
+          .single();
+
+        if (sbSchoolError || !sbSchool) {
+          throw sbSchoolError || dbSchoolErr;
+        }
+        newSchool = mapSupabaseSchool(sbSchool);
+      }
 
       // 2. Create the promoter/admin user linked to this school
-      const adminUser = await getOrCreateUser(
-        resolvedUid,
-        resolvedEmail,
-        promoterName || firebaseUser?.name || 'Promoteur',
-        'Promoteur',
-        newSchool.id
-      );
+      let adminUser: any;
+      try {
+        adminUser = await getOrCreateUser(
+          resolvedUid,
+          resolvedEmail,
+          promoterName || firebaseUser?.name || 'Promoteur',
+          'Promoteur',
+          newSchool.id
+        );
+      } catch (dbUserErr) {
+        if (!supabaseAdmin) throw dbUserErr;
+        console.warn('Postgres promoter insert failed, falling back to Supabase REST:', dbUserErr);
+        const { data: sbUser, error: sbUserError } = await supabaseAdmin
+          .from('users')
+          .insert([{
+            uid: resolvedUid,
+            email: resolvedEmail,
+            name: promoterName || firebaseUser?.name || 'Promoteur',
+            role: 'Promoteur',
+            school_id: newSchool.id,
+            status: 'active'
+          }])
+          .select('*')
+          .single();
+
+        if (sbUserError || !sbUser) {
+          throw sbUserError || dbUserErr;
+        }
+        adminUser = mapSupabaseUser(sbUser);
+      }
 
       // 2b. Sync directly with Supabase DB if configured
       if (supabaseAdmin) {
@@ -762,12 +851,32 @@ async function startServer() {
       }
 
       const formattedMatricule = schoolMatricule.trim().toUpperCase();
-      const matchingSchools = await db.select().from(schools).where(eq(schools.identifier, formattedMatricule));
-      let schoolObj = matchingSchools[0];
+      const supabaseAdmin = getSupabaseAdmin(req);
+      let schoolObj: any = null;
+      try {
+        const matchingSchools = await db.select().from(schools).where(eq(schools.identifier, formattedMatricule));
+        schoolObj = matchingSchools[0];
+      } catch (dbSchoolLookupErr) {
+        console.warn('Postgres school lookup failed for parent registration:', dbSchoolLookupErr);
+      }
 
       if (!schoolObj) {
-        const allSchools = await db.select().from(schools);
-        schoolObj = allSchools.find(s => s.identifier?.toLowerCase() === schoolMatricule.trim().toLowerCase());
+        try {
+          const allSchools = await db.select().from(schools);
+          schoolObj = allSchools.find(s => s.identifier?.toLowerCase() === schoolMatricule.trim().toLowerCase());
+        } catch (dbAllSchoolsErr) {
+          if (supabaseAdmin) {
+            const { data: sbSchool } = await supabaseAdmin
+              .from('schools')
+              .select('*')
+              .eq('identifier', formattedMatricule)
+              .limit(1)
+              .maybeSingle();
+            schoolObj = mapSupabaseSchool(sbSchool);
+          } else {
+            console.warn('Postgres all schools lookup failed and Supabase fallback is unavailable:', dbAllSchoolsErr);
+          }
+        }
       }
 
       if (!schoolObj) {
@@ -787,7 +896,7 @@ async function startServer() {
 
       let resolvedUid = req.body.uid;
       if (!resolvedUid) {
-        const adminClient = getSupabaseAdmin();
+        const adminClient = supabaseAdmin || getSupabaseAdmin(req);
         if (adminClient && parentEmail) {
           try {
             const { data: authUser, error: createError } = await adminClient.auth.admin.createUser({
@@ -812,14 +921,39 @@ async function startServer() {
 
       const uid = resolvedUid || `parent_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
-      const [newParent] = await db.insert(users).values({
+      const parentValues = {
         uid,
         schoolId: schoolObj.id,
         name: parentName,
         email: parentEmail,
         role: 'Parent',
         status: 'active',
-      }).returning();
+      };
+
+      let newParent: any;
+      try {
+        [newParent] = await db.insert(users).values(parentValues).returning();
+      } catch (dbParentErr) {
+        if (!supabaseAdmin) throw dbParentErr;
+        console.warn('Postgres parent insert failed, falling back to Supabase REST:', dbParentErr);
+        const { data: sbParent, error: sbParentError } = await supabaseAdmin
+          .from('users')
+          .insert([{
+            uid,
+            school_id: schoolObj.id,
+            name: parentName,
+            email: parentEmail,
+            role: 'Parent',
+            status: 'active',
+          }])
+          .select('*')
+          .single();
+
+        if (sbParentError || !sbParent) {
+          throw sbParentError || dbParentErr;
+        }
+        newParent = mapSupabaseUser(sbParent);
+      }
 
       res.json({
         success: true,
@@ -838,12 +972,32 @@ async function startServer() {
   app.get('/api/auth/verify-school-matricule/:matricule', async (req, res) => {
     try {
       const matricule = req.params.matricule.trim().toUpperCase();
-      const matchingSchools = await db.select().from(schools).where(eq(schools.identifier, matricule));
-      let schoolObj = matchingSchools[0];
+      const supabaseAdmin = getSupabaseAdmin(req);
+      let schoolObj: any = null;
+      try {
+        const matchingSchools = await db.select().from(schools).where(eq(schools.identifier, matricule));
+        schoolObj = matchingSchools[0];
+      } catch (dbSchoolLookupErr) {
+        console.warn('Postgres matricule lookup failed:', dbSchoolLookupErr);
+      }
 
       if (!schoolObj) {
-        const allSchools = await db.select().from(schools);
-        schoolObj = allSchools.find(s => s.identifier?.toLowerCase() === req.params.matricule.trim().toLowerCase());
+        try {
+          const allSchools = await db.select().from(schools);
+          schoolObj = allSchools.find(s => s.identifier?.toLowerCase() === req.params.matricule.trim().toLowerCase());
+        } catch (dbAllSchoolsErr) {
+          if (supabaseAdmin) {
+            const { data: sbSchool } = await supabaseAdmin
+              .from('schools')
+              .select('*')
+              .eq('identifier', matricule)
+              .limit(1)
+              .maybeSingle();
+            schoolObj = mapSupabaseSchool(sbSchool);
+          } else {
+            console.warn('Postgres all schools lookup failed and Supabase fallback is unavailable:', dbAllSchoolsErr);
+          }
+        }
       }
 
       if (schoolObj) {
@@ -3189,6 +3343,21 @@ async function startServer() {
             dbUser = found[0];
           }
         } catch (e) {}
+      }
+
+      if (!dbUser) {
+        const supabaseDb = getSupabaseAdmin(req);
+        if (supabaseDb) {
+          try {
+            const { data: sbUser } = await supabaseDb
+              .from('users')
+              .select('*')
+              .eq('email', targetIdentifier)
+              .limit(1)
+              .maybeSingle();
+            dbUser = mapSupabaseUser(sbUser);
+          } catch (e) {}
+        }
       }
 
       if (dbUser) {
