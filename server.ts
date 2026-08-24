@@ -1090,12 +1090,12 @@ async function startServer() {
   // Users Endpoints
   app.get('/api/users', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = (req.user?.role || req.user?.schoolId) ? req.user : await getUserByUid(req.user!.uid);
       const userRole = req.user?.role || dbUser?.role;
       const schoolId = req.user?.schoolId || dbUser?.schoolId;
 
-      let allUsersList: any[] = await db.select().from(users);
       const supabaseAdmin = getSupabaseAdmin(req);
+      let allUsersList: any[] = supabaseAdmin ? [] : await db.select().from(users).catch(() => []);
       if (supabaseAdmin) {
         try {
           const { data: sbUsers } = await supabaseAdmin.from('users').select('*');
@@ -1150,7 +1150,7 @@ async function startServer() {
 
   app.post('/api/users', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = (req.user?.role || req.user?.schoolId) ? req.user : await getUserByUid(req.user!.uid);
       
       const isSelfUpdate = dbUser && (
         (req.body.id && Number(req.body.id) === dbUser.id) ||
@@ -1232,13 +1232,46 @@ async function startServer() {
         }
       }
 
-      const newUser = await db.insert(users).values({
-        ...req.body,
-        uid: resolvedUid,
-        status: req.body.status || 'Actif',
-        schoolId: targetSchoolId
-      }).returning();
-      res.json(newUser[0]);
+      try {
+        const newUser = await db.insert(users).values({
+          ...req.body,
+          uid: resolvedUid,
+          status: req.body.status || 'Actif',
+          schoolId: targetSchoolId
+        }).returning();
+        return res.json(newUser[0]);
+      } catch (dbInsertErr) {
+        const adminClient = getSupabaseAdmin(req);
+        if (!adminClient) throw dbInsertErr;
+
+        const { data: existingUser } = await adminClient
+          .from('users')
+          .select('*')
+          .eq('email', String(req.body.email || '').toLowerCase())
+          .limit(1)
+          .maybeSingle();
+
+        const payload = {
+          uid: resolvedUid,
+          name: req.body.name,
+          email: req.body.email,
+          role: req.body.role,
+          status: req.body.status === 'Inactif' ? 'inactive' : 'active',
+          school_id: targetSchoolId,
+          avatar: req.body.avatar,
+          phone: req.body.phone,
+          matricule: req.body.matricule,
+          student_id: req.body.studentId,
+          class: req.body.class
+        };
+
+        const { data: sbUser, error: sbUserError } = existingUser?.id
+          ? await adminClient.from('users').update(payload).eq('id', existingUser.id).select('*').single()
+          : await adminClient.from('users').insert([payload]).select('*').single();
+
+        if (sbUserError || !sbUser) throw sbUserError || dbInsertErr;
+        return res.json(mapSupabaseUser(sbUser));
+      }
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -2981,7 +3014,7 @@ async function startServer() {
       };
       const visibleSchools = isSuperAdmin
         ? enrichedSchools
-        : enrichedSchools.filter(belongsToCurrentSchool);
+        : enrichedSchools.filter((school: any) => Number(school?.id) === currentSchoolId);
       const visibleUsers = isSuperAdmin
         ? enrichedUsers
         : enrichedUsers.filter((u: any) => belongsToCurrentSchool(u) || isCurrentUserRow(u));
