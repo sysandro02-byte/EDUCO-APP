@@ -2687,27 +2687,26 @@ async function startServer() {
   // Admin: Fetch all database entities for structured CSV/Excel exporting
   app.get('/api/admin/export-data', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = (req.user?.role || req.user?.schoolId) ? req.user : await getUserByUid(req.user!.uid);
       const userRole = req.user?.role || dbUser?.role;
-      if (userRole !== 'Admin' && userRole !== 'Co-admin') {
-        return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
-      }
+      const userSchoolId = req.user?.schoolId || dbUser?.schoolId;
+      const isSuperAdmin = userRole === 'Admin' || userRole === 'Co-admin';
+      const supabaseAdmin = getSupabaseAdmin(req);
 
-      let allSchools = await db.select().from(schools).orderBy(asc(schools.name)).catch(() => []);
-      let allSubscriptions = await db.select().from(subscriptions).catch(() => []);
-      let allSubscriptionRequests = await db.select().from(subscriptionRequests).catch(() => []);
-      let allUsers = await db.select().from(users).orderBy(asc(users.name)).catch(() => []);
-      let allStudents = await db.select().from(students).catch(() => []);
-      let allPersonnel = await db.select().from(personnel).catch(() => []);
-      let allClasses = await db.select().from(classes).catch(() => []);
-      let allPayments = await db.select().from(payments).catch(() => []);
-      let allTransactions = await db.select().from(transactions).catch(() => []);
-      let allAttendance = await db.select().from(attendance).catch(() => []);
-      let allFees = await db.select().from(fees).catch(() => []);
-      let allNotifications = await db.select().from(notifications).catch(() => []);
+      let allSchools = supabaseAdmin ? [] : await db.select().from(schools).orderBy(asc(schools.name)).catch(() => []);
+      let allSubscriptions = supabaseAdmin ? [] : await db.select().from(subscriptions).catch(() => []);
+      let allSubscriptionRequests = supabaseAdmin ? [] : await db.select().from(subscriptionRequests).catch(() => []);
+      let allUsers = supabaseAdmin ? [] : await db.select().from(users).orderBy(asc(users.name)).catch(() => []);
+      let allStudents = supabaseAdmin ? [] : await db.select().from(students).catch(() => []);
+      let allPersonnel = supabaseAdmin ? [] : await db.select().from(personnel).catch(() => []);
+      let allClasses = supabaseAdmin ? [] : await db.select().from(classes).catch(() => []);
+      let allPayments = supabaseAdmin ? [] : await db.select().from(payments).catch(() => []);
+      let allTransactions = supabaseAdmin ? [] : await db.select().from(transactions).catch(() => []);
+      let allAttendance = supabaseAdmin ? [] : await db.select().from(attendance).catch(() => []);
+      let allFees = supabaseAdmin ? [] : await db.select().from(fees).catch(() => []);
+      let allNotifications = supabaseAdmin ? [] : await db.select().from(notifications).catch(() => []);
 
       // Merge Supabase DB entities if available
-      const supabaseAdmin = getSupabaseAdmin(req);
       if (supabaseAdmin) {
         try {
           const [
@@ -2964,20 +2963,58 @@ async function startServer() {
         };
       });
 
+      const currentUserId = req.user?.id || dbUser?.id || req.user?.uid;
+      const currentUserEmail = String(req.user?.email || dbUser?.email || '').toLowerCase();
+      const currentSchoolId = userSchoolId ? Number(userSchoolId) : undefined;
+      const belongsToCurrentSchool = (row: any) => {
+        if (isSuperAdmin) return true;
+        if (!currentSchoolId) return false;
+        return Number(row?.schoolId || row?.school_id) === currentSchoolId;
+      };
+      const isCurrentUserRow = (row: any) => {
+        const rowEmail = String(row?.email || '').toLowerCase();
+        return (
+          String(row?.id || '') === String(currentUserId || '') ||
+          String(row?.uid || '') === String(req.user?.uid || '') ||
+          (!!currentUserEmail && rowEmail === currentUserEmail)
+        );
+      };
+      const visibleSchools = isSuperAdmin
+        ? enrichedSchools
+        : enrichedSchools.filter(belongsToCurrentSchool);
+      const visibleUsers = isSuperAdmin
+        ? enrichedUsers
+        : enrichedUsers.filter((u: any) => belongsToCurrentSchool(u) || isCurrentUserRow(u));
+      const visibleStudents = isSuperAdmin
+        ? enrichedStudents
+        : enrichedStudents.filter((st: any) => belongsToCurrentSchool(st) || String(st?.parentEmail || '').toLowerCase() === currentUserEmail || String(st?.email || '').toLowerCase() === currentUserEmail);
+      const visiblePersonnel = isSuperAdmin ? enrichedPersonnel : enrichedPersonnel.filter(belongsToCurrentSchool);
+      const visibleClasses = isSuperAdmin ? enrichedClasses : enrichedClasses.filter(belongsToCurrentSchool);
+      const visiblePayments = isSuperAdmin ? enrichedPayments : enrichedPayments.filter(belongsToCurrentSchool);
+      const visibleTransactions = isSuperAdmin ? enrichedTransactions : enrichedTransactions.filter(belongsToCurrentSchool);
+      const visibleAttendance = isSuperAdmin ? allAttendance : allAttendance.filter(belongsToCurrentSchool);
+      const visibleFees = isSuperAdmin ? allFees : allFees.filter(belongsToCurrentSchool);
+      const visibleNotifications = isSuperAdmin
+        ? allNotifications
+        : allNotifications.filter((n: any) => belongsToCurrentSchool(n) || String(n?.userId || n?.user_id || '') === String(currentUserId || ''));
+      const visibleSubscriptions = isSuperAdmin ? allSubscriptions : allSubscriptions.filter(belongsToCurrentSchool);
+      const visibleSubscriptionRequests = isSuperAdmin ? allSubscriptionRequests : allSubscriptionRequests.filter(belongsToCurrentSchool);
+
       res.json({
         success: true,
-        schools: enrichedSchools,
-        users: enrichedUsers,
-        students: enrichedStudents,
-        personnel: enrichedPersonnel,
-        classes: enrichedClasses,
-        payments: enrichedPayments,
-        transactions: enrichedTransactions,
-        attendance: allAttendance,
-        fees: allFees,
-        notifications: allNotifications,
-        subscriptions: allSubscriptions,
-        subscriptionRequests: allSubscriptionRequests
+        scope: isSuperAdmin ? 'global' : 'school',
+        schools: visibleSchools,
+        users: visibleUsers,
+        students: visibleStudents,
+        personnel: visiblePersonnel,
+        classes: visibleClasses,
+        payments: visiblePayments,
+        transactions: visibleTransactions,
+        attendance: visibleAttendance,
+        fees: visibleFees,
+        notifications: visibleNotifications,
+        subscriptions: visibleSubscriptions,
+        subscriptionRequests: visibleSubscriptionRequests
       });
     } catch (error: any) {
       console.error('Admin Export Data Fetch Error:', error);

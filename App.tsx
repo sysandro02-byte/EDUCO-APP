@@ -885,7 +885,7 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Central real-time database synchronization for Admin (SuperAdmin) and local users with stable equality checks to eliminate flickering
+  // Central real-time database synchronization for every authenticated account with stable equality checks to eliminate flickering
   useEffect(() => {
     const areRecordsEqual = (a: any[], b: any[]) => {
       if (a === b) return true;
@@ -893,90 +893,29 @@ const App: React.FC = () => {
       return JSON.stringify(a) === JSON.stringify(b);
     };
 
+    const replaceIfArray = <T,>(setter: React.Dispatch<React.SetStateAction<T[]>>, value: unknown) => {
+      if (!Array.isArray(value)) return;
+      setter(prev => areRecordsEqual(prev, value) ? prev : value as T[]);
+    };
+
     const syncCentralAdminData = async () => {
       try {
         const userRole = loggedInRole || currentUser?.role;
-        // Always sync when logged in as Admin/Co-admin or during app initialization
-        if (userRole === 'Admin' || userRole === 'Co-admin' || !userRole) {
-          // 1. Fetch from backend export-data endpoint
-          const exportRes = await fetchAdminExportData();
-          if (exportRes && exportRes.success) {
-            if (exportRes.users && Array.isArray(exportRes.users) && exportRes.users.length > 0) {
-              setUsers(prev => {
-                const map = new Map<string | number, User>();
-                prev.forEach(u => map.set(u.id || u.email, u));
-                exportRes.users.forEach((u: any) => {
-                  const key = u.id || u.email;
-                  map.set(key, { ...(map.get(key) || {}), ...u });
-                });
-                const nextUsers = Array.from(map.values());
-                return areRecordsEqual(prev, nextUsers) ? prev : nextUsers;
-              });
-            }
-            if (exportRes.payments && Array.isArray(exportRes.payments) && exportRes.payments.length > 0) {
-              setPayments(prev => {
-                const map = new Map();
-                prev.forEach(p => map.set(p.id, p));
-                exportRes.payments.forEach((p: any) => map.set(p.id, { ...(map.get(p.id) || {}), ...p }));
-                const nextPayments = Array.from(map.values());
-                return areRecordsEqual(prev, nextPayments) ? prev : nextPayments;
-              });
-            }
-            if (exportRes.transactions && Array.isArray(exportRes.transactions) && exportRes.transactions.length > 0) {
-              setTransactions(prev => {
-                const map = new Map();
-                prev.forEach(t => map.set(t.id, t));
-                exportRes.transactions.forEach((t: any) => map.set(t.id, { ...(map.get(t.id) || {}), ...t }));
-                const nextTransactions = Array.from(map.values());
-                return areRecordsEqual(prev, nextTransactions) ? prev : nextTransactions;
-              });
-            }
-            if (exportRes.personnel && Array.isArray(exportRes.personnel) && exportRes.personnel.length > 0) {
-              setPersonnel(prev => {
-                const map = new Map();
-                prev.forEach(p => map.set(p.id, p));
-                exportRes.personnel.forEach((p: any) => map.set(p.id, { ...(map.get(p.id) || {}), ...p }));
-                const nextPersonnel = Array.from(map.values());
-                return areRecordsEqual(prev, nextPersonnel) ? prev : nextPersonnel;
-              });
-            }
-          }
+        if (!userRole && !currentUser) return;
 
-          // 2. Query Supabase directly to capture row 51 and all real-time promoter user registrations
-          const supabase = getSupabaseClient();
-          if (supabase) {
-            const { data: sbUsers } = await supabase.from('users').select('*');
-            if (sbUsers && sbUsers.length > 0) {
-              setUsers(prev => {
-                const map = new Map<string | number, User>();
-                prev.forEach(u => map.set(u.id || u.email, u));
-                sbUsers.forEach((su: any) => {
-                  const mappedUser: any = {
-                    id: su.id,
-                    uid: su.uid || `usr_${su.id}`,
-                    name: su.name || su.email?.split('@')[0] || 'Utilisateur',
-                    email: su.email || '',
-                    role: su.role || 'Personnel',
-                    schoolId: su.school_id || su.schoolId || 1,
-                    status: su.status || 'active',
-                    avatar: su.avatar,
-                    className: su.class_name,
-                    parentPhone: su.parent_phone
-                  };
-                  if (exportRes?.schools) {
-                    mappedUser.schoolName = exportRes.schools.find((s: any) => Number(s.id) === Number(mappedUser.schoolId))?.name || 'Inconnu';
-                  }
-                  const key = mappedUser.id || mappedUser.email;
-                  map.set(key, { ...(map.get(key) || {}), ...mappedUser });
-                });
-                const nextUsers = Array.from(map.values());
-                return areRecordsEqual(prev, nextUsers) ? prev : nextUsers;
-              });
-            }
-          }
+        const exportRes = await fetchAdminExportData();
+        if (exportRes && exportRes.success) {
+          replaceIfArray<User>(setUsers, exportRes.users);
+          replaceIfArray<any>(setPayments, exportRes.payments);
+          replaceIfArray<Transaction>(setTransactions, exportRes.transactions);
+          replaceIfArray<Personnel>(setPersonnel, exportRes.personnel);
+          replaceIfArray<Class>(setClasses, exportRes.classes);
+          replaceIfArray<Fee>(setFees, exportRes.fees);
+          replaceIfArray<any>(setAttendance, exportRes.attendance);
+          replaceIfArray<any>(setNotifications, exportRes.notifications);
         }
       } catch (e) {
-        console.warn('Central Admin sync warning:', e);
+        console.warn('Central account sync warning:', e);
       }
     };
 
