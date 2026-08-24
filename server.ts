@@ -606,7 +606,9 @@ async function startServer() {
       const supabaseAdmin = getSupabaseAdmin(req);
       let resolvedUid = uid || firebaseUser?.uid || null;
 
-      await ensureSchemaColumns();
+      ensureSchemaColumns().catch(err => {
+        console.warn('School registration schema sync notice:', err?.message || err);
+      });
 
       if (!resolvedUid) {
         if (!rawAdminPassword) {
