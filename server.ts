@@ -1198,51 +1198,22 @@ async function startServer() {
       
       const adminClient = getSupabaseAdmin(req);
       if (adminClient && req.body.email) {
-        try {
-          const tempPassword = req.body.tempPassword || 'Educo123!';
-          const { data: authUser, error: createError } = await adminClient.auth.admin.createUser({
-            email: req.body.email,
-            password: tempPassword,
-            email_confirm: true,
-            user_metadata: {
-              name: req.body.name || req.body.email.split('@')[0],
-              role: req.body.role || 'Enseignant'
-            }
-          });
-          
-          if (authUser?.user?.id) {
-            resolvedUid = authUser.user.id;
-          } else if (createError) {
-            console.warn("Supabase Admin createUser notice:", createError.message);
+        const tempPassword = req.body.tempPassword || 'Educo123!';
+        const { data: authUser, error: createError } = await adminClient.auth.admin.createUser({
+          email: req.body.email,
+          password: tempPassword,
+          email_confirm: true,
+          user_metadata: {
+            name: req.body.name || req.body.email.split('@')[0],
+            role: req.body.role || 'Enseignant'
           }
-
-          // Insert into Supabase users table directly
-          await adminClient.from('users').insert([{
-            uid: resolvedUid,
-            name: req.body.name,
-            email: req.body.email,
-            role: req.body.role,
-            status: req.body.status === 'Inactif' ? 'inactive' : 'active',
-            school_id: targetSchoolId,
-            avatar: req.body.avatar,
-            phone: req.body.phone
-          }]);
-        } catch (e: any) {
-          console.warn("Could not create user in Supabase Admin:", e.message);
+        });
+        
+        if (authUser?.user?.id) {
+          resolvedUid = authUser.user.id;
+        } else if (createError) {
+          console.warn("Supabase Admin createUser notice:", createError.message);
         }
-      }
-
-      try {
-        const newUser = await db.insert(users).values({
-          ...req.body,
-          uid: resolvedUid,
-          status: req.body.status || 'Actif',
-          schoolId: targetSchoolId
-        }).returning();
-        return res.json(newUser[0]);
-      } catch (dbInsertErr) {
-        const adminClient = getSupabaseAdmin(req);
-        if (!adminClient) throw dbInsertErr;
 
         const { data: existingUser } = await adminClient
           .from('users')
@@ -1259,19 +1230,24 @@ async function startServer() {
           status: req.body.status === 'Inactif' ? 'inactive' : 'active',
           school_id: targetSchoolId,
           ...(req.body.avatar !== undefined && { avatar: req.body.avatar }),
-          ...(req.body.phone !== undefined && { phone: req.body.phone }),
-          ...(req.body.matricule !== undefined && { matricule: req.body.matricule }),
-          ...(req.body.studentId !== undefined && { student_id: req.body.studentId }),
-          ...(req.body.className !== undefined && { class_name: req.body.className })
+          ...(req.body.phone !== undefined && { phone: req.body.phone })
         };
 
         const { data: sbUser, error: sbUserError } = existingUser?.id
           ? await adminClient.from('users').update(payload).eq('id', existingUser.id).select('*').single()
           : await adminClient.from('users').insert([payload]).select('*').single();
 
-        if (sbUserError || !sbUser) throw sbUserError || dbInsertErr;
+        if (sbUserError || !sbUser) throw sbUserError || new Error('Impossible de synchroniser le compte utilisateur dans Supabase.');
         return res.json(mapSupabaseUser(sbUser));
       }
+
+      const newUser = await db.insert(users).values({
+        ...req.body,
+        uid: resolvedUid,
+        status: req.body.status || 'Actif',
+        schoolId: targetSchoolId
+      }).returning();
+      return res.json(newUser[0]);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
