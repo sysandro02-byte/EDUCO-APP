@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { fetchAdminRegisteredSchools } from '../src/services/api';
+import { fetchAdminExportData, fetchAdminRegisteredSchools } from '../src/services/api';
 import { 
   DollarSign, 
   TrendingUp, 
@@ -42,6 +42,8 @@ export const AdminFinancialSurveillancePage: React.FC<AdminFinancialSurveillance
   const [selectedSchool, setSelectedSchool] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [schoolsList, setSchoolsList] = useState<any[]>([]);
+  const [dbPayments, setDbPayments] = useState<any[]>(payments);
+  const [dbTransactions, setDbTransactions] = useState<any[]>(transactions);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -50,6 +52,12 @@ export const AdminFinancialSurveillancePage: React.FC<AdminFinancialSurveillance
         const res = await fetchAdminRegisteredSchools();
         if (res && res.schools) {
           setSchoolsList(res.schools);
+        }
+        const exportRes = await fetchAdminExportData();
+        if (exportRes?.success) {
+          setDbPayments(exportRes.payments || []);
+          setDbTransactions(exportRes.transactions || []);
+          if (exportRes.schools?.length) setSchoolsList(exportRes.schools);
         }
       } catch (err) {
         console.error("Error fetching schools in financial page:", err);
@@ -62,22 +70,35 @@ export const AdminFinancialSurveillancePage: React.FC<AdminFinancialSurveillance
 
   const defaultFinancials = useMemo(() => {
     return schoolsList.map(s => {
-      const price = s.subscription?.price || 0;
-      const isPaid = s.subscription?.isActive ? price : 0;
+      const schoolPayments = dbPayments.filter(p => Number(p.schoolId) === Number(s.id));
+      const schoolTransactions = dbTransactions.filter(t => Number(t.schoolId) === Number(s.id));
+      const paymentRevenue = schoolPayments.reduce((sum, p) => sum + Number(p.amountPaid || p.amount || 0), 0);
+      const transactionRevenue = schoolTransactions
+        .filter(t => ['income', 'recette', 'revenu'].includes(String(t.type || '').toLowerCase()))
+        .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      const totalExpenses = schoolTransactions
+        .filter(t => ['expense', 'dépense', 'depense'].includes(String(t.type || '').toLowerCase()))
+        .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      const subscriptionRevenue = s.subscription?.isActive ? Number(s.subscription?.amountPaid || s.subscription?.price || 0) : 0;
+      const totalRevenue = paymentRevenue + transactionRevenue + subscriptionRevenue;
+      const totalFees = schoolPayments.reduce((sum, p) => sum + Number(p.totalFees || p.amount || 0), 0);
+      const recoveryRate = totalFees > 0 ? Number(((paymentRevenue / totalFees) * 100).toFixed(1)) : (totalRevenue > 0 ? 100 : 0);
+      const pendingTuition = Math.max(0, totalFees - paymentRevenue);
+      const netBalance = totalRevenue - totalExpenses;
       return {
         id: String(s.id),
         school: s.name,
-        totalRevenue: isPaid,
-        totalExpenses: 0,
-        netBalance: isPaid,
-        recoveryRate: s.subscription?.isActive ? 100.0 : 0.0,
-        pendingTuition: s.subscription?.isActive ? 0 : price,
-        cashboxStatus: s.subscription?.isActive ? 'Conforme' : 'Inactif',
-        riskLevel: s.subscription?.isActive ? 'Faible' : 'Non applicable',
+        totalRevenue,
+        totalExpenses,
+        netBalance,
+        recoveryRate,
+        pendingTuition,
+        cashboxStatus: netBalance >= 0 ? 'Conforme' : 'Déficit',
+        riskLevel: pendingTuition > 0 || netBalance < 0 ? 'À surveiller' : 'Faible',
         lastAudit: s.subscription?.updatedAt ? new Date(s.subscription.updatedAt).toLocaleDateString('fr-FR') : 'Non audité'
       };
     });
-  }, [schoolsList]);
+  }, [schoolsList, dbPayments, dbTransactions]);
 
   const financialAlerts = useMemo(() => {
     return schoolsList
@@ -155,7 +176,7 @@ export const AdminFinancialSurveillancePage: React.FC<AdminFinancialSurveillance
           <p className="text-xl font-black text-slate-900 dark:text-white font-mono">
             {(totalAllRevenue / 1000000).toFixed(1)} M FCFA
           </p>
-          <span className="text-[11px] text-emerald-600 font-bold">+14.2% vs N-1</span>
+          <span className="text-[11px] text-emerald-600 font-bold">Calculé depuis Supabase</span>
         </div>
 
         <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">

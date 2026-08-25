@@ -689,7 +689,7 @@ export async function runSupabaseDeepDiagnostic() {
       const data = await res.json();
       if (data && data.success) {
         logs.push(`Diagnostic serveur: Succès`);
-        logs.push(`Connexion PostgreSQL active: OK`);
+        logs.push(`Connexion Supabase active: OK`);
         logs.push(`Table students: OK (${data.studentsCount} élèves)`);
         logs.push(`Table users: OK (${data.usersCount} utilisateurs)`);
         logs.push(`Table schools: OK (${data.schoolsCount} établissements)`);

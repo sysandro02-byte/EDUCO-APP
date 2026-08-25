@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { fetchAdminRegisteredSchools, runSupabaseDeepDiagnostic } from '../src/services/api';
+import { fetchAdminExportData, fetchAdminRegisteredSchools, runSupabaseDeepDiagnostic } from '../src/services/api';
 import { 
   Calendar, 
   Users, 
@@ -49,6 +49,8 @@ export const AdminAttendanceAnalyticsPage: React.FC<AdminAttendanceAnalyticsPage
   
   const [schoolsList, setSchoolsList] = useState<any[]>([]);
   const [totalStudents, setTotalStudents] = useState<number>(0);
+  const [dbAttendance, setDbAttendance] = useState<any[]>(attendance);
+  const [dbStudents, setDbStudents] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -62,6 +64,12 @@ export const AdminAttendanceAnalyticsPage: React.FC<AdminAttendanceAnalyticsPage
         if (diagRes && diagRes.success) {
           setTotalStudents(diagRes.studentsCount || 0);
         }
+        const exportRes = await fetchAdminExportData();
+        if (exportRes?.success) {
+          setDbAttendance(exportRes.attendance || []);
+          setDbStudents(exportRes.students || []);
+          setTotalStudents((exportRes.students || []).length || diagRes?.studentsCount || 0);
+        }
       } catch (err) {
         console.error("Error loading attendance page data:", err);
       } finally {
@@ -73,32 +81,72 @@ export const AdminAttendanceAnalyticsPage: React.FC<AdminAttendanceAnalyticsPage
 
   const availableSchools = schoolsList.length > 0 ? schoolsList : [];
 
-  // Weekly Attendance Trajectory Data (Mon to Fri) - Dynamic Operational Baseline
-  const weeklyData = useMemo(() => [
-    { day: 'Lundi', presenceRate: 100.0, retardRate: 0.0, absenceRate: 0.0, totalStudents, presentCount: totalStudents },
-    { day: 'Mardi', presenceRate: 100.0, retardRate: 0.0, absenceRate: 0.0, totalStudents, presentCount: totalStudents },
-    { day: 'Mercredi', presenceRate: 100.0, retardRate: 0.0, absenceRate: 0.0, totalStudents, presentCount: totalStudents },
-    { day: 'Jeudi', presenceRate: 100.0, retardRate: 0.0, absenceRate: 0.0, totalStudents, presentCount: totalStudents },
-    { day: 'Vendredi', presenceRate: 100.0, retardRate: 0.0, absenceRate: 0.0, totalStudents, presentCount: totalStudents }
-  ], [totalStudents]);
+  const filteredAttendance = useMemo(() => dbAttendance.filter(item => {
+    if (selectedSchool === 'all') return true;
+    const studentObj = dbStudents.find(s => Number(s.id) === Number(item.studentId));
+    return Number(studentObj?.schoolId || item.schoolId) === Number(selectedSchool);
+  }), [dbAttendance, dbStudents, selectedSchool]);
+
+  // Weekly Attendance Trajectory Data (Mon to Fri) - Supabase dynamic data
+  const weeklyData = useMemo(() => {
+    const days = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
+    return days.map((day, idx) => {
+      const dayMatches = filteredAttendance.filter(item => {
+        const itemDate = new Date(item.date);
+        return itemDate.getDay() === idx + 1 || String(item.date || '').toLowerCase().includes(day.toLowerCase());
+      });
+      const present = dayMatches.filter(i => ['present', 'présent', 'presente'].includes(String(i.status || '').toLowerCase())).length;
+      const late = dayMatches.filter(i => ['late', 'retard', 'en retard'].includes(String(i.status || '').toLowerCase())).length;
+      const absent = dayMatches.filter(i => ['absent', 'absence'].includes(String(i.status || '').toLowerCase())).length;
+      const total = present + late + absent;
+      return {
+        day,
+        presenceRate: total ? Number(((present / total) * 100).toFixed(1)) : 0,
+        retardRate: total ? Number(((late / total) * 100).toFixed(1)) : 0,
+        absenceRate: total ? Number(((absent / total) * 100).toFixed(1)) : 0,
+        totalStudents: total,
+        presentCount: present
+      };
+    });
+  }, [filteredAttendance]);
+
+  const averagePresenceRate = useMemo(() => {
+    const totalRecords = filteredAttendance.length;
+    if (!totalRecords) return 0;
+    const presentRecords = filteredAttendance.filter(i => ['present', 'présent', 'presente'].includes(String(i.status || '').toLowerCase())).length;
+    return Number(((presentRecords / totalRecords) * 100).toFixed(1));
+  }, [filteredAttendance]);
+
+  const totalLateRecords = useMemo(() => filteredAttendance.filter(i => ['late', 'retard', 'en retard'].includes(String(i.status || '').toLowerCase())).length, [filteredAttendance]);
+  const totalAbsentRecords = useMemo(() => filteredAttendance.filter(i => ['absent', 'absence'].includes(String(i.status || '').toLowerCase())).length, [filteredAttendance]);
 
   // Breakdown by School for Direction Générale
   const schoolComparisonData = useMemo(() => {
-    return schoolsList.map(s => ({
-      school: s.name,
-      presenceRate: 100.0,
-      retards: 0,
-      absences: 0,
-      status: s.subscription?.isActive ? 'Optimal' : 'Inactif'
-    }));
-  }, [schoolsList]);
+    return schoolsList.map(s => {
+      const schoolStudents = dbStudents.filter(st => Number(st.schoolId) === Number(s.id));
+      const studentIds = new Set(schoolStudents.map(st => Number(st.id)));
+      const rows = dbAttendance.filter(a => Number(a.schoolId) === Number(s.id) || studentIds.has(Number(a.studentId)));
+      const present = rows.filter(i => ['present', 'présent', 'presente'].includes(String(i.status || '').toLowerCase())).length;
+      const late = rows.filter(i => ['late', 'retard', 'en retard'].includes(String(i.status || '').toLowerCase())).length;
+      const absent = rows.filter(i => ['absent', 'absence'].includes(String(i.status || '').toLowerCase())).length;
+      const total = present + late + absent;
+      const presenceRate = total ? Number(((present / total) * 100).toFixed(1)) : 0;
+      return {
+        school: s.name,
+        presenceRate,
+        retards: late,
+        absences: absent,
+        status: total === 0 ? 'Aucune donnée' : presenceRate >= 90 ? 'Optimal' : presenceRate >= 75 ? 'Normal' : 'À surveiller'
+      };
+    });
+  }, [schoolsList, dbAttendance, dbStudents]);
 
   // Breakdown by Educational Cycle
   const cycleData = [
-    { cycle: 'Maternelle (Petite/Moy/Grande)', rate: 100.0, color: '#10B981' },
-    { cycle: 'Primaire (CI -> CM2)', rate: 100.0, color: '#3B82F6' },
-    { cycle: 'Collège (6ème -> 3ème)', rate: 100.0, color: '#6366F1' },
-    { cycle: 'Lycée (2nde -> Tle)', rate: 100.0, color: '#EC4899' }
+    { cycle: 'Maternelle (Petite/Moy/Grande)', rate: 0, color: '#10B981' },
+    { cycle: 'Primaire (CI -> CM2)', rate: 0, color: '#3B82F6' },
+    { cycle: 'Collège (6ème -> 3ème)', rate: 0, color: '#6366F1' },
+    { cycle: 'Lycée (2nde -> Tle)', rate: 0, color: '#EC4899' }
   ];
 
   return (
@@ -157,7 +205,7 @@ export const AdminAttendanceAnalyticsPage: React.FC<AdminAttendanceAnalyticsPage
             <span className="text-xs font-black uppercase tracking-wider">Taux de Présence Moyen</span>
             <TrendingUp className="w-4 h-4 text-emerald-500" />
           </div>
-          <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono">100.0%</p>
+          <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono">{averagePresenceRate.toFixed(1)}%</p>
           <span className="text-[11px] text-slate-400 font-medium">Données en temps réel</span>
         </div>
 
@@ -175,8 +223,8 @@ export const AdminAttendanceAnalyticsPage: React.FC<AdminAttendanceAnalyticsPage
             <span className="text-xs font-black uppercase tracking-wider">Retards Cumulés</span>
             <Clock className="w-4 h-4 text-amber-500" />
           </div>
-          <p className="text-2xl font-black text-amber-600 dark:text-amber-400 font-mono">0.0%</p>
-          <span className="text-[11px] text-amber-600 font-bold">Aucun retard à signaler</span>
+          <p className="text-2xl font-black text-amber-600 dark:text-amber-400 font-mono">{totalLateRecords}</p>
+          <span className="text-[11px] text-amber-600 font-bold">{totalLateRecords === 0 ? 'Aucun retard à signaler' : 'Retards enregistrés'}</span>
         </div>
 
         <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
@@ -184,8 +232,8 @@ export const AdminAttendanceAnalyticsPage: React.FC<AdminAttendanceAnalyticsPage
             <span className="text-xs font-black uppercase tracking-wider">Absences Non Justifiées</span>
             <AlertCircle className="w-4 h-4 text-[#1F4A59] dark:text-sky-400" />
           </div>
-          <p className="text-2xl font-black text-slate-900 dark:text-white font-mono">0.0%</p>
-          <span className="text-[11px] text-[#1F4A59] dark:text-sky-400 font-bold">0 alerte envoyée aux parents</span>
+          <p className="text-2xl font-black text-slate-900 dark:text-white font-mono">{totalAbsentRecords}</p>
+          <span className="text-[11px] text-[#1F4A59] dark:text-sky-400 font-bold">{totalAbsentRecords} absence{totalAbsentRecords > 1 ? 's' : ''} enregistrée{totalAbsentRecords > 1 ? 's' : ''}</span>
         </div>
       </div>
 
@@ -206,7 +254,7 @@ export const AdminAttendanceAnalyticsPage: React.FC<AdminAttendanceAnalyticsPage
             <BarChart data={weeklyData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis dataKey="day" stroke="#64748b" tick={{ fontSize: 12, fontWeight: 700 }} />
-              <YAxis domain={[80, 100]} stroke="#64748b" unit="%" tick={{ fontSize: 11 }} />
+              <YAxis domain={[0, 100]} stroke="#64748b" unit="%" tick={{ fontSize: 11 }} />
               <Tooltip 
                 contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '1rem', color: '#fff' }}
                 formatter={(value: any, name: string) => [`${value}%`, name === 'presenceRate' ? 'Présents' : name === 'retardRate' ? 'Retards' : 'Absences']}

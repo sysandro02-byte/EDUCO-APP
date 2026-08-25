@@ -167,7 +167,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       desc: 'Comptes, attributions de rôles, permissions et sécurité',
       icon: Users,
       color: 'from-emerald-600 to-teal-600',
-      badge: `${dbStats.usersCount !== null ? dbStats.usersCount : (users.length > 0 ? users.length : 84)} Utilisateurs`,
+      badge: `${dbStats.usersCount !== null ? dbStats.usersCount : users.length} Utilisateurs`,
       page: 'Gestion Utilisateurs'
     },
     {
@@ -203,7 +203,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       desc: 'Évolution hebdomadaire des présences des élèves (Vue DG)',
       icon: Calendar,
       color: 'from-emerald-500 to-green-600',
-      badge: '95.7% Présence',
+      badge: `${dbAttendance.length > 0 ? 'Données réelles' : '0% Présence'}`,
       page: 'Présences par Établissement'
     },
     {
@@ -212,7 +212,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       desc: 'Santé du cluster, réactivité API, schémas & métriques',
       icon: Activity,
       color: 'from-amber-600 to-orange-600',
-      badge: '28ms Latence',
+      badge: dbStats.usersCount !== null ? 'Connecté' : 'À vérifier',
       page: 'Diagnostic Supabase'
     },
     {
@@ -230,7 +230,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       desc: 'Trajectoire budgétaire semestrielle et marges nettes par école',
       icon: TrendingUp,
       color: 'from-blue-600 to-cyan-600',
-      badge: '+34.8 M FCFA',
+      badge: formatAmountMillions(financialStats.totalPaid),
       page: 'Revenus vs Dépenses'
     },
     {
@@ -260,7 +260,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       badge: 'Système v2.0',
       page: 'Paramètres'
     }
-  ], [activeLicencesCount, dbStats.usersCount, users, schoolsList]);
+  ], [activeLicencesCount, dbStats.usersCount, users, schoolsList, dbAttendance.length, financialStats.totalPaid]);
 
   // Weekly Attendance Trajectory dynamically calculated
   const weeklyAttendance = useMemo(() => {
@@ -272,14 +272,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
 
     if (filtered.length === 0) {
-      const seed = selectedSchoolId === 'all' ? 5 : Number(selectedSchoolId);
-      return [
-        { day: 'Lundi', presenceRate: 95.0 + (seed % 3) * 0.5, retardRate: 2.0 + (seed % 2) * 0.4, absenceRate: 3.0 - (seed % 3) * 0.2 },
-        { day: 'Mardi', presenceRate: 96.2 + (seed % 2) * 0.4, retardRate: 1.8 + (seed % 3) * 0.3, absenceRate: 2.0 - (seed % 2) * 0.2 },
-        { day: 'Mercredi', presenceRate: 97.5 + (seed % 4) * 0.2, retardRate: 1.0 + (seed % 2) * 0.2, absenceRate: 1.5 - (seed % 4) * 0.1 },
-        { day: 'Jeudi', presenceRate: 94.5 + (seed % 3) * 0.4, retardRate: 2.5 + (seed % 2) * 0.5, absenceRate: 3.0 - (seed % 3) * 0.3 },
-        { day: 'Vendredi', presenceRate: 93.0 + (seed % 5) * 0.5, retardRate: 3.5 + (seed % 3) * 0.4, absenceRate: 3.5 - (seed % 5) * 0.3 }
-      ];
+      return days.map(day => ({ day, presenceRate: 0, retardRate: 0, absenceRate: 0 }));
     }
 
     return days.map(day => {
@@ -291,8 +284,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       });
 
       if (dayMatches.length === 0) {
-        const seed = day.length;
-        return { day, presenceRate: 95.5 + (seed % 3) * 0.4, retardRate: 2.1 + (seed % 2) * 0.3, absenceRate: 2.4 - (seed % 3) * 0.2 };
+        return { day, presenceRate: 0, retardRate: 0, absenceRate: 0 };
       }
 
       const present = dayMatches.filter(i => i.status === 'present' || i.status === 'Présent').length;
@@ -328,18 +320,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     const hasData = filteredPayments.length > 0 || filteredTxs.length > 0;
     if (!hasData) {
-      const activeSchoolsCount = schoolsList.length || 1;
-      const baseScale = activeSchoolsCount * 6.5;
-      return activeMonths.map((m, idx) => {
-        const factor = 1 + Math.sin(idx) * 0.15;
-        const revVal = Number((baseScale * factor).toFixed(1));
-        const expVal = Number((baseScale * 0.65 * factor).toFixed(1));
-        return {
-          month: m.name,
-          revenus: revVal,
-          depenses: expVal
-        };
-      });
+      return activeMonths.map(m => ({
+        month: m.name,
+        revenus: 0,
+        depenses: 0
+      }));
     }
 
     return activeMonths.map(m => {

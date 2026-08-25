@@ -188,6 +188,87 @@ const mapSupabaseGrade = (g: any, subjectName?: string) => g ? ({
   teacherId: g.teacher_id || g.teacherId,
   date: g.date
 }) : null;
+
+const mapSupabaseSubscription = (s: any) => s ? ({
+  id: s.id,
+  code: s.code,
+  schoolId: s.school_id || s.schoolId,
+  schoolName: s.school_name || s.schoolName || 'Établissement',
+  schoolIdentifier: s.school_identifier || s.schoolIdentifier,
+  promoterName: s.promoter_name || s.promoterName,
+  promoterContact: s.promoter_contact || s.promoterContact,
+  planType: s.plan_type || s.planType || 'standard',
+  amountPaid: Number(s.amount_paid ?? s.amountPaid ?? 0),
+  months: Number(s.months || 1),
+  status: s.status || 'active',
+  startDate: s.start_date || s.startDate,
+  endDate: s.end_date || s.endDate,
+  autoRenew: Boolean(s.auto_renew ?? s.autoRenew),
+  autoRenewFrequency: s.auto_renew_frequency || s.autoRenewFrequency || 'before_expiry',
+  createdAt: s.created_at || s.createdAt,
+  updatedAt: s.updated_at || s.updatedAt,
+}) : null;
+
+const mapSupabaseSubscriptionRequest = (r: any) => r ? ({
+  id: r.id,
+  schoolId: r.school_id || r.schoolId,
+  schoolIdentifier: r.school_identifier || r.schoolIdentifier,
+  schoolName: r.school_name || r.schoolName || 'Établissement',
+  promoterName: r.promoter_name || r.promoterName || 'Promoteur',
+  promoterContact: r.promoter_contact || r.promoterContact || '',
+  requestedPlan: r.requested_plan || r.requestedPlan || 'standard',
+  requestedMonths: Number(r.requested_months || r.requestedMonths || 1),
+  status: r.status || 'pending',
+  createdAt: r.created_at || r.createdAt,
+}) : null;
+
+const mapSupabaseSurvey = (s: any) => s ? ({
+  id: s.id,
+  schoolId: s.school_id || s.schoolId,
+  title: s.title,
+  description: s.description || '',
+  category: s.category || 'Général',
+  targetAudience: s.target_audience || s.targetAudience || 'all',
+  deadline: s.deadline,
+  status: s.status || 'active',
+  questions: s.questions || [],
+  creatorName: s.creator_name || s.creatorName || 'Direction',
+  creatorRole: s.creator_role || s.creatorRole || 'Admin',
+  createdAt: s.created_at || s.createdAt,
+}) : null;
+
+const mapSupabaseSurveyResponse = (r: any) => r ? ({
+  id: r.id,
+  surveyId: r.survey_id || r.surveyId,
+  parentName: r.parent_name || r.parentName,
+  parentPhone: r.parent_phone || r.parentPhone || '',
+  parentEmail: r.parent_email || r.parentEmail || '',
+  studentName: r.student_name || r.studentName || '',
+  studentClass: r.student_class || r.studentClass || '',
+  channel: r.channel || 'whatsapp',
+  answers: r.answers || {},
+  comment: r.comment || '',
+  submittedAt: r.submitted_at || r.submittedAt,
+}) : null;
+
+const orderByCreatedDesc = (items: any[]) => [...items].sort((a, b) => {
+  const at = new Date(a.createdAt || a.created_at || 0).getTime();
+  const bt = new Date(b.createdAt || b.created_at || 0).getTime();
+  return bt - at;
+});
+
+const getSupabaseRows = async (client: any, table: string, columns = '*') => {
+  const { data, error } = await client.from(table).select(columns);
+  if (error) throw error;
+  return data || [];
+};
+
+const deleteSupabaseBySchool = async (client: any, table: string, schoolId: number) => {
+  const { error } = await client.from(table).delete().eq('school_id', schoolId);
+  if (error) {
+    console.warn(`Supabase cleanup warning for ${table}:`, error.message);
+  }
+};
 import { 
   otpManager, 
   sendBrevoEmail, 
@@ -248,8 +329,17 @@ async function startServer() {
   // Get All Accounts in Supabase DB
   app.get('/api/db/accounts', async (req, res) => {
     try {
-      const userList = await db.select().from(users);
-      const schoolList = await db.select().from(schools);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) {
+        return res.status(503).json({ success: false, error: 'Supabase non configuré' });
+      }
+
+      const [rawUsers, rawSchools] = await Promise.all([
+        getSupabaseRows(supabaseAdmin, 'users'),
+        getSupabaseRows(supabaseAdmin, 'schools')
+      ]);
+      const userList = rawUsers.map(mapSupabaseUser).filter(Boolean);
+      const schoolList = rawSchools.map(mapSupabaseSchool).filter(Boolean);
       res.json({
         success: true,
         count: userList.length,
@@ -297,6 +387,73 @@ async function startServer() {
         schoolsCount: 0,
         personnelCount: 0
       });
+    }
+  });
+
+  // Safe Supabase table preview endpoint used by the Admin diagnostic console.
+  // It intentionally supports only read-only SELECT ... FROM <table> LIMIT <n> previews.
+  app.post('/api/db/query', async (req, res) => {
+    try {
+      const query = String(req.body?.query || '').trim();
+      if (!query) {
+        return res.status(400).json({ success: false, error: 'Requête vide.' });
+      }
+      if (!/^select\b/i.test(query)) {
+        return res.status(400).json({ success: false, error: 'Seules les requêtes SELECT de lecture sont autorisées.' });
+      }
+
+      const tableMatch = query.match(/\bfrom\s+([a-zA-Z_][a-zA-Z0-9_]*)/i);
+      const limitMatch = query.match(/\blimit\s+(\d+)/i);
+      const table = tableMatch?.[1]?.toLowerCase();
+      const limit = Math.min(Math.max(Number(limitMatch?.[1] || 25), 1), 100);
+      const allowedTables = new Set([
+        'schools',
+        'users',
+        'students',
+        'personnel',
+        'classes',
+        'fees',
+        'payments',
+        'transactions',
+        'attendance',
+        'grades',
+        'subjects',
+        'notifications',
+        'subscriptions',
+        'subscription_requests',
+        'surveys',
+        'survey_responses',
+        'activity_logs'
+      ]);
+
+      if (!table || !allowedTables.has(table)) {
+        return res.status(400).json({ success: false, error: 'Table non autorisée ou introuvable dans la requête.' });
+      }
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (supabaseAdmin) {
+        const { data, error, count } = await supabaseAdmin
+          .from(table)
+          .select('*', { count: 'exact' })
+          .limit(limit);
+        if (error) throw error;
+        return res.json({ success: true, source: 'supabase', table, rows: data || [], rowCount: count ?? data?.length ?? 0 });
+      }
+
+      if (!isDbConfigured()) {
+        return res.status(503).json({ success: false, error: 'Supabase non configuré et PostgreSQL désactivé.' });
+      }
+
+      const fallbackTables: Record<string, any> = {
+        schools, users, students, personnel, classes, fees, payments, transactions,
+        attendance, grades, subjects, notifications, subscriptions, subscription_requests: subscriptionRequests,
+        surveys, survey_responses: surveyResponses, activity_logs: activityLogs
+      };
+      const rows = await db.select().from(fallbackTables[table]).limit(limit);
+      res.json({ success: true, source: 'fallback-db', table, rows, rowCount: rows.length });
+    } catch (error: any) {
+      console.error('Safe DB query error:', error);
+      res.status(500).json({ success: false, error: error?.message || 'Erreur lors de la lecture Supabase.' });
     }
   });
 
@@ -477,6 +634,14 @@ async function startServer() {
   // Seed / Sync Initial Data to Cloud SQL
   app.post('/api/db/init-seed', async (req, res) => {
     try {
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (supabaseAdmin) {
+        return res.json({
+          success: true,
+          message: 'Supabase est la base principale : seed PostgreSQL ignoré, synchronisation initiale validée.'
+        });
+      }
+
       const { initialUsers, initialClasses, initialFees, initialTransactions, initialBudget, initialPersonnel, initialSettings } = req.body;
 
       // Seed Users if table is empty
@@ -560,12 +725,27 @@ async function startServer() {
         return res.json({ success: true, message: 'Aucune opération à synchroniser' });
       }
 
+      const supabaseAdmin = getSupabaseAdmin(req);
       let processedCount = 0;
       for (const op of operations) {
         try {
           if (op.type === 'TRANSACTION') {
             const t = op.payload;
             if (t) {
+              if (supabaseAdmin) {
+                const { error } = await supabaseAdmin.from('transactions').insert([{
+                  school_id: t.schoolId || t.school_id || null,
+                  description: t.description || '',
+                  type: t.type || 'expense',
+                  amount: Number(t.amount) || 0,
+                  date: t.date || new Date().toISOString(),
+                  category: t.category || 'Autres',
+                  recorded_by: t.recordedBy || t.recorded_by || null,
+                }]);
+                if (error) throw error;
+                processedCount++;
+                continue;
+              }
               await db.insert(transactions).values({
                 description: t.description,
                 type: t.type,
@@ -578,6 +758,21 @@ async function startServer() {
           } else if (op.type === 'PAYMENT') {
             const p = op.payload;
             if (p) {
+              if (supabaseAdmin) {
+                const { error } = await supabaseAdmin.from('payments').insert([{
+                  school_id: p.schoolId || p.school_id || null,
+                  student_id: p.studentId || p.student_id || null,
+                  fee_id: p.feeId || p.fee_id || null,
+                  amount: Number(p.amountPaid || p.amount) || 0,
+                  payment_date: p.paymentDate || p.payment_date || new Date().toISOString(),
+                  payment_method: p.paymentMethod || p.payment_method || 'Espèces',
+                  receipt_number: p.receiptNumber || p.receipt_number || `REC-${Date.now()}`,
+                  status: p.status || 'paid',
+                }]);
+                if (error) throw error;
+                processedCount++;
+                continue;
+              }
               await db.insert(payments).values({
                 studentId: p.studentId,
                 amount: Number(p.amountPaid) || 0,
@@ -591,6 +786,20 @@ async function startServer() {
           } else if (op.type === 'USER') {
             const u = op.payload;
             if (u) {
+              if (supabaseAdmin) {
+                const { error } = await supabaseAdmin.from('users').upsert([{
+                  uid: u.uid || `local_${Date.now()}`,
+                  school_id: u.schoolId || u.school_id || null,
+                  name: u.name || u.email?.split('@')[0] || 'Utilisateur',
+                  role: u.role || 'Parent',
+                  email: u.email,
+                  status: u.status || 'active',
+                  avatar: u.avatar || null,
+                }], { onConflict: 'email' });
+                if (error) throw error;
+                processedCount++;
+                continue;
+              }
               await db.insert(users).values({
                 uid: u.uid || `local_${Date.now()}`,
                 name: u.name,
@@ -627,6 +836,20 @@ async function startServer() {
       
       const schoolId = dbUser.schoolId;
       if (!schoolId) return res.status(403).json({ error: 'No school associated' });
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (supabaseAdmin) {
+        await Promise.all([
+          deleteSupabaseBySchool(supabaseAdmin, 'payments', Number(schoolId)),
+          deleteSupabaseBySchool(supabaseAdmin, 'transactions', Number(schoolId)),
+          deleteSupabaseBySchool(supabaseAdmin, 'fees', Number(schoolId)),
+          deleteSupabaseBySchool(supabaseAdmin, 'classes', Number(schoolId)),
+          deleteSupabaseBySchool(supabaseAdmin, 'subjects', Number(schoolId)),
+          deleteSupabaseBySchool(supabaseAdmin, 'personnel', Number(schoolId)),
+          deleteSupabaseBySchool(supabaseAdmin, 'students', Number(schoolId)),
+        ]);
+        return res.json({ success: true, message: 'Données de l\'établissement réinitialisées avec succès dans Supabase.' });
+      }
 
       // Order to avoid FK constraint violations
       await db.delete(notifications).where(eq(notifications.userId, dbUser.id));
@@ -1494,10 +1717,18 @@ async function startServer() {
       const targetUserId = parseInt(rawId, 10);
       if (isNaN(targetUserId)) return res.status(400).json({ error: 'ID utilisateur invalide' });
 
-      const [targetUser] = await db.select().from(users).where(eq(users.id, targetUserId));
+      const supabaseAdmin = getSupabaseAdmin(req);
+      let targetUser: any = null;
+      if (supabaseAdmin) {
+        const { data, error } = await supabaseAdmin.from('users').select('*').eq('id', targetUserId).maybeSingle();
+        if (error) throw error;
+        targetUser = mapSupabaseUser(data);
+      } else {
+        const [dbTargetUser] = await db.select().from(users).where(eq(users.id, targetUserId));
+        targetUser = dbTargetUser;
+      }
       const tempPass = `Educo${Math.floor(1000 + Math.random() * 9000)}!`;
 
-      const supabaseAdmin = getSupabaseAdmin(req);
       if (supabaseAdmin && targetUser?.uid) {
         try {
           await supabaseAdmin.auth.admin.updateUserById(targetUser.uid, {
@@ -1533,30 +1764,55 @@ async function startServer() {
         return res.status(400).json({ error: 'ID utilisateur invalide' });
       }
 
-      // Fetch target user details before deletion
-      const [targetUser] = await db.select().from(users).where(eq(users.id, targetUserId));
+      const supabaseAdmin = getSupabaseAdmin(req);
+      let targetUser: any = null;
+      if (supabaseAdmin) {
+        const { data, error } = await supabaseAdmin.from('users').select('*').eq('id', targetUserId).maybeSingle();
+        if (error) throw error;
+        targetUser = mapSupabaseUser(data);
 
-      // Delete referencing dependent records
-      await db.delete(students).where(eq(students.userId, targetUserId));
-      await db.delete(personnel).where(eq(personnel.userId, targetUserId));
-      await db.delete(notifications).where(eq(notifications.userId, targetUserId));
-      await db.delete(users).where(eq(users.id, targetUserId));
+        await Promise.all([
+          supabaseAdmin.from('students').delete().eq('user_id', targetUserId),
+          supabaseAdmin.from('personnel').delete().eq('user_id', targetUserId),
+          supabaseAdmin.from('notifications').delete().eq('user_id', targetUserId),
+        ]);
+        await supabaseAdmin.from('users').delete().eq('id', targetUserId).throwOnError();
+        if (targetUser?.uid) {
+          await supabaseAdmin.auth.admin.deleteUser(targetUser.uid).catch((e: any) => {
+            console.warn('Supabase Auth delete warning:', e?.message || e);
+          });
+        }
+      } else {
+        // Fetch target user details before deletion
+        const [dbTargetUser] = await db.select().from(users).where(eq(users.id, targetUserId));
+        targetUser = dbTargetUser;
+
+        // Delete referencing dependent records
+        await db.delete(students).where(eq(students.userId, targetUserId));
+        await db.delete(personnel).where(eq(personnel.userId, targetUserId));
+        await db.delete(notifications).where(eq(notifications.userId, targetUserId));
+        await db.delete(users).where(eq(users.id, targetUserId));
+      }
 
       // Also delete from Supabase client directly
-      await deleteUserFromSupabaseDirectly(targetUserId);
+      if (!supabaseAdmin) {
+        await deleteUserFromSupabaseDirectly(targetUserId);
+      }
 
       // Log action into activityLogs table in DB and Supabase
       const logDetails = `Compte supprimé : ID ${targetUserId}, Nom : ${targetUser?.name || 'Inconnu'}, Email : ${targetUser?.email || 'N/A'}, Rôle : ${targetUser?.role || 'N/A'}`;
       try {
-        await db.insert(activityLogs).values({
-          schoolId: dbUser?.schoolId || 1,
-          schoolName: `Établissement #${dbUser?.schoolId || 1}`,
-          userName: dbUser?.name || 'Admin',
-          userRole: dbUser?.role || 'Admin',
-          userEmail: dbUser?.email || '',
-          action: 'Suppression de compte',
-          details: logDetails,
-        });
+        if (!supabaseAdmin) {
+          await db.insert(activityLogs).values({
+            schoolId: dbUser?.schoolId || 1,
+            schoolName: `Établissement #${dbUser?.schoolId || 1}`,
+            userName: dbUser?.name || 'Admin',
+            userRole: dbUser?.role || 'Admin',
+            userEmail: dbUser?.email || '',
+            action: 'Suppression de compte',
+            details: logDetails,
+          });
+        }
         await saveActivityLogToSupabaseDirectly({
           action: 'Suppression de compte',
           details: logDetails,
@@ -1586,6 +1842,46 @@ async function startServer() {
       const rawSchoolId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
       const targetSchoolId = parseInt(rawSchoolId, 10);
       const schoolName = req.body?.schoolName || `Établissement #${targetSchoolId}`;
+      if (!targetSchoolId || isNaN(targetSchoolId)) {
+        return res.status(400).json({ error: 'Identifiant établissement invalide.' });
+      }
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (supabaseAdmin) {
+        const tableOrder = [
+          'survey_responses',
+          'surveys',
+          'subscription_requests',
+          'subscriptions',
+          'notifications',
+          'timetable',
+          'attendance',
+          'grades',
+          'subjects',
+          'payments',
+          'transactions',
+          'fees',
+          'students',
+          'personnel',
+          'classes',
+          'users',
+        ];
+        for (const table of tableOrder) {
+          await deleteSupabaseBySchool(supabaseAdmin, table, targetSchoolId);
+        }
+        await supabaseAdmin.from('schools').delete().eq('id', targetSchoolId).throwOnError();
+
+        await saveActivityLogToSupabaseDirectly({
+          action: 'Suppression d\'établissement',
+          details: `Établissement supprimé : "${schoolName}" (ID: ${targetSchoolId})`,
+          userName: dbUser?.name,
+          userRole: dbUser?.role,
+          userEmail: dbUser?.email,
+          schoolId: targetSchoolId,
+        });
+
+        return res.json({ success: true, message: 'Établissement et toutes ses données supprimés définitivement de Supabase.' });
+      }
 
       // Purge in Supabase
       await purgeSchoolSupabaseDirectly(targetSchoolId.toString(), {
@@ -2300,14 +2596,36 @@ async function startServer() {
         });
       }
 
-      const schoolResult = await db.select().from(schools).where(eq(schools.id, dbUser.schoolId)).limit(1);
-      const school = schoolResult[0];
+      const supabaseAdmin = getSupabaseAdmin(req);
+      let school: any = null;
+      if (supabaseAdmin) {
+        const { data: sbSchool } = await supabaseAdmin
+          .from('schools')
+          .select('*')
+          .eq('id', dbUser.schoolId)
+          .maybeSingle();
+        school = mapSupabaseSchool(sbSchool);
+      } else {
+        const schoolResult = await db.select().from(schools).where(eq(schools.id, dbUser.schoolId)).limit(1);
+        school = schoolResult[0];
+      }
       const schoolIdentifier = school?.identifier || `EDUCO-SCH-${dbUser.schoolId.toString().padStart(4, '0')}`;
 
       // Query active subscription for this school
-      const subList = await db.select().from(subscriptions)
-        .where(eq(subscriptions.schoolId, dbUser.schoolId))
-        .orderBy(desc(subscriptions.endDate));
+      let subList: any[] = [];
+      if (supabaseAdmin) {
+        const { data: sbSubs, error } = await supabaseAdmin
+          .from('subscriptions')
+          .select('*')
+          .eq('school_id', dbUser.schoolId);
+        if (error) throw error;
+        subList = (sbSubs || []).map(mapSupabaseSubscription).filter(Boolean)
+          .sort((a: any, b: any) => new Date(b.endDate || 0).getTime() - new Date(a.endDate || 0).getTime());
+      } else {
+        subList = await db.select().from(subscriptions)
+          .where(eq(subscriptions.schoolId, dbUser.schoolId))
+          .orderBy(desc(subscriptions.endDate));
+      }
 
       const activeSub = subList[0];
       const now = new Date();
@@ -2378,12 +2696,26 @@ async function startServer() {
         return res.status(403).json({ error: 'Aucun établissement associé à votre compte.' });
       }
 
-      const schoolResult = await db.select().from(schools).where(eq(schools.id, dbUser.schoolId)).limit(1);
-      const school = schoolResult[0];
+      const supabaseAdmin = getSupabaseAdmin(req);
+      let school: any = null;
+      if (supabaseAdmin) {
+        const { data: sbSchool } = await supabaseAdmin.from('schools').select('*').eq('id', dbUser.schoolId).maybeSingle();
+        school = mapSupabaseSchool(sbSchool);
+      } else {
+        const schoolResult = await db.select().from(schools).where(eq(schools.id, dbUser.schoolId)).limit(1);
+        school = schoolResult[0];
+      }
 
       // Find subscription in DB
-      const existing = await db.select().from(subscriptions).where(eq(subscriptions.code, cleanCode)).limit(1);
-      const sub = existing[0];
+      let sub: any = null;
+      if (supabaseAdmin) {
+        const { data: sbSub, error } = await supabaseAdmin.from('subscriptions').select('*').eq('code', cleanCode).maybeSingle();
+        if (error) throw error;
+        sub = mapSupabaseSubscription(sbSub);
+      } else {
+        const existing = await db.select().from(subscriptions).where(eq(subscriptions.code, cleanCode)).limit(1);
+        sub = existing[0];
+      }
 
       if (!sub) {
         return res.status(404).json({ error: 'Code d\'abonnement introuvable ou invalide.' });
@@ -2403,26 +2735,56 @@ async function startServer() {
       const durationDays = (sub.months || 1) * 30;
       const newEndDate = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
 
-      const [updatedSub] = await db.update(subscriptions)
-        .set({
-          schoolId: dbUser.schoolId,
-          schoolName: school?.name || sub.schoolName,
-          schoolIdentifier: school?.identifier || sub.schoolIdentifier,
-          status: 'active',
-          startDate: now,
-          endDate: newEndDate,
-          updatedAt: now,
-        })
-        .where(eq(subscriptions.id, sub.id))
-        .returning();
+      let updatedSub: any;
+      if (supabaseAdmin) {
+        const { data, error } = await supabaseAdmin
+          .from('subscriptions')
+          .update({
+            school_id: dbUser.schoolId,
+            school_name: school?.name || sub.schoolName,
+            school_identifier: school?.identifier || sub.schoolIdentifier,
+            status: 'active',
+            start_date: now.toISOString(),
+            end_date: newEndDate.toISOString(),
+            updated_at: now.toISOString(),
+          })
+          .eq('id', sub.id)
+          .select('*')
+          .single();
+        if (error) throw error;
+        updatedSub = mapSupabaseSubscription(data);
+      } else {
+        [updatedSub] = await db.update(subscriptions)
+          .set({
+            schoolId: dbUser.schoolId,
+            schoolName: school?.name || sub.schoolName,
+            schoolIdentifier: school?.identifier || sub.schoolIdentifier,
+            status: 'active',
+            startDate: now,
+            endDate: newEndDate,
+            updatedAt: now,
+          })
+          .where(eq(subscriptions.id, sub.id))
+          .returning();
+      }
 
       // Add a notification
-      await db.insert(notifications).values({
-        userId: dbUser.id,
-        title: 'Licence Activée avec Succès !',
-        message: `Votre abonnement ${updatedSub.planType === 'ai_premium' ? 'IA Premium' : 'Standard'} est activé pour ${updatedSub.months} mois jusqu'au ${newEndDate.toLocaleDateString('fr-FR')}.`,
-        type: 'subscription',
-      });
+      if (supabaseAdmin) {
+        await supabaseAdmin.from('notifications').insert([{
+          user_id: dbUser.id,
+          title: 'Licence Activée avec Succès !',
+          message: `Votre abonnement ${updatedSub.planType === 'ai_premium' ? 'IA Premium' : 'Standard'} est activé pour ${updatedSub.months} mois jusqu'au ${newEndDate.toLocaleDateString('fr-FR')}.`,
+          type: 'subscription',
+          is_read: false
+        }]).throwOnError();
+      } else {
+        await db.insert(notifications).values({
+          userId: dbUser.id,
+          title: 'Licence Activée avec Succès !',
+          message: `Votre abonnement ${updatedSub.planType === 'ai_premium' ? 'IA Premium' : 'Standard'} est activé pour ${updatedSub.months} mois jusqu'au ${newEndDate.toLocaleDateString('fr-FR')}.`,
+          type: 'subscription',
+        });
+      }
 
       // Dispatch Brevo email confirmation
       if (dbUser.email) {
@@ -2457,20 +2819,43 @@ async function startServer() {
         return res.status(403).json({ error: 'Aucun établissement associé.' });
       }
 
-      const schoolResult = await db.select().from(schools).where(eq(schools.id, dbUser.schoolId)).limit(1);
-      const school = schoolResult[0];
+      const supabaseAdmin = getSupabaseAdmin(req);
+      let school: any = null;
+      if (supabaseAdmin) {
+        const { data: sbSchool } = await supabaseAdmin.from('schools').select('*').eq('id', dbUser.schoolId).maybeSingle();
+        school = mapSupabaseSchool(sbSchool);
+      } else {
+        const schoolResult = await db.select().from(schools).where(eq(schools.id, dbUser.schoolId)).limit(1);
+        school = schoolResult[0];
+      }
       const schoolIdentifier = school?.identifier || `EDUCO-SCH-${dbUser.schoolId}`;
 
-      const [newRequest] = await db.insert(subscriptionRequests).values({
-        schoolId: dbUser.schoolId,
-        schoolIdentifier,
-        schoolName: school?.name || 'Établissement',
-        promoterName: dbUser.name,
-        promoterContact: dbUser.email,
-        requestedPlan: requestedPlan || 'standard',
-        requestedMonths: Number(requestedMonths) || 1,
-        status: 'pending',
-      }).returning();
+      let newRequest: any;
+      if (supabaseAdmin) {
+        const { data, error } = await supabaseAdmin.from('subscription_requests').insert([{
+          school_id: dbUser.schoolId,
+          school_identifier: schoolIdentifier,
+          school_name: school?.name || 'Établissement',
+          promoter_name: dbUser.name,
+          promoter_contact: dbUser.email,
+          requested_plan: requestedPlan || 'standard',
+          requested_months: Number(requestedMonths) || 1,
+          status: 'pending',
+        }]).select('*').single();
+        if (error) throw error;
+        newRequest = mapSupabaseSubscriptionRequest(data);
+      } else {
+        [newRequest] = await db.insert(subscriptionRequests).values({
+          schoolId: dbUser.schoolId,
+          schoolIdentifier,
+          schoolName: school?.name || 'Établissement',
+          promoterName: dbUser.name,
+          promoterContact: dbUser.email,
+          requestedPlan: requestedPlan || 'standard',
+          requestedMonths: Number(requestedMonths) || 1,
+          status: 'pending',
+        }).returning();
+      }
 
       res.json({
         success: true,
@@ -2491,11 +2876,10 @@ async function startServer() {
         return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
       }
 
-      let allSubs = await db.select().from(subscriptions).orderBy(desc(subscriptions.createdAt)).catch(() => []);
-      let allRequests = await db.select().from(subscriptionRequests).orderBy(desc(subscriptionRequests.createdAt)).catch(() => []);
-      let allSchools = await db.select().from(schools).catch(() => []);
-
       const supabaseAdmin = getSupabaseAdmin(req);
+      let allSubs = supabaseAdmin ? [] : await db.select().from(subscriptions).orderBy(desc(subscriptions.createdAt)).catch(() => []);
+      let allRequests = supabaseAdmin ? [] : await db.select().from(subscriptionRequests).orderBy(desc(subscriptionRequests.createdAt)).catch(() => []);
+      let allSchools = supabaseAdmin ? [] : await db.select().from(schools).catch(() => []);
       if (supabaseAdmin) {
         try {
           const [{ data: sbSubs }, { data: sbReqs }, { data: sbSchools }] = await Promise.all([
@@ -2507,24 +2891,7 @@ async function startServer() {
           if (sbSubs) {
             sbSubs.forEach(s => {
               if (!allSubs.some(x => x.id === s.id || (s.code && x.code === s.code))) {
-                allSubs.push({
-                  id: s.id,
-                  code: s.code,
-                  schoolId: s.school_id || s.schoolId,
-                  schoolName: s.school_name || s.schoolName || 'Établissement',
-                  schoolIdentifier: s.school_identifier || s.schoolIdentifier,
-                  promoterName: s.promoter_name || s.promoterName,
-                  promoterContact: s.promoter_contact || s.promoterContact,
-                  planType: s.plan_type || s.planType,
-                  amountPaid: s.amount_paid || s.amountPaid,
-                  months: s.months,
-                  status: s.status || 'active',
-                  startDate: s.start_date ? new Date(s.start_date) : new Date(),
-                  endDate: s.end_date ? new Date(s.end_date) : new Date(),
-                  autoRenew: Boolean(s.auto_renew ?? s.autoRenew),
-                  autoRenewFrequency: s.auto_renew_frequency || s.autoRenewFrequency || 'before_expiry',
-                  createdAt: s.created_at ? new Date(s.created_at) : new Date()
-                } as any);
+                allSubs.push(mapSupabaseSubscription(s) as any);
               }
             });
           }
@@ -2532,18 +2899,7 @@ async function startServer() {
           if (sbReqs) {
             sbReqs.forEach(r => {
               if (!allRequests.some(x => x.id === r.id)) {
-                allRequests.push({
-                  id: r.id,
-                  schoolId: r.school_id || r.schoolId,
-                  schoolIdentifier: r.school_identifier || r.schoolIdentifier,
-                  schoolName: r.school_name || r.schoolName || 'Établissement',
-                  promoterName: r.promoter_name || r.promoterName,
-                  promoterContact: r.promoter_contact || r.promoterContact,
-                  requestedPlan: r.requested_plan || r.requestedPlan,
-                  requestedMonths: r.requested_months || r.requestedMonths || 1,
-                  status: r.status || 'pending',
-                  createdAt: r.created_at ? new Date(r.created_at) : new Date()
-                } as any);
+                allRequests.push(mapSupabaseSubscriptionRequest(r) as any);
               }
             });
           }
@@ -2617,51 +2973,55 @@ async function startServer() {
 
       // Match school if exists
       let matchedSchoolId: number | null = null;
+      const supabaseAdmin = getSupabaseAdmin(req);
       if (schoolIdentifier) {
-        const found = await db.select().from(schools).where(eq(schools.identifier, schoolIdentifier)).limit(1);
-        if (found[0]) matchedSchoolId = found[0].id;
+        if (supabaseAdmin) {
+          const { data: foundSchool } = await supabaseAdmin.from('schools').select('id').eq('identifier', schoolIdentifier).maybeSingle();
+          if (foundSchool?.id) matchedSchoolId = foundSchool.id;
+        } else {
+          const found = await db.select().from(schools).where(eq(schools.identifier, schoolIdentifier)).limit(1);
+          if (found[0]) matchedSchoolId = found[0].id;
+        }
       }
 
-      const [newSub] = await db.insert(subscriptions).values({
-        code,
-        schoolId: matchedSchoolId,
-        schoolName: schoolName || 'Établissement',
-        schoolIdentifier: schoolIdentifier || `EDUCO-SCH-${Math.floor(1000 + Math.random() * 9000)}`,
-        promoterName: promoterName || 'Promoteur',
-        promoterContact: promoterContact || '',
-        planType: isAI ? 'ai_premium' : 'standard',
-        amountPaid: computedAmount,
-        months: numMonths,
-        status: 'active',
-        startDate: now,
-        endDate,
-        autoRenew: Boolean(autoRenew),
-        autoRenewFrequency: autoRenewFrequency || 'before_expiry',
-      }).returning();
-
-      // Sync to Supabase subscriptions
-      const supabaseAdmin = getSupabaseAdmin(req);
+      const fallbackIdentifier = schoolIdentifier || `EDUCO-SCH-${Math.floor(1000 + Math.random() * 9000)}`;
+      let newSub: any;
       if (supabaseAdmin) {
-        try {
-          await supabaseAdmin.from('subscriptions').insert([{
-            code,
-            school_id: matchedSchoolId,
-            school_name: schoolName || 'Établissement',
-            school_identifier: schoolIdentifier || `EDUCO-SCH-${Math.floor(1000 + Math.random() * 9000)}`,
-            promoter_name: promoterName || 'Promoteur',
-            promoter_contact: promoterContact || '',
-            plan_type: isAI ? 'ai_premium' : 'standard',
-            amount_paid: computedAmount,
-            months: numMonths,
-            status: 'active',
-            start_date: now.toISOString(),
-            end_date: endDate.toISOString(),
-            auto_renew: Boolean(autoRenew),
-            auto_renew_frequency: autoRenewFrequency || 'before_expiry'
-          }]);
-        } catch (e) {
-          console.warn('Supabase subscription insert notice:', e);
-        }
+        const { data, error } = await supabaseAdmin.from('subscriptions').insert([{
+          code,
+          school_id: matchedSchoolId,
+          school_name: schoolName || 'Établissement',
+          school_identifier: fallbackIdentifier,
+          promoter_name: promoterName || 'Promoteur',
+          promoter_contact: promoterContact || '',
+          plan_type: isAI ? 'ai_premium' : 'standard',
+          amount_paid: computedAmount,
+          months: numMonths,
+          status: 'active',
+          start_date: now.toISOString(),
+          end_date: endDate.toISOString(),
+          auto_renew: Boolean(autoRenew),
+          auto_renew_frequency: autoRenewFrequency || 'before_expiry'
+        }]).select('*').single();
+        if (error) throw error;
+        newSub = mapSupabaseSubscription(data);
+      } else {
+        [newSub] = await db.insert(subscriptions).values({
+          code,
+          schoolId: matchedSchoolId,
+          schoolName: schoolName || 'Établissement',
+          schoolIdentifier: fallbackIdentifier,
+          promoterName: promoterName || 'Promoteur',
+          promoterContact: promoterContact || '',
+          planType: isAI ? 'ai_premium' : 'standard',
+          amountPaid: computedAmount,
+          months: numMonths,
+          status: 'active',
+          startDate: now,
+          endDate,
+          autoRenew: Boolean(autoRenew),
+          autoRenewFrequency: autoRenewFrequency || 'before_expiry',
+        }).returning();
       }
 
       res.json({
@@ -2686,8 +3046,16 @@ async function startServer() {
       const { subscriptionId, additionalMonths } = req.body;
       const addMonths = Number(additionalMonths) || 1;
 
-      const subResult = await db.select().from(subscriptions).where(eq(subscriptions.id, Number(subscriptionId))).limit(1);
-      const sub = subResult[0];
+      const supabaseAdmin = getSupabaseAdmin(req);
+      let sub: any = null;
+      if (supabaseAdmin) {
+        const { data: sbSub, error } = await supabaseAdmin.from('subscriptions').select('*').eq('id', Number(subscriptionId)).maybeSingle();
+        if (error) throw error;
+        sub = mapSupabaseSubscription(sbSub);
+      } else {
+        const subResult = await db.select().from(subscriptions).where(eq(subscriptions.id, Number(subscriptionId))).limit(1);
+        sub = subResult[0];
+      }
 
       if (!sub) {
         return res.status(404).json({ error: 'Abonnement introuvable.' });
@@ -2700,31 +3068,32 @@ async function startServer() {
       const newAmount = (sub.amountPaid || 0) + (monthlyRate * addMonths);
       const totalMonths = (sub.months || 1) + addMonths;
 
-      const [updatedSub] = await db.update(subscriptions)
-        .set({
-          endDate: newEndDate,
-          months: totalMonths,
-          amountPaid: newAmount,
-          status: 'active',
-          updatedAt: new Date(),
-        })
-        .where(eq(subscriptions.id, sub.id))
-        .returning();
-
-      const supabaseAdmin = getSupabaseAdmin(req);
+      let updatedSub: any;
       if (supabaseAdmin) {
-        try {
-          await supabaseAdmin.from('subscriptions')
-            .update({
-              end_date: newEndDate.toISOString(),
-              months: totalMonths,
-              amount_paid: newAmount,
-              status: 'active'
-            })
-            .eq('id', sub.id);
-        } catch (e) {
-          console.warn('Supabase subscription extend notice:', e);
-        }
+        const { data, error } = await supabaseAdmin.from('subscriptions')
+          .update({
+            end_date: newEndDate.toISOString(),
+            months: totalMonths,
+            amount_paid: newAmount,
+            status: 'active',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', sub.id)
+          .select('*')
+          .single();
+        if (error) throw error;
+        updatedSub = mapSupabaseSubscription(data);
+      } else {
+        [updatedSub] = await db.update(subscriptions)
+          .set({
+            endDate: newEndDate,
+            months: totalMonths,
+            amountPaid: newAmount,
+            status: 'active',
+            updatedAt: new Date(),
+          })
+          .where(eq(subscriptions.id, sub.id))
+          .returning();
       }
 
       res.json({
@@ -2747,27 +3116,29 @@ async function startServer() {
       }
 
       const { subscriptionId, autoRenew, autoRenewFrequency } = req.body;
-      const [updatedSub] = await db.update(subscriptions)
-        .set({
-          autoRenew: Boolean(autoRenew),
-          autoRenewFrequency: autoRenewFrequency || 'before_expiry',
-          updatedAt: new Date(),
-        })
-        .where(eq(subscriptions.id, Number(subscriptionId)))
-        .returning();
-
       const supabaseAdmin = getSupabaseAdmin(req);
+      let updatedSub: any;
       if (supabaseAdmin) {
-        try {
-          await supabaseAdmin.from('subscriptions')
-            .update({
-              auto_renew: Boolean(autoRenew),
-              auto_renew_frequency: autoRenewFrequency || 'before_expiry'
-            })
-            .eq('id', Number(subscriptionId));
-        } catch (e) {
-          console.warn('Supabase auto renew update notice:', e);
-        }
+        const { data, error } = await supabaseAdmin.from('subscriptions')
+          .update({
+            auto_renew: Boolean(autoRenew),
+            auto_renew_frequency: autoRenewFrequency || 'before_expiry',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', Number(subscriptionId))
+          .select('*')
+          .single();
+        if (error) throw error;
+        updatedSub = mapSupabaseSubscription(data);
+      } else {
+        [updatedSub] = await db.update(subscriptions)
+          .set({
+            autoRenew: Boolean(autoRenew),
+            autoRenewFrequency: autoRenewFrequency || 'before_expiry',
+            updatedAt: new Date(),
+          })
+          .where(eq(subscriptions.id, Number(subscriptionId)))
+          .returning();
       }
 
       res.json({
@@ -2792,25 +3163,13 @@ async function startServer() {
       const { requestId, autoRenew, autoRenewFrequency } = req.body;
       let request: any = null;
 
-      const reqResult = await db.select().from(subscriptionRequests).where(eq(subscriptionRequests.id, Number(requestId))).limit(1);
-      request = reqResult[0];
-
       const supabaseAdmin = getSupabaseAdmin(req);
-      if (!request && supabaseAdmin) {
+      if (supabaseAdmin) {
         const { data: sbReq } = await supabaseAdmin.from('subscription_requests').select('*').eq('id', Number(requestId)).single();
-        if (sbReq) {
-          request = {
-            id: sbReq.id,
-            schoolId: sbReq.school_id || sbReq.schoolId,
-            schoolName: sbReq.school_name || sbReq.schoolName,
-            schoolIdentifier: sbReq.school_identifier || sbReq.schoolIdentifier,
-            promoterName: sbReq.promoter_name || sbReq.promoterName,
-            promoterContact: sbReq.promoter_contact || sbReq.promoterContact,
-            requestedPlan: sbReq.requested_plan || sbReq.requestedPlan,
-            requestedMonths: sbReq.requested_months || sbReq.requestedMonths,
-            status: sbReq.status
-          };
-        }
+        request = mapSupabaseSubscriptionRequest(sbReq);
+      } else {
+        const reqResult = await db.select().from(subscriptionRequests).where(eq(subscriptionRequests.id, Number(requestId))).limit(1);
+        request = reqResult[0];
       }
 
       if (!request) {
@@ -2831,52 +3190,49 @@ async function startServer() {
       const now = new Date();
       const endDate = new Date(now.getTime() + numMonths * 30 * 24 * 60 * 60 * 1000);
 
-      const [newSub] = await db.insert(subscriptions).values({
-        code,
-        schoolId: request.schoolId,
-        schoolName: request.schoolName,
-        schoolIdentifier: request.schoolIdentifier,
-        promoterName: request.promoterName,
-        promoterContact: request.promoterContact,
-        planType: request.requestedPlan,
-        amountPaid,
-        months: numMonths,
-        status: 'active',
-        startDate: now,
-        endDate,
-        autoRenew: Boolean(autoRenew),
-        autoRenewFrequency: autoRenewFrequency || 'before_expiry',
-      }).returning();
-
-      await db.update(subscriptionRequests)
-        .set({ status: 'processed' })
-        .where(eq(subscriptionRequests.id, request.id))
-        .catch(() => {});
-
+      let newSub: any;
       if (supabaseAdmin) {
-        try {
-          await supabaseAdmin.from('subscriptions').insert([{
-            code,
-            school_id: request.schoolId,
-            school_name: request.schoolName,
-            school_identifier: request.schoolIdentifier,
-            promoter_name: request.promoterName,
-            promoter_contact: request.promoterContact,
-            plan_type: request.requestedPlan,
-            amount_paid: amountPaid,
-            months: numMonths,
-            status: 'active',
-            start_date: now.toISOString(),
-            end_date: endDate.toISOString(),
-            auto_renew: Boolean(autoRenew),
-            auto_renew_frequency: autoRenewFrequency || 'before_expiry'
-          }]);
-          await supabaseAdmin.from('subscription_requests')
-            .update({ status: 'processed' })
-            .eq('id', request.id);
-        } catch (e) {
-          console.warn('Supabase fulfill request update notice:', e);
-        }
+        const { data, error } = await supabaseAdmin.from('subscriptions').insert([{
+          code,
+          school_id: request.schoolId,
+          school_name: request.schoolName,
+          school_identifier: request.schoolIdentifier,
+          promoter_name: request.promoterName,
+          promoter_contact: request.promoterContact,
+          plan_type: request.requestedPlan,
+          amount_paid: amountPaid,
+          months: numMonths,
+          status: 'active',
+          start_date: now.toISOString(),
+          end_date: endDate.toISOString(),
+          auto_renew: Boolean(autoRenew),
+          auto_renew_frequency: autoRenewFrequency || 'before_expiry'
+        }]).select('*').single();
+        if (error) throw error;
+        newSub = mapSupabaseSubscription(data);
+        await supabaseAdmin.from('subscription_requests').update({ status: 'processed' }).eq('id', request.id).throwOnError();
+      } else {
+        [newSub] = await db.insert(subscriptions).values({
+          code,
+          schoolId: request.schoolId,
+          schoolName: request.schoolName,
+          schoolIdentifier: request.schoolIdentifier,
+          promoterName: request.promoterName,
+          promoterContact: request.promoterContact,
+          planType: request.requestedPlan,
+          amountPaid,
+          months: numMonths,
+          status: 'active',
+          startDate: now,
+          endDate,
+          autoRenew: Boolean(autoRenew),
+          autoRenewFrequency: autoRenewFrequency || 'before_expiry',
+        }).returning();
+
+        await db.update(subscriptionRequests)
+          .set({ status: 'processed' })
+          .where(eq(subscriptionRequests.id, request.id))
+          .catch(() => {});
       }
 
       res.json({
@@ -2909,6 +3265,45 @@ async function startServer() {
       let attendanceCount = 0;
       let gradesCount = 0;
       let subscriptionsCount = 0;
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (supabaseAdmin) {
+        const tables = [
+          ['students', 'studentsCount'],
+          ['users', 'usersCount'],
+          ['schools', 'schoolsCount'],
+          ['classes', 'classesCount'],
+          ['payments', 'paymentsCount'],
+          ['transactions', 'transactionsCount'],
+          ['attendance', 'attendanceCount'],
+          ['grades', 'gradesCount'],
+          ['subscriptions', 'subscriptionsCount'],
+        ] as const;
+
+        const counts = await Promise.all(tables.map(async ([table]) => {
+          const { count, error } = await supabaseAdmin.from(table).select('id', { count: 'exact', head: true });
+          if (error) {
+            console.warn(`Diagnostic Supabase count warning for ${table}:`, error.message);
+            return 0;
+          }
+          return count || 0;
+        }));
+
+        return res.json({
+          success: true,
+          studentsCount: counts[0],
+          usersCount: counts[1],
+          schoolsCount: counts[2],
+          classesCount: counts[3],
+          paymentsCount: counts[4],
+          transactionsCount: counts[5],
+          attendanceCount: counts[6],
+          gradesCount: counts[7],
+          subscriptionsCount: counts[8],
+          source: 'supabase',
+          timestamp: new Date().toISOString()
+        });
+      }
 
       try {
         const studRes = await db.select().from(students);
@@ -3002,50 +3397,28 @@ async function startServer() {
 
       const { schoolId } = req.query;
 
-      // Query real database records from local DB
-      let allPayments = await db.select().from(payments);
-      let allTransactions = await db.select().from(transactions);
-      let allSubscriptions = await db.select().from(subscriptions);
-
-      // Merge with Supabase DB if available
       const supabaseAdmin = getSupabaseAdmin();
+      let allPayments: any[] = [];
+      let allTransactions: any[] = [];
+      let allSubscriptions: any[] = [];
       if (supabaseAdmin) {
         try {
-          const { data: sbPayments } = await supabaseAdmin.from('payments').select('*');
-          if (sbPayments && sbPayments.length > 0) {
-            sbPayments.forEach(sp => {
-              if (!allPayments.some(p => p.id === sp.id)) {
-                allPayments.push({
-                  id: sp.id,
-                  schoolId: sp.school_id || sp.schoolId || 1,
-                  amount: sp.amount || 0,
-                  paymentDate: sp.payment_date || sp.paymentDate || sp.created_at,
-                  paymentType: sp.payment_type || sp.paymentType || 'frais_scolarite',
-                  status: sp.status || 'valide'
-                } as any);
-              }
-            });
-          }
-
-          const { data: sbTx } = await supabaseAdmin.from('transactions').select('*');
-          if (sbTx && sbTx.length > 0) {
-            sbTx.forEach(st => {
-              if (!allTransactions.some(t => t.id === st.id)) {
-                allTransactions.push({
-                  id: st.id,
-                  schoolId: st.school_id || st.schoolId || 1,
-                  amount: st.amount || 0,
-                  type: st.type || 'dépense',
-                  date: st.date || st.created_at,
-                  category: st.category || 'Général',
-                  description: st.description || ''
-                } as any);
-              }
-            });
-          }
+          const [{ data: sbPayments }, { data: sbTx }, { data: sbSubs }] = await Promise.all([
+            supabaseAdmin.from('payments').select('*'),
+            supabaseAdmin.from('transactions').select('*'),
+            supabaseAdmin.from('subscriptions').select('*')
+          ]);
+          allPayments = (sbPayments || []).map(mapSupabasePayment).filter(Boolean);
+          allTransactions = (sbTx || []).map(mapSupabaseTransaction).filter(Boolean);
+          allSubscriptions = (sbSubs || []).map(mapSupabaseSubscription).filter(Boolean);
         } catch (e) {
           console.warn('Supabase financials fetch warning:', e);
         }
+      } else {
+        // Query fallback database records only when Supabase is unavailable
+        allPayments = await db.select().from(payments);
+        allTransactions = await db.select().from(transactions);
+        allSubscriptions = await db.select().from(subscriptions);
       }
 
       if (schoolId && schoolId !== 'all') {
@@ -3131,12 +3504,11 @@ async function startServer() {
         return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
       }
 
-      let allSchools = await db.select().from(schools).orderBy(desc(schools.createdAt)).catch(() => []);
-      let allSubscriptions = await db.select().from(subscriptions).catch(() => []);
-      let allUsers = await db.select().from(users).catch(() => []);
-
       // Merge Supabase schools and subscriptions if available
       const supabaseAdmin = getSupabaseAdmin(req);
+      let allSchools = supabaseAdmin ? [] : await db.select().from(schools).orderBy(desc(schools.createdAt)).catch(() => []);
+      let allSubscriptions = supabaseAdmin ? [] : await db.select().from(subscriptions).catch(() => []);
+      let allUsers = supabaseAdmin ? [] : await db.select().from(users).catch(() => []);
       if (supabaseAdmin) {
         try {
           const [{ data: sbSchools }, { data: sbUsers }, { data: sbSubs }] = await Promise.all([
@@ -3631,6 +4003,32 @@ async function startServer() {
         return res.status(400).json({ error: 'Identifiant d\'établissement invalide.' });
       }
 
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (supabaseAdmin) {
+        const tableOrder = [
+          'survey_responses',
+          'surveys',
+          'subscription_requests',
+          'subscriptions',
+          'notifications',
+          'timetable',
+          'attendance',
+          'grades',
+          'subjects',
+          'payments',
+          'transactions',
+          'students',
+          'personnel',
+          'classes',
+          'users',
+        ];
+        for (const table of tableOrder) {
+          await deleteSupabaseBySchool(supabaseAdmin, table, schoolId);
+        }
+        await supabaseAdmin.from('schools').delete().eq('id', schoolId).throwOnError();
+        return res.json({ success: true, message: 'Établissement et toutes ses données supprimés définitivement de Supabase.' });
+      }
+
       // 1. Delete associated subscriptions, students, payments, transactions, personnel, classes, users
       await db.delete(subscriptions).where(eq(subscriptions.schoolId, schoolId));
       await db.delete(subscriptionRequests).where(eq(subscriptionRequests.schoolId, schoolId));
@@ -3658,16 +4056,25 @@ async function startServer() {
     try {
       const dbUser = await getUserByUid(req.user!.uid);
       const schoolId = dbUser?.schoolId;
+      const supabaseAdmin = getSupabaseAdmin(req);
 
       let surveyList;
-      if (schoolId) {
+      if (supabaseAdmin) {
+        let query = supabaseAdmin.from('surveys').select('*');
+        if (schoolId) query = query.eq('school_id', schoolId);
+        const { data, error } = await query.order('created_at', { ascending: false });
+        if (error) throw error;
+        surveyList = (data || []).map(mapSupabaseSurvey).filter(Boolean);
+      } else if (schoolId) {
         surveyList = await db.select().from(surveys).where(eq(surveys.schoolId, schoolId)).orderBy(desc(surveys.createdAt));
       } else {
         surveyList = await db.select().from(surveys).orderBy(desc(surveys.createdAt));
       }
 
       // Fetch response counts
-      const allResponses = await db.select().from(surveyResponses);
+      const allResponses = supabaseAdmin
+        ? (await getSupabaseRows(supabaseAdmin, 'survey_responses')).map(mapSupabaseSurveyResponse).filter(Boolean)
+        : await db.select().from(surveyResponses);
       const surveysWithStats = surveyList.map(s => {
         const responses = allResponses.filter(r => r.surveyId === s.id);
         return {
@@ -3693,27 +4100,56 @@ async function startServer() {
         return res.status(400).json({ error: 'Le titre du sondage est requis.' });
       }
 
-      const [newSurvey] = await db.insert(surveys).values({
-        schoolId: dbUser?.schoolId || null,
-        title,
-        description: description || '',
-        category: category || 'Activités parascolaires',
-        targetAudience: targetAudience || 'all',
-        deadline: deadline ? new Date(deadline) : null,
-        questions: questions || [],
-        creatorName: dbUser?.name || 'Direction',
-        creatorRole: dbUser?.role || 'Promoteur',
-        status: 'active',
-      }).returning();
+      const supabaseAdmin = getSupabaseAdmin(req);
+      let newSurvey: any;
+      if (supabaseAdmin) {
+        const { data, error } = await supabaseAdmin.from('surveys').insert([{
+          school_id: dbUser?.schoolId || null,
+          title,
+          description: description || '',
+          category: category || 'Activités parascolaires',
+          target_audience: targetAudience || 'all',
+          deadline: deadline ? new Date(deadline).toISOString() : null,
+          questions: questions || [],
+          creator_name: dbUser?.name || 'Direction',
+          creator_role: dbUser?.role || 'Promoteur',
+          status: 'active',
+        }]).select('*').single();
+        if (error) throw error;
+        newSurvey = mapSupabaseSurvey(data);
+      } else {
+        [newSurvey] = await db.insert(surveys).values({
+          schoolId: dbUser?.schoolId || null,
+          title,
+          description: description || '',
+          category: category || 'Activités parascolaires',
+          targetAudience: targetAudience || 'all',
+          deadline: deadline ? new Date(deadline) : null,
+          questions: questions || [],
+          creatorName: dbUser?.name || 'Direction',
+          creatorRole: dbUser?.role || 'Promoteur',
+          status: 'active',
+        }).returning();
+      }
 
       // Add notification for direction
       if (dbUser?.id) {
-        await db.insert(notifications).values({
-          userId: dbUser.id,
-          title: `Nouveau sondage créé : ${title}`,
-          message: `Le sondage est prêt à être partagé aux parents d'élèves par WhatsApp ou E-mail.`,
-          type: 'Information',
-        });
+        if (supabaseAdmin) {
+          await supabaseAdmin.from('notifications').insert([{
+            user_id: dbUser.id,
+            title: `Nouveau sondage créé : ${title}`,
+            message: `Le sondage est prêt à être partagé aux parents d'élèves par WhatsApp ou E-mail.`,
+            type: 'Information',
+            is_read: false,
+          }]).throwOnError();
+        } else {
+          await db.insert(notifications).values({
+            userId: dbUser.id,
+            title: `Nouveau sondage créé : ${title}`,
+            message: `Le sondage est prêt à être partagé aux parents d'élèves par WhatsApp ou E-mail.`,
+            type: 'Information',
+          });
+        }
       }
 
       res.json({ success: true, survey: newSurvey });
@@ -3732,17 +4168,35 @@ async function startServer() {
         return res.status(400).json({ error: 'Le nom du parent est obligatoire.' });
       }
 
-      const [newResponse] = await db.insert(surveyResponses).values({
-        surveyId,
-        parentName,
-        parentPhone: parentPhone || '',
-        parentEmail: parentEmail || '',
-        studentName: studentName || '',
-        studentClass: studentClass || '',
-        channel: channel || 'whatsapp',
-        answers: answers || {},
-        comment: comment || '',
-      }).returning();
+      const supabaseAdmin = getSupabaseAdmin(req);
+      let newResponse: any;
+      if (supabaseAdmin) {
+        const { data, error } = await supabaseAdmin.from('survey_responses').insert([{
+          survey_id: surveyId,
+          parent_name: parentName,
+          parent_phone: parentPhone || '',
+          parent_email: parentEmail || '',
+          student_name: studentName || '',
+          student_class: studentClass || '',
+          channel: channel || 'whatsapp',
+          answers: answers || {},
+          comment: comment || '',
+        }]).select('*').single();
+        if (error) throw error;
+        newResponse = mapSupabaseSurveyResponse(data);
+      } else {
+        [newResponse] = await db.insert(surveyResponses).values({
+          surveyId,
+          parentName,
+          parentPhone: parentPhone || '',
+          parentEmail: parentEmail || '',
+          studentName: studentName || '',
+          studentClass: studentClass || '',
+          channel: channel || 'whatsapp',
+          answers: answers || {},
+          comment: comment || '',
+        }).returning();
+      }
 
       res.json({
         success: true,
@@ -3758,14 +4212,33 @@ async function startServer() {
   app.get('/api/surveys/:id/report', requireAuth, async (req: AuthRequest, res) => {
     try {
       const surveyId = Number(req.params.id);
-      const surveyResult = await db.select().from(surveys).where(eq(surveys.id, surveyId)).limit(1);
-      const survey = surveyResult[0];
+      const supabaseAdmin = getSupabaseAdmin(req);
+      let survey: any = null;
+      let responses: any[] = [];
+      if (supabaseAdmin) {
+        const { data: sbSurvey, error: surveyError } = await supabaseAdmin.from('surveys').select('*').eq('id', surveyId).maybeSingle();
+        if (surveyError) throw surveyError;
+        survey = mapSupabaseSurvey(sbSurvey);
+      } else {
+        const surveyResult = await db.select().from(surveys).where(eq(surveys.id, surveyId)).limit(1);
+        survey = surveyResult[0];
+      }
 
       if (!survey) {
         return res.status(404).json({ error: 'Sondage introuvable.' });
       }
 
-      const responses = await db.select().from(surveyResponses).where(eq(surveyResponses.surveyId, surveyId)).orderBy(desc(surveyResponses.submittedAt));
+      if (supabaseAdmin) {
+        const { data: sbResponses, error: responseError } = await supabaseAdmin
+          .from('survey_responses')
+          .select('*')
+          .eq('survey_id', surveyId)
+          .order('submitted_at', { ascending: false });
+        if (responseError) throw responseError;
+        responses = (sbResponses || []).map(mapSupabaseSurveyResponse).filter(Boolean);
+      } else {
+        responses = await db.select().from(surveyResponses).where(eq(surveyResponses.surveyId, surveyId)).orderBy(desc(surveyResponses.submittedAt));
+      }
       
       // Calculate breakdown metrics per question
       const questionsList = (survey.questions as any[]) || [];
@@ -3835,8 +4308,16 @@ async function startServer() {
       const surveyId = Number(req.params.id);
       const { channel, customMessage } = req.body; // 'whatsapp' | 'email' | 'all'
       
-      const surveyResult = await db.select().from(surveys).where(eq(surveys.id, surveyId)).limit(1);
-      const survey = surveyResult[0];
+      const supabaseAdmin = getSupabaseAdmin(req);
+      let survey: any = null;
+      if (supabaseAdmin) {
+        const { data: sbSurvey, error } = await supabaseAdmin.from('surveys').select('*').eq('id', surveyId).maybeSingle();
+        if (error) throw error;
+        survey = mapSupabaseSurvey(sbSurvey);
+      } else {
+        const surveyResult = await db.select().from(surveys).where(eq(surveys.id, surveyId)).limit(1);
+        survey = surveyResult[0];
+      }
 
       if (!survey) {
         return res.status(404).json({ error: 'Sondage introuvable.' });
