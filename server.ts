@@ -2098,8 +2098,52 @@ async function startServer() {
         subjectId = createdSubject.id;
       }
 
+      const requestedStudentId = Number(req.body.studentId || req.body.student_id);
+      let resolvedStudentId = requestedStudentId;
+      const { data: existingStudentById } = await supabaseAdmin
+        .from('students')
+        .select('*')
+        .eq('id', requestedStudentId)
+        .limit(1)
+        .maybeSingle();
+      if (!existingStudentById) {
+        const { data: studentUser } = await supabaseAdmin
+          .from('users')
+          .select('*')
+          .eq('id', requestedStudentId)
+          .eq('school_id', dbUser.schoolId)
+          .limit(1)
+          .maybeSingle();
+        if (studentUser?.id) {
+          const { data: existingStudentByUser } = await supabaseAdmin
+            .from('students')
+            .select('*')
+            .eq('user_id', studentUser.id)
+            .limit(1)
+            .maybeSingle();
+          if (existingStudentByUser?.id) {
+            resolvedStudentId = existingStudentByUser.id;
+          } else {
+            const { data: createdStudent, error: studentError } = await supabaseAdmin
+              .from('students')
+              .insert([{
+                user_id: studentUser.id,
+                school_id: dbUser.schoolId,
+                student_id: studentUser.student_id || studentUser.matricule || `MAT-${studentUser.id}`,
+                parent_name: studentUser.parent_name || '',
+                parent_phone: studentUser.phone || '',
+                status: studentUser.status || 'active'
+              }])
+              .select('*')
+              .single();
+            if (studentError) throw studentError;
+            resolvedStudentId = createdStudent.id;
+          }
+        }
+      }
+
       const payload = {
-        student_id: Number(req.body.studentId || req.body.student_id),
+        student_id: resolvedStudentId,
         subject_id: Number(subjectId),
         class_id: Number(req.body.classId || req.body.class_id || 0) || null,
         score: Number(req.body.score || 0),
