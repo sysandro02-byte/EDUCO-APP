@@ -125,7 +125,7 @@ const mapSupabaseTransaction = (t: any) => t ? ({
   description: t.description,
   date: t.date,
   recordedBy: t.recorded_by || t.recordedBy,
-  status: t.status || (String(t.description || '').includes('(Status:') ? String(t.description).match(/\(Status:\s*([^)]+)\)/)?.[1] : undefined) || 'Approuvé'
+  status: (String(t.description || '').includes('(Status:') ? String(t.description).match(/\(Status:\s*([^)]+)\)/)?.[1] : undefined) || t.status || 'Approuvé'
 }) : null;
 
 const mapSupabasePayment = (p: any) => p ? ({
@@ -1757,8 +1757,6 @@ async function startServer() {
         .from('transactions')
         .update({
           status: req.body.status,
-          approved_by: dbUser.name || dbUser.email || 'Responsable',
-          approved_at: new Date().toISOString(),
           ...(req.body.description !== undefined && { description: req.body.description })
         })
         .eq('id', transactionId)
