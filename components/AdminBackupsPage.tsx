@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { purgeSupabaseDirectly, purgeSchoolSupabaseDirectly, restoreDataToSupabase } from '../src/lib/supabaseSeeder';
 import { getApiUrl } from '../src/lib/apiConfig';
 import { fetchAdminRegisteredSchools, fetchAdminExportData } from '../src/services/api';
-import { 
+import {
   Database, 
   Download, 
   Upload, 
@@ -25,6 +25,7 @@ import {
   Briefcase,
   Globe
 } from 'lucide-react';
+import { showAppFeedback } from '../src/utils/appFeedback';
 
 interface AdminBackupsPageProps {
   onExportBackup?: (encryptionPassword?: string) => void;
@@ -52,6 +53,11 @@ export const AdminBackupsPage: React.FC<AdminBackupsPageProps> = ({
   const [exportPassword, setExportPassword] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (!statusMessage) return;
+    showAppFeedback(statusMessage.text, statusMessage.type, statusMessage.type === 'success' ? 'Opération réussie' : statusMessage.type === 'error' ? 'Erreur' : 'Information');
+  }, [statusMessage]);
 
   // Reset Modal States
   const [isResetAllModalOpen, setIsResetAllModalOpen] = useState(false);

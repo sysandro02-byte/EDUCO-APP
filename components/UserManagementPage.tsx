@@ -40,6 +40,7 @@ import { USER_ROLES } from '../constants';
 import { Class } from './ClassForm';
 import { Fee } from './FeeForm';
 import { SchoolSettings, SchoolSubscriptionInfo } from '../App';
+import { showAppFeedback } from '../src/utils/appFeedback';
 
 interface UserManagementPageProps {
   users: User[];
@@ -91,6 +92,7 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
+    showAppFeedback(msg);
     setTimeout(() => setToastMessage(null), 3500);
   };
 

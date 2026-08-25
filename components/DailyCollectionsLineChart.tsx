@@ -194,45 +194,6 @@ const DailyCollectionsLineChart: React.FC<DailyCollectionsLineChartProps> = ({
       });
     }
 
-    // Fallback if completely zero: provide representative data pattern based on payments
-    if (totalCollected === 0 && payments.length > 0) {
-      const totalPaymentsSum = payments.reduce((s, p) => s + (p.amountPaid || 0), 0);
-      if (totalPaymentsSum > 0) {
-        // Distribute nicely across days
-        const avgPerKeyDay = Math.round(totalPaymentsSum / 6);
-        [2, 5, 10, 15, 20, 25].forEach(d => {
-          if (d <= daysInMonth && dailyMap[d]) {
-            dailyMap[d].amount = avgPerKeyDay;
-            dailyMap[d].count = Math.floor(payments.length / 6) || 1;
-          }
-        });
-
-        // Recompute
-        runningCumul = 0;
-        totalCollected = 0;
-        data.length = 0;
-        for (let day = 1; day <= daysInMonth; day++) {
-          const dayAmount = dailyMap[day].amount;
-          const dayCount = dailyMap[day].count;
-          runningCumul += dayAmount;
-          totalCollected += dayAmount;
-          totalOperations += dayCount;
-          if (dayAmount > maxDayAmount) {
-            maxDayAmount = dayAmount;
-            maxDayNum = day;
-          }
-          data.push({
-            day: `J${day < 10 ? '0' + day : day}`,
-            dayNumber: day,
-            label: `${day} ${MONTH_NAMES_FR[selectedMonth].slice(0, 3)}`,
-            'Encaissement du Jour': dayAmount,
-            'Cumul du Mois': runningCumul,
-            count: dayCount,
-          });
-        }
-      }
-    }
-
     const avg = daysInMonth > 0 ? Math.round(totalCollected / daysInMonth) : 0;
 
     return {
@@ -242,7 +203,7 @@ const DailyCollectionsLineChart: React.FC<DailyCollectionsLineChartProps> = ({
       bestDay: { day: maxDayNum, amount: maxDayAmount },
       totalOps: totalOperations,
     };
-  }, [transactions, payments, selectedYear, selectedMonth, daysInMonth]);
+  }, [transactions, selectedYear, selectedMonth, daysInMonth]);
 
   // Navigate months
   const handlePrevMonth = () => {

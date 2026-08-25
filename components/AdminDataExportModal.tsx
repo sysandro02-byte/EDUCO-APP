@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from '@e965/xlsx';
-import { 
+import {
   Download, 
   FileSpreadsheet, 
   Building2, 
@@ -18,6 +18,7 @@ import {
   Check
 } from 'lucide-react';
 import { fetchAdminExportData, fetchAdminRegisteredSchools } from '../src/services/api';
+import { showAppFeedback } from '../src/utils/appFeedback';
 
 interface AdminDataExportModalProps {
   isOpen: boolean;
@@ -56,6 +57,11 @@ export const AdminDataExportModal: React.FC<AdminDataExportModalProps> = ({
   });
 
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (!statusMessage) return;
+    showAppFeedback(statusMessage.text, statusMessage.type, statusMessage.type === 'success' ? 'Export terminé' : 'Erreur export');
+  }, [statusMessage]);
 
   useEffect(() => {
     if (!isOpen) return;

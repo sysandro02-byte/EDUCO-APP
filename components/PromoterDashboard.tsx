@@ -53,6 +53,7 @@ import {
   Lock,
   Key
 } from 'lucide-react';
+import { showAppFeedback } from '../src/utils/appFeedback';
 
 interface PromoterDashboardProps {
   users: any[];
@@ -115,6 +116,7 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
+    showAppFeedback(msg);
     setTimeout(() => setToastMessage(null), 3500);
   };
 

@@ -35,6 +35,7 @@ import { fetchAdminRegisteredSchools, deleteSchoolFromDb, saveActivityLogToDb } 
 import { purgeSchoolSupabaseDirectly, saveActivityLogToSupabaseDirectly } from '../src/lib/supabaseSeeder';
 import { SupabaseTesterModal } from './SupabaseTesterModal';
 import AdminDataExportModal from './AdminDataExportModal';
+import { showAppFeedback } from '../src/utils/appFeedback';
 
 interface SchoolDossier {
   id: number;
@@ -90,6 +91,7 @@ const AdminSchoolsDirectory: React.FC<AdminSchoolsDirectoryProps> = ({ onOpenLic
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
+    showAppFeedback(msg);
     setTimeout(() => setToastMessage(null), 4000);
   };
 

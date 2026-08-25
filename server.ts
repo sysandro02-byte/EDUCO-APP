@@ -251,6 +251,21 @@ const mapSupabaseSurveyResponse = (r: any) => r ? ({
   submittedAt: r.submitted_at || r.submittedAt,
 }) : null;
 
+const mapSupabaseNotification = (n: any) => n ? ({
+  id: n.id,
+  notifId: n.notif_id || n.notifId,
+  userId: n.user_id || n.userId,
+  title: n.title || 'Notification',
+  message: n.message || '',
+  type: n.type || 'Information',
+  isRead: Boolean(n.is_read ?? n.isRead ?? n.read),
+  read: Boolean(n.is_read ?? n.isRead ?? n.read),
+  timestamp: n.created_at || n.createdAt || n.timestamp || new Date().toISOString(),
+  createdAt: n.created_at || n.createdAt,
+  link: n.link || n.page || '',
+  roles: n.roles || [],
+}) : null;
+
 const orderByCreatedDesc = (items: any[]) => [...items].sort((a, b) => {
   const at = new Date(a.createdAt || a.created_at || 0).getTime();
   const bt = new Date(b.createdAt || b.created_at || 0).getTime();
@@ -2504,6 +2519,168 @@ async function startServer() {
       res.json({ success: true, sent: data?.length || 0, messages: data || [] });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/notifications', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getUserByUid(req.user!.uid);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
+
+      const { data, error } = await supabaseAdmin
+        .from('notifications')
+        .select('*')
+        .eq('user_id', dbUser?.id || req.user?.id)
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) throw error;
+
+      res.json({ success: true, notifications: (data || []).map(mapSupabaseNotification).filter(Boolean) });
+    } catch (error: any) {
+      console.error('Notifications fetch error:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post('/api/notifications/:id/read', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getUserByUid(req.user!.uid);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
+
+      const { data, error } = await supabaseAdmin
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('id', Number(req.params.id))
+        .eq('user_id', dbUser?.id || req.user?.id)
+        .select('*')
+        .maybeSingle();
+      if (error) throw error;
+
+      res.json({ success: true, notification: mapSupabaseNotification(data) });
+    } catch (error: any) {
+      console.error('Notification mark-read error:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post('/api/notifications/read-all', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getUserByUid(req.user!.uid);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
+
+      const { error } = await supabaseAdmin
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('user_id', dbUser?.id || req.user?.id);
+      if (error) throw error;
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Notification mark-all-read error:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.delete('/api/notifications/:id', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getUserByUid(req.user!.uid);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
+
+      const { error } = await supabaseAdmin
+        .from('notifications')
+        .delete()
+        .eq('id', Number(req.params.id))
+        .eq('user_id', dbUser?.id || req.user?.id);
+      if (error) throw error;
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Notification delete error:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.delete('/api/notifications', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getUserByUid(req.user!.uid);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
+
+      const { error } = await supabaseAdmin
+        .from('notifications')
+        .delete()
+        .eq('user_id', dbUser?.id || req.user?.id);
+      if (error) throw error;
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Notifications clear error:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post('/api/admin/broadcast-notifications', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getUserByUid(req.user!.uid);
+      const userRole = req.user?.role || dbUser?.role;
+      if (userRole !== 'Admin' && userRole !== 'Co-admin') {
+        return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
+      }
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
+
+      const title = String(req.body.title || req.body.subject || 'Message EDUCO').trim();
+      const message = String(req.body.message || req.body.body || '').trim();
+      if (!message) return res.status(400).json({ success: false, error: 'Le contenu du message est obligatoire.' });
+
+      const targetAudience = req.body.targetAudience || 'all_schools';
+      const selectedSchoolId = req.body.schoolId || req.body.selectedSchoolId;
+      const roleMap: Record<string, string[]> = {
+        promoters: ['Promoteur', 'Admin', 'Co-admin'],
+        directors: ['Directeur Général', 'Directeur', 'Directeur des Etudes', 'DE'],
+        raf: ['Responsable des finances', 'RAF'],
+      };
+
+      let usersQuery = supabaseAdmin.from('users').select('*');
+      if (targetAudience === 'specific_school' && selectedSchoolId) {
+        usersQuery = usersQuery.eq('school_id', Number(selectedSchoolId));
+      }
+      if (roleMap[targetAudience]) {
+        usersQuery = usersQuery.in('role', roleMap[targetAudience]);
+      }
+
+      const { data: recipients, error: recipientsError } = await usersQuery;
+      if (recipientsError) throw recipientsError;
+
+      const rows = (recipients || []).map((u: any) => ({
+        user_id: u.id,
+        title,
+        message,
+        type: 'Message Admin',
+        is_read: false,
+      }));
+
+      if (rows.length === 0) {
+        return res.json({ success: true, sent: 0, message: 'Aucun destinataire trouvé.' });
+      }
+
+      const { data, error } = await supabaseAdmin.from('notifications').insert(rows).select('*');
+      if (error) throw error;
+
+      res.json({
+        success: true,
+        sent: data?.length || 0,
+        notifications: (data || []).map(mapSupabaseNotification).filter(Boolean),
+        message: `Message Admin envoyé à ${data?.length || 0} destinataire(s).`
+      });
+    } catch (error: any) {
+      console.error('Admin broadcast notifications error:', error);
+      res.status(500).json({ success: false, error: error.message });
     }
   });
 

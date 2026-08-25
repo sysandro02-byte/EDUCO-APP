@@ -68,7 +68,7 @@ const WeeklyAttendanceChartCard: React.FC<WeeklyAttendanceChartCardProps> = ({
       ? students
       : students.filter(s => s.class === selectedClass);
     
-    const totalStudentsCount = Math.max(classStudents.length, selectedClass === 'all' ? Math.max(students.length, 120) : 32);
+    const totalStudentsCount = classStudents.length;
 
     // Build day-by-day weekly metrics
     return DAYS_OF_WEEK.map((dayName, index) => {
@@ -91,18 +91,10 @@ const WeeklyAttendanceChartCard: React.FC<WeeklyAttendanceChartCardProps> = ({
         presentCount = dayAttendance.filter(a => a.status === 'Présent' || a.status === 'present').length;
         absentCount = dayAttendance.filter(a => a.status === 'Absent' || a.status === 'absent').length;
         lateCount = dayAttendance.filter(a => a.status === 'En retard' || a.status === 'late' || a.status === 'Retard').length;
-      } else {
-        // Deterministic realistic simulated weekly trend when records are fresh
-        // Mondays/Fridays slightly more absences, Tuesdays/Thursdays peak attendance
-        const variation = (Math.sin(index * 1.5) * 0.04) + (index === 0 ? -0.03 : index === 4 ? -0.02 : index === 5 ? -0.08 : 0.02);
-        const baseRate = Math.min(0.98, Math.max(0.85, 0.93 + variation));
-        presentCount = Math.round(totalStudentsCount * baseRate);
-        absentCount = Math.max(0, Math.round(totalStudentsCount * (1 - baseRate) * 0.7));
-        lateCount = Math.max(0, totalStudentsCount - presentCount - absentCount);
       }
 
-      const totalRecorded = presentCount + absentCount + lateCount || totalStudentsCount;
-      const attendanceRate = Math.round((presentCount / totalRecorded) * 100);
+      const totalRecorded = presentCount + absentCount + lateCount;
+      const attendanceRate = totalRecorded > 0 ? Math.round((presentCount / totalRecorded) * 100) : 0;
       const punctualityRate = Math.round(((presentCount) / (presentCount + lateCount || 1)) * 100);
 
       return {

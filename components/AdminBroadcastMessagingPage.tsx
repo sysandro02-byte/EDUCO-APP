@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { fetchAdminRegisteredSchools, fetchAdminExportData } from '../src/services/api';
+import { fetchAdminRegisteredSchools, fetchAdminExportData, sendAdminBroadcastNotification } from '../src/services/api';
+import { showAppFeedback } from '../src/utils/appFeedback';
 import { 
   MessageSquare, 
   Send, 
@@ -143,43 +144,62 @@ Cordialement, la Direction du Système d'Information.`
     setMessageBody(tpl.body);
   };
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!messageSubject.trim() || !messageBody.trim()) {
-      setStatusNotification({ type: 'error', text: 'Veuillez renseigner un objet et un contenu de message.' });
+      const text = 'Veuillez renseigner un objet et un contenu de message.';
+      setStatusNotification({ type: 'error', text });
+      showAppFeedback(text, 'warning', 'Message incomplet');
       return;
     }
 
     setIsSending(true);
     setStatusNotification(null);
 
-    setTimeout(() => {
-      setIsSending(false);
-
+    try {
       const channelLabel = sendEmailToInscrits 
         ? `${channel === 'in_app' ? 'In-App' : channel === 'email' ? 'Email' : 'SMS'} + Mail Inscrits (${activeEmailInscrits.length})`
         : (channel === 'in_app' ? 'Notification In-App' : channel === 'email' ? 'Email Officiel' : 'SMS / WhatsApp');
 
+      const result = await sendAdminBroadcastNotification({
+        targetAudience,
+        selectedSchoolId,
+        schoolId: selectedSchoolId,
+        title: messageSubject,
+        message: messageBody,
+      });
+
+      if (!result?.success) {
+        throw new Error(result?.error || 'Impossible d’envoyer le message Admin.');
+      }
+
       setBroadcastHistory(prev => [
         {
-          id: `MSG-${Math.floor(100 + Math.random() * 900)}`,
+          id: `MSG-${Date.now()}`,
           date: new Date().toLocaleString('fr-FR'),
           subject: messageSubject,
-          recipients: targetAudience === 'all_schools' ? `Tous les Établissements (${schoolsList.length})` : 'Ciblé',
+          recipients: targetAudience === 'all_schools' ? `Tous les Établissements (${result.sent || 0} destinataires)` : `${result.sent || 0} destinataire(s)`,
           channel: channelLabel,
-          status: 'Délivré 100%'
+          status: 'Notifié'
         },
         ...prev
       ]);
 
       const successMsg = sendEmailToInscrits 
-        ? `Message diffusé avec succès ! ${activeEmailInscrits.length} e-mails de notification ont été envoyés avec succès aux inscrits via le Module Mail.`
-        : 'Message diffusé avec succès auprès des destinataires ciblés !';
+        ? `Message diffusé avec succès ! ${result.sent || 0} notification(s) in-app créées et ${activeEmailInscrits.length} e-mails prêts pour les inscrits.`
+        : `Message diffusé avec succès auprès de ${result.sent || 0} destinataire(s).`;
 
       setStatusNotification({ type: 'success', text: successMsg });
+      showAppFeedback(successMsg, 'success', 'Message Admin envoyé');
       setMessageSubject('');
       setMessageBody('');
-    }, 1200);
+    } catch (err: any) {
+      const text = err?.message || 'Erreur lors de l’envoi du message Admin.';
+      setStatusNotification({ type: 'error', text });
+      showAppFeedback(text, 'error', 'Erreur d’envoi');
+    } finally {
+      setIsSending(false);
+    }
   };
 
   return (

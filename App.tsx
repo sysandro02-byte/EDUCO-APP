@@ -83,7 +83,7 @@ import { compressBase64Image } from './utils/imageCompressor';
 import { getSupabaseClient, getStoredSupabaseConfig } from './src/lib/supabase';
 import { purgeSupabaseDirectly, purgeSchoolSupabaseDirectly, deleteUserFromSupabaseDirectly, saveActivityLogToSupabaseDirectly, fetchActivityLogsFromSupabaseDirectly } from './src/lib/supabaseSeeder';
 import { getApiUrl } from './src/lib/apiConfig';
-import { getCurrentUser, findUserByEmail, getSchoolSettings, saveUserToDb, deleteUserFromDb, deleteSchoolFromDb, saveActivityLogToDb, fetchActivityLogsFromDb, checkDbConnection, syncInitialData, fetchCurrentSubscription, SchoolSubscriptionInfo, fetchAdminExportData, fetchAdminRegisteredSchools, saveTransactionToDb, savePaymentToDb, updateTransactionStatusInDb, savePersonnelToDb, saveClassToDb, saveFeeToDb, saveGradeToDb, sendMessageToDb, checkInterSchoolStudentDebt } from './src/services/api';
+import { getCurrentUser, findUserByEmail, getSchoolSettings, saveUserToDb, deleteUserFromDb, deleteSchoolFromDb, saveActivityLogToDb, fetchActivityLogsFromDb, checkDbConnection, syncInitialData, fetchCurrentSubscription, SchoolSubscriptionInfo, fetchAdminExportData, fetchAdminRegisteredSchools, saveTransactionToDb, savePaymentToDb, updateTransactionStatusInDb, savePersonnelToDb, saveClassToDb, saveFeeToDb, saveGradeToDb, sendMessageToDb, checkInterSchoolStudentDebt, fetchNotificationsFromDb, markNotificationAsReadInDb, markAllNotificationsAsReadInDb, deleteNotificationFromDb, clearNotificationsInDb } from './src/services/api';
 import { DbStatus } from './src/services/api';
 import { Database, CheckCircle2, User as UserIcon, Camera, Settings, LogOut, Shield, ChevronDown, Lock, Zap, Sparkles, Key, ShieldCheck, X, AlertCircle, AlertTriangle } from 'lucide-react';
 import LockedFeatureGuard from './components/LockedFeatureGuard';
@@ -714,11 +714,9 @@ const App: React.FC = () => {
   // Global override for window.alert to display modern Modal popups everywhere
   useEffect(() => {
     const originalAlert = window.alert;
-    window.alert = (message?: any) => {
-      const msgString = String(message || '');
+    const normalizeFeedbackType = (msgString: string): { type: 'info' | 'warning' | 'error' | 'success'; title: string } => {
       let type: 'info' | 'warning' | 'error' | 'success' = 'info';
       let title = 'Information';
-
       const lower = msgString.toLowerCase();
       if (
         lower.includes('erreur') || 
@@ -726,14 +724,21 @@ const App: React.FC = () => {
         lower.includes('aucune') || 
         lower.includes('impossible') || 
         lower.includes('rejeté') ||
+        lower.includes('refus') ||
         lower.includes('seul') ||
         lower.includes('veuillez') ||
         lower.includes('fermée')
       ) {
-        type = 'warning';
-        title = 'Avertissement / Information';
+        type = lower.includes('erreur') || lower.includes('impossible') ? 'error' : 'warning';
+        title = type === 'error' ? 'Erreur' : 'Avertissement / Information';
       } else if (
         lower.includes('succès') || 
+        lower.includes('validé') ||
+        lower.includes('validée') ||
+        lower.includes('modifié') ||
+        lower.includes('modifiée') ||
+        lower.includes('exporté') ||
+        lower.includes('exportée') ||
         lower.includes('enregistré') || 
         lower.includes('sauvegardé') || 
         lower.includes('approuvé') ||
@@ -743,6 +748,12 @@ const App: React.FC = () => {
         type = 'success';
         title = 'Succès';
       }
+      return { type, title };
+    };
+
+    window.alert = (message?: any) => {
+      const msgString = String(message || '');
+      const { type, title } = normalizeFeedbackType(msgString);
 
       setAppAlert({
         isOpen: true,
@@ -752,8 +763,23 @@ const App: React.FC = () => {
       });
     };
 
+    const handleModalFeedback = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const msgString = String(detail.message || '');
+      const normalized = normalizeFeedbackType(msgString);
+      setAppAlert({
+        isOpen: true,
+        title: detail.title || normalized.title,
+        message: msgString,
+        type: detail.type || normalized.type,
+      });
+    };
+
+    window.addEventListener('educo:modal-feedback', handleModalFeedback);
+
     return () => {
       window.alert = originalAlert;
+      window.removeEventListener('educo:modal-feedback', handleModalFeedback);
     };
   }, []);
 
@@ -814,21 +840,21 @@ const App: React.FC = () => {
         });
 
         // Initialize App State from offline storage if available, or fall back to initial values
-        setUsers(offlineCache?.users || (initialUsers as User[]));
-        setPayments(offlineCache?.payments || initialPayments);
-        setPersonnel(offlineCache?.personnel || (initialPersonnel as Personnel[]));
-        setTransactions(offlineCache?.transactions || (initialTransactions as Transaction[]));
+        setUsers(offlineCache?.users || []);
+        setPayments(offlineCache?.payments || []);
+        setPersonnel(offlineCache?.personnel || []);
+        setTransactions(offlineCache?.transactions || []);
         setBudget(offlineCache?.budget || initialBudget);
-        setTopClasses(offlineCache?.topClasses || initialTopClasses);
-        setNotifications(offlineCache?.notifications || initialNotifications);
-        setMessages(offlineCache?.messages || initialMessages);
+        setTopClasses(offlineCache?.topClasses || []);
+        setNotifications(offlineCache?.notifications || []);
+        setMessages(offlineCache?.messages || []);
         setAcademicYear(offlineCache?.academicYear || initialAcademicYear);
-        setClasses(offlineCache?.classes || initialClassesData);
-        setFees(offlineCache?.fees || initialFeesData);
-        setSubjects(offlineCache?.subjects || initialSubjectsData);
-        setGrades(offlineCache?.grades || initialGradesData);
-        setAttendance(offlineCache?.attendance || initialAttendanceData);
-        setActivityLog(offlineCache?.activityLog || initialActivityLog);
+        setClasses(offlineCache?.classes || []);
+        setFees(offlineCache?.fees || []);
+        setSubjects(offlineCache?.subjects || []);
+        setGrades(offlineCache?.grades || []);
+        setAttendance(offlineCache?.attendance || []);
+        setActivityLog(offlineCache?.activityLog || []);
         setSchoolSettings(offlineCache?.schoolSettings || initialSchoolSettings);
         setMessageTemplates(offlineCache?.messageTemplates || initialMessageTemplates);
         const loadedCashierSettings = offlineCache?.cashierSettings || initialCashierSettings;
@@ -929,6 +955,59 @@ const App: React.FC = () => {
       window.removeEventListener('focus', onFocus);
     };
   }, [loggedInRole, currentUser]);
+
+  // Dynamic Supabase notifications for the bell + modal preview for Admin broadcasts
+  useEffect(() => {
+    if (!currentUser && !loggedInRole) return;
+    let isMounted = true;
+
+    const loadNotifications = async () => {
+      try {
+        const res = await fetchNotificationsFromDb();
+        if (!isMounted || !res?.success || !Array.isArray(res.notifications)) return;
+
+        setNotifications(prev => {
+          const previousIds = new Set((prev || []).map(n => String(n.id)));
+          const normalized = res.notifications.map((n: any) => ({
+            ...n,
+            read: Boolean(n.read ?? n.isRead),
+            timestamp: n.timestamp || n.createdAt || new Date().toISOString(),
+            roles: n.roles || [],
+          }));
+
+          const freshAdminMessages = normalized.filter((n: any) =>
+            !previousIds.has(String(n.id)) &&
+            !n.read &&
+            String(n.type || '').toLowerCase().includes('message admin')
+          );
+
+          if (freshAdminMessages.length > 0) {
+            const latest = freshAdminMessages[0];
+            setAppAlert({
+              isOpen: true,
+              title: latest.title || 'Message Admin',
+              message: latest.message || 'Vous avez reçu un nouveau message administratif.',
+              type: 'info',
+            });
+          }
+
+          return JSON.stringify(prev) === JSON.stringify(normalized) ? prev : normalized;
+        });
+      } catch (e) {
+        console.warn('Notifications sync warning:', e);
+      }
+    };
+
+    loadNotifications();
+    const interval = setInterval(loadNotifications, 12000);
+    const onFocus = () => loadNotifications();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [currentUser, loggedInRole]);
 
   // Auto-persist entire application state locally whenever data changes
   useEffect(() => {
@@ -1317,30 +1396,34 @@ const App: React.FC = () => {
     setActivePage(cleanLink);
   };
 
-  const handleMarkNotificationsAsRead = () => {
+  const handleMarkNotificationsAsRead = async () => {
     if (!loggedInRole) return;
     setNotifications(prev =>
       prev.map(n =>
-        n.roles && n.roles.includes(loggedInRole) && !n.read ? { ...n, read: true } : n
+        (!n.roles || n.roles.length === 0 || n.roles.includes(loggedInRole)) && !n.read ? { ...n, read: true } : n
       )
     );
+    await markAllNotificationsAsReadInDb();
   };
 
-  const handleMarkSingleNotificationAsRead = (id: string | number) => {
+  const handleMarkSingleNotificationAsRead = async (id: string | number) => {
     setNotifications(prev =>
       prev.map(n => n.id === id ? { ...n, read: true } : n)
     );
+    await markNotificationAsReadInDb(id);
   };
 
-  const handleDeleteNotification = (id: string | number) => {
+  const handleDeleteNotification = async (id: string | number) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
+    await deleteNotificationFromDb(id);
   };
 
-  const handleClearAllNotifications = () => {
+  const handleClearAllNotifications = async () => {
     if (!loggedInRole) return;
     setNotifications(prev =>
       prev.filter(n => n.roles && n.roles.length > 0 && !n.roles.includes(loggedInRole))
     );
+    await clearNotificationsInDb();
   };
 
   const handleUpdateAvatar = async (newAvatar: string) => {

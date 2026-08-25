@@ -303,6 +303,94 @@ export async function sendMessageToDb(message: any) {
   }
 }
 
+export async function fetchNotificationsFromDb() {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl('/api/notifications'), { headers });
+    return await safeJson(res, { success: false, notifications: [] });
+  } catch (error: any) {
+    console.warn('Error fetching notifications:', error?.message || error);
+    return { success: false, notifications: [], error: error?.message || 'Erreur notifications' };
+  }
+}
+
+export async function markNotificationAsReadInDb(id: string | number) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl(`/api/notifications/${id}/read`), {
+      method: 'POST',
+      headers,
+    });
+    return await safeJson(res, { success: false });
+  } catch (error: any) {
+    console.warn('Error marking notification as read:', error?.message || error);
+    return { success: false, error: error?.message || 'Erreur notification' };
+  }
+}
+
+export async function markAllNotificationsAsReadInDb() {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl('/api/notifications/read-all'), {
+      method: 'POST',
+      headers,
+    });
+    return await safeJson(res, { success: false });
+  } catch (error: any) {
+    console.warn('Error marking all notifications as read:', error?.message || error);
+    return { success: false, error: error?.message || 'Erreur notifications' };
+  }
+}
+
+export async function deleteNotificationFromDb(id: string | number) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl(`/api/notifications/${id}`), {
+      method: 'DELETE',
+      headers,
+    });
+    return await safeJson(res, { success: false });
+  } catch (error: any) {
+    console.warn('Error deleting notification:', error?.message || error);
+    return { success: false, error: error?.message || 'Erreur notification' };
+  }
+}
+
+export async function clearNotificationsInDb() {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl('/api/notifications'), {
+      method: 'DELETE',
+      headers,
+    });
+    return await safeJson(res, { success: false });
+  } catch (error: any) {
+    console.warn('Error clearing notifications:', error?.message || error);
+    return { success: false, error: error?.message || 'Erreur notifications' };
+  }
+}
+
+export async function sendAdminBroadcastNotification(payload: {
+  targetAudience: string;
+  selectedSchoolId?: string;
+  schoolId?: string;
+  title: string;
+  message: string;
+}) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl('/api/admin/broadcast-notifications'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    return await safeJson(res, { success: false, sent: 0 });
+  } catch (error: any) {
+    console.warn('Error sending admin broadcast notification:', error?.message || error);
+    return { success: false, sent: 0, error: error?.message || 'Erreur envoi notification' };
+  }
+}
+
 export async function checkInterSchoolStudentDebt(student: any) {
   try {
     const headers = await getAuthHeaders();

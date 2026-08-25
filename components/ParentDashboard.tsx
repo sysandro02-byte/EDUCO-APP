@@ -9,7 +9,7 @@ import { TimetableEntry } from './TimetablePage';
 import { SchoolSettings, Transaction } from '../App';
 import Bulletin from './Bulletin';
 import Receipt from './Receipt';
-import { 
+import {
   GradesIcon, PaymentsIcon, ClassesIcon, TimetableIcon, 
   PrinterIcon, FileDownloadIcon, BellIcon, CheckCircleIcon
 } from './Icons';
@@ -19,6 +19,7 @@ import {
   Clock, DollarSign, Award, Sparkles, MessageSquare, Phone, Mail,
   RefreshCw, Settings, Shield, Lock, Fingerprint, Eye, Filter, Check, X
 } from 'lucide-react';
+import { showAppFeedback } from '../src/utils/appFeedback';
 
 interface ParentDashboardProps {
   currentUser: User;
@@ -100,6 +101,7 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
         author: "Serveur Établissement EDUCO",
         time: "À l'instant"
       });
+      showAppFeedback("Données de l'élève synchronisées en direct. Derniers bulletins, versements caisse et appels d'assiduité mis à jour.", 'success', 'Synchronisation terminée');
       setTimeout(() => setLiveToast(null), 6000);
     }, 800);
   };
