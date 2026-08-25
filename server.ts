@@ -115,6 +115,79 @@ const getSupabaseAdmin = (req?: any) => {
   }
   return null;
 };
+
+const mapSupabaseTransaction = (t: any) => t ? ({
+  id: t.id,
+  schoolId: t.school_id || t.schoolId,
+  type: t.type,
+  category: t.category,
+  amount: Number(t.amount || 0),
+  description: t.description,
+  date: t.date,
+  recordedBy: t.recorded_by || t.recordedBy,
+  status: t.status || (String(t.description || '').includes('(Status:') ? String(t.description).match(/\(Status:\s*([^)]+)\)/)?.[1] : undefined) || 'Approuvé'
+}) : null;
+
+const mapSupabasePayment = (p: any) => p ? ({
+  id: p.id,
+  schoolId: p.school_id || p.schoolId,
+  studentId: p.student_id || p.studentId,
+  feeId: p.fee_id || p.feeId,
+  amount: Number(p.amount || 0),
+  paymentDate: p.payment_date || p.paymentDate,
+  receiptNumber: p.receipt_number || p.receiptNumber,
+  paymentMethod: p.payment_method || p.paymentMethod,
+  status: p.status || 'paid'
+}) : null;
+
+const mapSupabaseClass = (c: any) => c ? ({
+  id: c.id,
+  schoolId: c.school_id || c.schoolId,
+  name: c.name,
+  level: c.level || c.section,
+  section: c.section || c.level,
+  capacity: c.capacity,
+  teacherId: c.teacher_id || c.teacherId
+}) : null;
+
+const mapSupabaseFee = (f: any) => f ? ({
+  id: f.id,
+  schoolId: f.school_id || f.schoolId,
+  name: f.name || f.title,
+  title: f.title || f.name,
+  amount: Number(f.amount || 0),
+  dueDate: f.due_date || f.dueDate,
+  type: f.type
+}) : null;
+
+const mapSupabasePersonnel = (p: any) => p ? ({
+  id: p.id,
+  userId: p.user_id || p.userId,
+  schoolId: p.school_id || p.schoolId,
+  matricule: p.matricule,
+  role: p.role,
+  baseSalary: p.base_salary || p.baseSalary,
+  salary: p.salary || p.base_salary || p.baseSalary,
+  hireDate: p.hire_date || p.hireDate,
+  bankAccount: p.bank_account || p.bankAccount,
+  name: p.name || `Personnel #${p.id}`,
+  email: p.email || '',
+  phone: p.phone || '',
+  status: p.status || 'Actif'
+}) : null;
+
+const mapSupabaseGrade = (g: any, subjectName?: string) => g ? ({
+  id: String(g.id),
+  studentId: g.student_id || g.studentId,
+  classId: g.class_id || g.classId || 0,
+  subjectId: g.subject_id || g.subjectId,
+  subject: subjectName || g.subject || g.subject_name || `Matière #${g.subject_id || ''}`.trim(),
+  assignment: g.assignment || g.term || 'Devoir',
+  score: Number(g.score || 0),
+  maxScore: Number(g.max_score || g.maxScore || 20),
+  teacherId: g.teacher_id || g.teacherId,
+  date: g.date
+}) : null;
 import { 
   otpManager, 
   sendBrevoEmail, 
@@ -921,9 +994,24 @@ async function startServer() {
       // Check linked student if matricule provided
       let linkedStudent = null;
       if (studentMatricule) {
-        const matchingStudents = await db.select().from(students).where(eq(students.studentId, studentMatricule.trim()));
-        if (matchingStudents.length > 0) {
-          linkedStudent = matchingStudents[0];
+        try {
+          const matchingStudents = await db.select().from(students).where(eq(students.studentId, studentMatricule.trim()));
+          if (matchingStudents.length > 0) {
+            linkedStudent = matchingStudents[0];
+          }
+        } catch (dbStudentLookupErr) {
+          if (supabaseAdmin) {
+            const { data: sbStudent } = await supabaseAdmin
+              .from('students')
+              .select('*')
+              .eq('school_id', schoolObj.id)
+              .eq('student_id', studentMatricule.trim())
+              .limit(1)
+              .maybeSingle();
+            linkedStudent = sbStudent;
+          } else {
+            console.warn('Postgres student lookup failed and Supabase fallback is unavailable:', dbStudentLookupErr);
+          }
         }
       }
 
@@ -986,6 +1074,21 @@ async function startServer() {
           throw sbParentError || dbParentErr;
         }
         newParent = mapSupabaseUser(sbParent);
+      }
+
+      if (supabaseAdmin && studentMatricule) {
+        try {
+          await supabaseAdmin
+            .from('students')
+            .update({
+              parent_name: parentName,
+              parent_phone: parentPhone || ''
+            })
+            .eq('school_id', schoolObj.id)
+            .eq('student_id', studentMatricule.trim());
+        } catch (linkErr: any) {
+          console.warn('Parent/student link update warning:', linkErr?.message || linkErr);
+        }
       }
 
       res.json({
@@ -1175,6 +1278,25 @@ async function startServer() {
       const targetSchoolId = req.body.schoolId || dbUser?.schoolId || 1;
 
       if (req.body.id) {
+        const supabaseAdmin = getSupabaseAdmin(req);
+        if (supabaseAdmin) {
+          const { data: updatedUser, error: updateError } = await supabaseAdmin
+            .from('users')
+            .update({
+              name: req.body.name,
+              email: req.body.email,
+              role: req.body.role,
+              status: req.body.status === 'Inactif' ? 'inactive' : 'active',
+              avatar: req.body.avatar,
+              school_id: targetSchoolId
+            })
+            .eq('id', Number(req.body.id))
+            .select('*')
+            .single();
+          if (updateError) throw updateError;
+          return res.json(mapSupabaseUser(updatedUser));
+        }
+
         const updated = await db.update(users)
           .set({
             name: req.body.name,
@@ -1186,24 +1308,6 @@ async function startServer() {
           })
           .where(eq(users.id, Number(req.body.id)))
           .returning();
-
-        // Also update in Supabase
-        const supabaseAdmin = getSupabaseAdmin(req);
-        if (supabaseAdmin) {
-          try {
-            await supabaseAdmin.from('users').update({
-              name: req.body.name,
-              email: req.body.email,
-              role: req.body.role,
-              status: req.body.status === 'Actif' ? 'active' : 'inactive',
-              avatar: req.body.avatar,
-              phone: req.body.phone,
-              school_id: targetSchoolId
-            }).eq('id', Number(req.body.id));
-          } catch (e) {
-            console.warn('Supabase user update notice:', e);
-          }
-        }
 
         return res.json(updated[0] || req.body);
       }
@@ -1251,6 +1355,34 @@ async function startServer() {
           : await adminClient.from('users').insert([payload]).select('*').single();
 
         if (sbUserError || !sbUser) throw sbUserError || new Error('Impossible de synchroniser le compte utilisateur dans Supabase.');
+
+        if (String(req.body.role || '').toLowerCase().includes('élève') || String(req.body.role || '').toLowerCase().includes('eleve')) {
+          const studentPayload = {
+            user_id: sbUser.id,
+            school_id: targetSchoolId,
+            student_id: req.body.studentId || req.body.matricule || `MAT-${sbUser.id}`,
+            class_id: req.body.classId || null,
+            parent_name: req.body.parentName || req.body.guardian || req.body.parentTuteur || '',
+            parent_phone: req.body.parentPhone || req.body.guardianPhone || req.body.phone || req.body.contact || '',
+            address: req.body.address || '',
+            date_of_birth: req.body.dob || req.body.dateOfBirth || '',
+            enrollment_date: new Date().toISOString(),
+            status: req.body.status === 'Inactif' ? 'inactive' : 'active'
+          };
+          const { data: existingStudent } = await adminClient
+            .from('students')
+            .select('*')
+            .eq('school_id', targetSchoolId)
+            .eq('student_id', studentPayload.student_id)
+            .limit(1)
+            .maybeSingle();
+          if (existingStudent?.id) {
+            await adminClient.from('students').update(studentPayload).eq('id', existingStudent.id);
+          } else {
+            await adminClient.from('students').insert([studentPayload]);
+          }
+        }
+
         return res.json(mapSupabaseUser(sbUser));
       }
 
@@ -1274,6 +1406,26 @@ async function startServer() {
       if (isNaN(targetUserId)) return res.status(400).json({ error: 'ID utilisateur invalide' });
 
       const { name, email, role, status, avatar, phone, schoolId } = req.body;
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (supabaseAdmin) {
+        const payload = {
+          ...(name !== undefined && { name }),
+          ...(email !== undefined && { email }),
+          ...(role !== undefined && { role }),
+          ...(status !== undefined && { status: status === 'Inactif' ? 'inactive' : 'active' }),
+          ...(avatar !== undefined && { avatar }),
+          ...(schoolId !== undefined && { school_id: Number(schoolId) })
+        };
+        const { data: updatedUser, error: updateError } = await supabaseAdmin
+          .from('users')
+          .update(payload)
+          .eq('id', targetUserId)
+          .select('*')
+          .single();
+        if (updateError) throw updateError;
+        return res.json({ success: true, user: mapSupabaseUser(updatedUser) });
+      }
+
       const [updatedUser] = await db.update(users)
         .set({
           ...(name !== undefined && { name }),
@@ -1285,24 +1437,6 @@ async function startServer() {
         })
         .where(eq(users.id, targetUserId))
         .returning();
-
-      // Sync to Supabase
-      const supabaseAdmin = getSupabaseAdmin(req);
-      if (supabaseAdmin) {
-        try {
-          await supabaseAdmin.from('users').update({
-            ...(name !== undefined && { name }),
-            ...(email !== undefined && { email }),
-            ...(role !== undefined && { role }),
-            ...(status !== undefined && { status: status === 'Actif' ? 'active' : 'inactive' }),
-            ...(avatar !== undefined && { avatar }),
-            ...(phone !== undefined && { phone }),
-            ...(schoolId !== undefined && { school_id: Number(schoolId) })
-          }).eq('id', targetUserId);
-        } catch (e) {
-          console.warn('Supabase PUT user error:', e);
-        }
-      }
 
       res.json({ success: true, user: updatedUser || req.body });
     } catch (error: any) {
@@ -1317,6 +1451,27 @@ async function startServer() {
       const targetUserId = parseInt(rawId, 10);
       if (isNaN(targetUserId)) return res.status(400).json({ error: 'ID utilisateur invalide' });
 
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (supabaseAdmin) {
+        const { data: existingUser, error: existingError } = await supabaseAdmin
+          .from('users')
+          .select('*')
+          .eq('id', targetUserId)
+          .limit(1)
+          .maybeSingle();
+        if (existingError) throw existingError;
+        const currentStatus = existingUser?.status || 'active';
+        const newStatus = currentStatus === 'active' || currentStatus === 'Actif' ? 'inactive' : 'active';
+        const { data: updatedUser, error: updateError } = await supabaseAdmin
+          .from('users')
+          .update({ status: newStatus })
+          .eq('id', targetUserId)
+          .select('*')
+          .single();
+        if (updateError) throw updateError;
+        return res.json({ success: true, status: newStatus === 'active' ? 'Actif' : 'Inactif', user: mapSupabaseUser(updatedUser) });
+      }
+
       const [existing] = await db.select().from(users).where(eq(users.id, targetUserId));
       const currentStatus = existing?.status || 'Actif';
       const newStatus = currentStatus === 'Actif' ? 'Inactif' : 'Actif';
@@ -1325,17 +1480,6 @@ async function startServer() {
         .set({ status: newStatus })
         .where(eq(users.id, targetUserId))
         .returning();
-
-      const supabaseAdmin = getSupabaseAdmin(req);
-      if (supabaseAdmin) {
-        try {
-          await supabaseAdmin.from('users').update({
-            status: newStatus === 'Actif' ? 'active' : 'inactive'
-          }).eq('id', targetUserId);
-        } catch (e) {
-          console.warn('Supabase toggle-status error:', e);
-        }
-      }
 
       res.json({ success: true, status: newStatus, user: updated });
     } catch (error: any) {
@@ -1531,37 +1675,24 @@ async function startServer() {
         ipAddress = (typeof req.headers['x-forwarded-for'] === 'string' ? req.headers['x-forwarded-for'].split(',')[0] : req.socket.remoteAddress || '').trim();
       }
 
-      const newLog = await db.insert(activityLogs).values({
-        schoolId: schoolId || dbUser?.schoolId || 1,
-        schoolName: schoolName || '',
-        userName: userName || dbUser?.name || 'Admin',
-        userRole: userRole || dbUser?.role || 'Admin',
-        userEmail: userEmail || dbUser?.email || '',
+      const logPayload = {
         action: action || 'Action Administrateur',
         details: details || '',
-        ipAddress: ipAddress || '',
-        location: location || '',
-        device: device || '',
-        browser: browser || '',
-        page: page || '',
-      }).returning();
-
-      await saveActivityLogToSupabaseDirectly({
-        action,
-        details,
         userName: userName || dbUser?.name,
         userRole: userRole || dbUser?.role,
         userEmail: userEmail || dbUser?.email,
-        schoolName,
+        schoolName: schoolName || '',
         schoolId: schoolId || dbUser?.schoolId,
         ipAddress: ipAddress || '',
         location: location || '',
         device: device || '',
         browser: browser || '',
         page: page || '',
-      });
+      };
 
-      res.json({ success: true, log: newLog[0] });
+      await saveActivityLogToSupabaseDirectly(logPayload);
+
+      res.json({ success: true, log: logPayload });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -1573,10 +1704,15 @@ async function startServer() {
       const dbUser = await getUserByUid(req.user!.uid);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
-      const allTxns = await db.select().from(transactions)
-        .where(eq(transactions.schoolId, dbUser.schoolId))
-        .orderBy(desc(transactions.date));
-      res.json(allTxns);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+      const { data, error } = await supabaseAdmin
+        .from('transactions')
+        .select('*')
+        .eq('school_id', dbUser.schoolId)
+        .order('date', { ascending: false });
+      if (error) throw error;
+      res.json((data || []).map(mapSupabaseTransaction));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -1587,12 +1723,20 @@ async function startServer() {
       const dbUser = await getUserByUid(req.user!.uid);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
-      const newTxn = await db.insert(transactions).values({
-        ...req.body,
-        schoolId: dbUser.schoolId,
-        recordedBy: dbUser.id
-      }).returning();
-      res.json(newTxn[0]);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+      const payload = {
+        school_id: dbUser.schoolId,
+        type: req.body.type,
+        category: req.body.category,
+        amount: Number(req.body.amount || 0),
+        description: req.body.status ? `(Status: ${req.body.status}) ${req.body.description || ''}` : req.body.description,
+        date: req.body.date || new Date().toISOString(),
+        recorded_by: dbUser.id
+      };
+      const { data, error } = await supabaseAdmin.from('transactions').insert([payload]).select('*').single();
+      if (error) throw error;
+      res.json(mapSupabaseTransaction(data));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -1603,11 +1747,21 @@ async function startServer() {
       const dbUser = await getUserByUid(req.user!.uid);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
-      const updated = await db.update(transactions)
-        .set({ description: `(Status: ${req.body.status}) ${req.body.description || ''}` })
-        .where(eq(transactions.id, Number(req.params.id)))
-        .returning();
-      res.json(updated[0]);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+      const transactionId = Number(req.params.id);
+      if (!Number.isFinite(transactionId)) {
+        return res.status(400).json({ error: 'Transaction Supabase invalide ou non synchronisée.' });
+      }
+      const { data, error } = await supabaseAdmin
+        .from('transactions')
+        .update({ description: `(Status: ${req.body.status}) ${req.body.description || ''}` })
+        .eq('id', transactionId)
+        .eq('school_id', dbUser.schoolId)
+        .select('*')
+        .single();
+      if (error) throw error;
+      res.json(mapSupabaseTransaction(data));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -1619,10 +1773,15 @@ async function startServer() {
       const dbUser = await getUserByUid(req.user!.uid);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
-      const allPayments = await db.select().from(payments)
-        .where(eq(payments.schoolId, dbUser.schoolId))
-        .orderBy(desc(payments.paymentDate));
-      res.json(allPayments);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+      const { data, error } = await supabaseAdmin
+        .from('payments')
+        .select('*')
+        .eq('school_id', dbUser.schoolId)
+        .order('payment_date', { ascending: false });
+      if (error) throw error;
+      res.json((data || []).map(mapSupabasePayment));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -1633,11 +1792,21 @@ async function startServer() {
       const dbUser = await getUserByUid(req.user!.uid);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
-      const newPayment = await db.insert(payments).values({
-        ...req.body,
-        schoolId: dbUser.schoolId
-      }).returning();
-      res.json(newPayment[0]);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+      const payload = {
+        school_id: dbUser.schoolId,
+        student_id: req.body.studentId || req.body.student_id || null,
+        fee_id: req.body.feeId || req.body.fee_id || null,
+        amount: Number(req.body.amount || 0),
+        payment_date: req.body.paymentDate || req.body.payment_date || new Date().toISOString(),
+        receipt_number: req.body.receiptNumber || req.body.receipt_number || `REC-${Date.now()}`,
+        payment_method: req.body.paymentMethod || req.body.payment_method || 'Espèce',
+        status: req.body.status || 'paid'
+      };
+      const { data, error } = await supabaseAdmin.from('payments').insert([payload]).select('*').single();
+      if (error) throw error;
+      res.json(mapSupabasePayment(data));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -1649,8 +1818,11 @@ async function startServer() {
       const dbUser = await getUserByUid(req.user!.uid);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
-      const school = await db.select().from(schools).where(eq(schools.id, dbUser.schoolId)).limit(1);
-      res.json(school[0]);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+      const { data, error } = await supabaseAdmin.from('schools').select('*').eq('id', dbUser.schoolId).limit(1).maybeSingle();
+      if (error) throw error;
+      res.json(mapSupabaseSchool(data));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -1661,11 +1833,19 @@ async function startServer() {
       const dbUser = await getUserByUid(req.user!.uid);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
-      const updated = await db.update(schools)
-        .set(req.body)
-        .where(eq(schools.id, dbUser.schoolId))
-        .returning();
-      res.json(updated[0]);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+      const payload: any = {
+        ...(req.body.name !== undefined && { name: req.body.name }),
+        ...(req.body.address !== undefined && { address: req.body.address }),
+        ...(req.body.phone !== undefined && { phone: req.body.phone }),
+        ...(req.body.email !== undefined && { email: req.body.email }),
+        ...(req.body.logo !== undefined && { logo: req.body.logo }),
+        ...(req.body.settings !== undefined && { settings: req.body.settings })
+      };
+      const { data, error } = await supabaseAdmin.from('schools').update(payload).eq('id', dbUser.schoolId).select('*').single();
+      if (error) throw error;
+      res.json(mapSupabaseSchool(data));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -1675,10 +1855,12 @@ async function startServer() {
       const dbUser = await getUserByUid(req.user!.uid);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
-      // Calculate budget from transactions
-      const schoolTxns = await db.select().from(transactions).where(eq(transactions.schoolId, dbUser.schoolId));
-      const income = schoolTxns.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
-      const expense = schoolTxns.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+      const { data: schoolTxns, error } = await supabaseAdmin.from('transactions').select('*').eq('school_id', dbUser.schoolId);
+      if (error) throw error;
+      const income = (schoolTxns || []).filter(t => ['income', 'Revenu'].includes(t.type)).reduce((acc, t) => acc + Number(t.amount || 0), 0);
+      const expense = (schoolTxns || []).filter(t => ['expense', 'Dépense'].includes(t.type)).reduce((acc, t) => acc + Number(t.amount || 0), 0);
 
       res.json({ total: income - expense, income, expense });
     } catch (error: any) {
@@ -1692,8 +1874,37 @@ async function startServer() {
       const dbUser = await getUserByUid(req.user!.uid);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
-      const all = await db.select().from(classes).where(eq(classes.schoolId, dbUser.schoolId));
-      res.json(all);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+      const { data, error } = await supabaseAdmin.from('classes').select('*').eq('school_id', dbUser.schoolId);
+      if (error) throw error;
+      res.json((data || []).map(mapSupabaseClass));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/classes', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getUserByUid(req.user!.uid);
+      if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+      const payload = {
+        school_id: dbUser.schoolId,
+        name: req.body.name,
+        level: req.body.level || req.body.section || null,
+        capacity: req.body.capacity ? Number(req.body.capacity) : null,
+        teacher_id: req.body.teacherId || req.body.teacher_id || null
+      };
+
+      const query = Number.isFinite(Number(req.body.id))
+        ? supabaseAdmin.from('classes').update(payload).eq('id', Number(req.body.id)).eq('school_id', dbUser.schoolId)
+        : supabaseAdmin.from('classes').insert([payload]);
+      const { data, error } = await query.select('*').single();
+      if (error) throw error;
+      res.json(mapSupabaseClass(data));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -1705,8 +1916,37 @@ async function startServer() {
       const dbUser = await getUserByUid(req.user!.uid);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
-      const all = await db.select().from(fees).where(eq(fees.schoolId, dbUser.schoolId));
-      res.json(all);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+      const { data, error } = await supabaseAdmin.from('fees').select('*').eq('school_id', dbUser.schoolId);
+      if (error) throw error;
+      res.json((data || []).map(mapSupabaseFee));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/fees', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getUserByUid(req.user!.uid);
+      if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+      const payload = {
+        school_id: dbUser.schoolId,
+        name: req.body.name || req.body.title || req.body.class || 'Frais scolaire',
+        amount: Number(req.body.amount || 0),
+        due_date: req.body.dueDate || req.body.due_date || null,
+        type: req.body.type || req.body.category || null
+      };
+
+      const query = Number.isFinite(Number(req.body.id))
+        ? supabaseAdmin.from('fees').update(payload).eq('id', Number(req.body.id)).eq('school_id', dbUser.schoolId)
+        : supabaseAdmin.from('fees').insert([payload]);
+      const { data, error } = await query.select('*').single();
+      if (error) throw error;
+      res.json(mapSupabaseFee(data));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -1718,8 +1958,266 @@ async function startServer() {
       const dbUser = await getUserByUid(req.user!.uid);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
-      const all = await db.select().from(personnel).where(eq(personnel.schoolId, dbUser.schoolId));
-      res.json(all);
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+      const { data, error } = await supabaseAdmin.from('personnel').select('*').eq('school_id', dbUser.schoolId);
+      if (error) throw error;
+      const userIds = [...new Set((data || []).map((p: any) => p.user_id).filter(Boolean))];
+      let userById = new Map<number, any>();
+      if (userIds.length > 0) {
+        const { data: linkedUsers } = await supabaseAdmin.from('users').select('*').in('id', userIds);
+        userById = new Map((linkedUsers || []).map((u: any) => [Number(u.id), u]));
+      }
+      res.json((data || []).map((p: any) => mapSupabasePersonnel({ ...userById.get(Number(p.user_id)), ...p })));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/personnel', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getUserByUid(req.user!.uid);
+      if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+
+      let userId = req.body.userId || req.body.user_id || null;
+      const personName = req.body.name || req.body.fullName || 'Membre du personnel';
+      const personEmail = req.body.email || `${String(req.body.matricule || `personnel-${Date.now()}`).toLowerCase().replace(/[^a-z0-9._-]/g, '-') }@personnel.educo.local`;
+
+      if (!userId) {
+        const { data: existingUser } = await supabaseAdmin
+          .from('users')
+          .select('*')
+          .eq('school_id', dbUser.schoolId)
+          .ilike('email', personEmail)
+          .limit(1)
+          .maybeSingle();
+        if (existingUser?.id) {
+          userId = existingUser.id;
+        } else {
+          const { data: createdUser, error: userError } = await supabaseAdmin
+            .from('users')
+            .insert([{
+              uid: `personnel_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+              school_id: dbUser.schoolId,
+              name: personName,
+              email: personEmail,
+              role: req.body.role || 'Personnel',
+              status: req.body.status || 'active'
+            }])
+            .select('*')
+            .single();
+          if (userError) throw userError;
+          userId = createdUser.id;
+        }
+      } else {
+        await supabaseAdmin
+          .from('users')
+          .update({
+            name: personName,
+            email: personEmail,
+            role: req.body.role || 'Personnel',
+            status: req.body.status || 'active'
+          })
+          .eq('id', Number(userId))
+          .eq('school_id', dbUser.schoolId);
+      }
+
+      const payload = {
+        user_id: Number(userId),
+        school_id: dbUser.schoolId,
+        matricule: req.body.matricule || null,
+        role: req.body.role || null,
+        base_salary: Number(req.body.baseSalary || req.body.salary || 0),
+        hire_date: req.body.hireDate || req.body.hire_date || null,
+        bank_account: req.body.bankAccount || req.body.bank_account || null
+      };
+      const query = Number.isFinite(Number(req.body.id))
+        ? supabaseAdmin.from('personnel').update(payload).eq('id', Number(req.body.id)).eq('school_id', dbUser.schoolId)
+        : supabaseAdmin.from('personnel').insert([payload]);
+      const { data, error } = await query.select('*').single();
+      if (error) throw error;
+      res.json(mapSupabasePersonnel({ ...data, name: personName, email: personEmail, status: req.body.status || 'Actif' }));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Grades Endpoints
+  app.get('/api/grades', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getUserByUid(req.user!.uid);
+      if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+      const [{ data: gradeRows, error }, { data: subjectRows }] = await Promise.all([
+        supabaseAdmin.from('grades').select('*'),
+        supabaseAdmin.from('subjects').select('*').eq('school_id', dbUser.schoolId)
+      ]);
+      if (error) throw error;
+      const subjectsById = new Map((subjectRows || []).map((s: any) => [Number(s.id), s.name]));
+      const classIds = new Set<number>();
+      const { data: schoolClasses } = await supabaseAdmin.from('classes').select('id').eq('school_id', dbUser.schoolId);
+      (schoolClasses || []).forEach((c: any) => classIds.add(Number(c.id)));
+      res.json((gradeRows || [])
+        .filter((g: any) => classIds.has(Number(g.class_id || g.classId)))
+        .map((g: any) => mapSupabaseGrade(g, subjectsById.get(Number(g.subject_id || g.subjectId)))));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/grades', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getUserByUid(req.user!.uid);
+      if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+
+      const subjectName = req.body.subject || 'Matière';
+      const { data: existingSubject } = await supabaseAdmin
+        .from('subjects')
+        .select('*')
+        .eq('school_id', dbUser.schoolId)
+        .ilike('name', subjectName)
+        .limit(1)
+        .maybeSingle();
+
+      let subjectId = existingSubject?.id;
+      if (!subjectId) {
+        const { data: createdSubject, error: subjectError } = await supabaseAdmin
+          .from('subjects')
+          .insert([{ school_id: dbUser.schoolId, name: subjectName, coefficient: 1 }])
+          .select('*')
+          .single();
+        if (subjectError) throw subjectError;
+        subjectId = createdSubject.id;
+      }
+
+      const payload = {
+        student_id: Number(req.body.studentId || req.body.student_id),
+        subject_id: Number(subjectId),
+        class_id: Number(req.body.classId || req.body.class_id || 0) || null,
+        score: Number(req.body.score || 0),
+        max_score: Number(req.body.maxScore || req.body.max_score || 20),
+        term: req.body.assignment || req.body.term || 'Devoir',
+        teacher_id: dbUser.id,
+        date: req.body.date || new Date().toISOString()
+      };
+      const { data, error } = await supabaseAdmin.from('grades').insert([payload]).select('*').single();
+      if (error) throw error;
+      res.json(mapSupabaseGrade(data, subjectName));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Intra/inter-school messaging using the existing notifications table as durable delivery
+  app.post('/api/messages', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getUserByUid(req.user!.uid);
+      if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+
+      const text = String(req.body.text || req.body.message || '').trim();
+      if (!text) return res.status(400).json({ error: 'Le message est obligatoire.' });
+      const targetSchoolId = req.body.targetSchoolId || req.body.schoolId || dbUser.schoolId;
+      const targetRoles = Array.isArray(req.body.roles) && req.body.roles.length > 0 ? req.body.roles : null;
+
+      let usersQuery = supabaseAdmin.from('users').select('*').eq('school_id', Number(targetSchoolId));
+      if (targetRoles) usersQuery = usersQuery.in('role', targetRoles);
+      const { data: recipients, error: recipientsError } = await usersQuery;
+      if (recipientsError) throw recipientsError;
+
+      const rows = (recipients || []).map((u: any) => ({
+        user_id: u.id,
+        title: req.body.title || `Message de ${dbUser.name || 'EDUCO'}`,
+        message: text,
+        type: Number(targetSchoolId) === Number(dbUser.schoolId) ? 'Messagerie interne' : 'Messagerie inter-école',
+        is_read: false
+      }));
+
+      if (rows.length === 0) {
+        return res.json({ success: true, sent: 0, message: 'Aucun destinataire trouvé.' });
+      }
+      const { data, error } = await supabaseAdmin.from('notifications').insert(rows).select('*');
+      if (error) throw error;
+      res.json({ success: true, sent: data?.length || 0, messages: data || [] });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/students/financial-check', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getUserByUid(req.user!.uid);
+      if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+
+      const name = String(req.body.name || req.body.studentName || '').trim().toLowerCase();
+      const matricule = String(req.body.matricule || req.body.studentMatricule || '').trim().toLowerCase();
+      const parentName = String(req.body.parentName || req.body.parentTuteur || '').trim().toLowerCase();
+
+      const [{ data: studentRows }, { data: schoolRows }, { data: paymentRows }] = await Promise.all([
+        supabaseAdmin.from('students').select('*'),
+        supabaseAdmin.from('schools').select('*'),
+        supabaseAdmin.from('payments').select('*')
+      ]);
+
+      const schoolById = new Map((schoolRows || []).map((s: any) => [Number(s.id), s]));
+      const paymentsByStudent = new Map<number, number>();
+      (paymentRows || []).forEach((p: any) => {
+        const sid = Number(p.student_id || p.studentId);
+        paymentsByStudent.set(sid, (paymentsByStudent.get(sid) || 0) + Number(p.amount || 0));
+      });
+
+      const matches = (studentRows || [])
+        .filter((st: any) => Number(st.school_id || st.schoolId) !== Number(dbUser.schoolId))
+        .filter((st: any) => {
+          const stName = String(st.name || '').toLowerCase();
+          const stMatricule = String(st.matricule || st.student_id || st.studentId || '').toLowerCase();
+          const stParent = String(st.parent_name || st.parentName || '').toLowerCase();
+          return (
+            (!!matricule && stMatricule === matricule) ||
+            (!!name && stName === name) ||
+            (!!name && !!parentName && stName.includes(name) && stParent.includes(parentName))
+          );
+        })
+        .map((st: any) => {
+          const totalDue = Number(st.tuition_fee || st.total_fees || st.totalFees || 0);
+          const paid = Number(st.paid_amount || st.paidAmount || paymentsByStudent.get(Number(st.id)) || 0);
+          const outstanding = Math.max(totalDue - paid, 0);
+          const school = schoolById.get(Number(st.school_id || st.schoolId));
+          return {
+            studentId: st.id,
+            studentName: st.name,
+            matricule: st.matricule || st.student_id || st.studentId,
+            parentName: st.parent_name || st.parentName || '',
+            previousSchoolId: st.school_id || st.schoolId,
+            previousSchoolName: school?.name || 'Établissement inconnu',
+            totalDue,
+            paid,
+            outstanding
+          };
+        })
+        .filter((m: any) => m.outstanding > 0);
+
+      res.json({
+        success: true,
+        hasDebt: matches.length > 0,
+        matches,
+        message: matches.length > 0
+          ? 'Dette détectée dans un autre établissement du réseau.'
+          : 'Aucune dette inter-école détectée.'
+      });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -2727,6 +3225,7 @@ async function startServer() {
       let allAttendance = supabaseAdmin ? [] : await db.select().from(attendance).catch(() => []);
       let allFees = supabaseAdmin ? [] : await db.select().from(fees).catch(() => []);
       let allNotifications = supabaseAdmin ? [] : await db.select().from(notifications).catch(() => []);
+      let allGrades = supabaseAdmin ? [] : await db.select().from(grades).catch(() => []);
 
       // Merge Supabase DB entities if available
       if (supabaseAdmin) {
@@ -2743,7 +3242,9 @@ async function startServer() {
             { data: sbFees },
             { data: sbNotifs },
             { data: sbSubs },
-            { data: sbReqs }
+            { data: sbReqs },
+            { data: sbGrades },
+            { data: sbSubjects }
           ] = await Promise.all([
             supabaseAdmin.from('schools').select('*'),
             supabaseAdmin.from('users').select('*'),
@@ -2756,7 +3257,9 @@ async function startServer() {
             supabaseAdmin.from('fees').select('*'),
             supabaseAdmin.from('notifications').select('*'),
             supabaseAdmin.from('subscriptions').select('*'),
-            supabaseAdmin.from('subscription_requests').select('*')
+            supabaseAdmin.from('subscription_requests').select('*'),
+            supabaseAdmin.from('grades').select('*'),
+            supabaseAdmin.from('subjects').select('*')
           ]);
 
           if (sbSchools) {
@@ -2906,6 +3409,15 @@ async function startServer() {
             });
           }
 
+          if (sbGrades) {
+            const subjectById = new Map((sbSubjects || []).map((s: any) => [Number(s.id), s.name]));
+            sbGrades.forEach(g => {
+              if (!allGrades.some(x => String(x.id) === String(g.id))) {
+                allGrades.push(mapSupabaseGrade(g, subjectById.get(Number(g.subject_id || g.subjectId))) as any);
+              }
+            });
+          }
+
           if (sbSubs) {
             sbSubs.forEach(s => {
               if (!allSubscriptions.some(x => x.id === s.id || (s.code && x.code === s.code))) {
@@ -3016,6 +3528,10 @@ async function startServer() {
       const visibleTransactions = isSuperAdmin ? enrichedTransactions : enrichedTransactions.filter(belongsToCurrentSchool);
       const visibleAttendance = isSuperAdmin ? allAttendance : allAttendance.filter(belongsToCurrentSchool);
       const visibleFees = isSuperAdmin ? allFees : allFees.filter(belongsToCurrentSchool);
+      const currentSchoolClassIds = new Set(visibleClasses.map((c: any) => Number(c.id)));
+      const visibleGrades = isSuperAdmin
+        ? allGrades
+        : allGrades.filter((g: any) => currentSchoolClassIds.has(Number(g.classId || g.class_id)) || String(g.studentId || g.student_id || '') === String(currentUserId || ''));
       const visibleNotifications = isSuperAdmin
         ? allNotifications
         : allNotifications.filter((n: any) => belongsToCurrentSchool(n) || String(n?.userId || n?.user_id || '') === String(currentUserId || ''));
@@ -3034,6 +3550,7 @@ async function startServer() {
         transactions: visibleTransactions,
         attendance: visibleAttendance,
         fees: visibleFees,
+        grades: visibleGrades,
         notifications: visibleNotifications,
         subscriptions: visibleSubscriptions,
         subscriptionRequests: visibleSubscriptionRequests

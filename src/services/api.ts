@@ -228,6 +228,96 @@ export async function savePaymentToDb(payment: any) {
   }
 }
 
+export async function savePersonnelToDb(personnel: any) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl('/api/personnel'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(personnel),
+    });
+    return await res.json();
+  } catch (error) {
+    console.warn('Error saving personnel to DB:', error);
+    return null;
+  }
+}
+
+export async function saveClassToDb(classData: any) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl('/api/classes'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(classData),
+    });
+    return await res.json();
+  } catch (error) {
+    console.warn('Error saving class to DB:', error);
+    return null;
+  }
+}
+
+export async function saveFeeToDb(fee: any) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl('/api/fees'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(fee),
+    });
+    return await res.json();
+  } catch (error) {
+    console.warn('Error saving fee to DB:', error);
+    return null;
+  }
+}
+
+export async function saveGradeToDb(grade: any) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl('/api/grades'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(grade),
+    });
+    return await res.json();
+  } catch (error) {
+    console.warn('Error saving grade to DB:', error);
+    return null;
+  }
+}
+
+export async function sendMessageToDb(message: any) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl('/api/messages'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(message),
+    });
+    return await res.json();
+  } catch (error) {
+    console.warn('Error sending message to DB:', error);
+    return null;
+  }
+}
+
+export async function checkInterSchoolStudentDebt(student: any) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl('/api/students/financial-check'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(student),
+    });
+    return await res.json();
+  } catch (error) {
+    console.warn('Error checking inter-school student debt:', error);
+    return null;
+  }
+}
+
 export async function syncInitialData(data: any) {
   try {
     const headers = await getAuthHeaders();

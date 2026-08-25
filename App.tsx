@@ -83,7 +83,7 @@ import { compressBase64Image } from './utils/imageCompressor';
 import { getSupabaseClient, getStoredSupabaseConfig } from './src/lib/supabase';
 import { purgeSupabaseDirectly, purgeSchoolSupabaseDirectly, deleteUserFromSupabaseDirectly, saveActivityLogToSupabaseDirectly, fetchActivityLogsFromSupabaseDirectly } from './src/lib/supabaseSeeder';
 import { getApiUrl } from './src/lib/apiConfig';
-import { getCurrentUser, findUserByEmail, getSchoolSettings, saveUserToDb, deleteUserFromDb, deleteSchoolFromDb, saveActivityLogToDb, fetchActivityLogsFromDb, checkDbConnection, syncInitialData, fetchCurrentSubscription, SchoolSubscriptionInfo, fetchAdminExportData, fetchAdminRegisteredSchools } from './src/services/api';
+import { getCurrentUser, findUserByEmail, getSchoolSettings, saveUserToDb, deleteUserFromDb, deleteSchoolFromDb, saveActivityLogToDb, fetchActivityLogsFromDb, checkDbConnection, syncInitialData, fetchCurrentSubscription, SchoolSubscriptionInfo, fetchAdminExportData, fetchAdminRegisteredSchools, saveTransactionToDb, savePaymentToDb, updateTransactionStatusInDb, savePersonnelToDb, saveClassToDb, saveFeeToDb, saveGradeToDb, sendMessageToDb, checkInterSchoolStudentDebt } from './src/services/api';
 import { DbStatus } from './src/services/api';
 import { Database, CheckCircle2, User as UserIcon, Camera, Settings, LogOut, Shield, ChevronDown, Lock, Zap, Sparkles, Key, ShieldCheck, X, AlertCircle, AlertTriangle } from 'lucide-react';
 import LockedFeatureGuard from './components/LockedFeatureGuard';
@@ -911,6 +911,7 @@ const App: React.FC = () => {
           replaceIfArray<Personnel>(setPersonnel, exportRes.personnel);
           replaceIfArray<Class>(setClasses, exportRes.classes);
           replaceIfArray<Fee>(setFees, exportRes.fees);
+          replaceIfArray<Grade>(setGrades, exportRes.grades);
           replaceIfArray<any>(setAttendance, exportRes.attendance);
           replaceIfArray<any>(setNotifications, exportRes.notifications);
         }
@@ -1041,6 +1042,22 @@ const App: React.FC = () => {
       console.warn('Failed to persist activity log to database:', dbErr);
     }
   }, [loggedInRole, telemetry, activePage, currentUser, schoolSettings]);
+
+  const persistTransaction = useCallback((optimisticTransaction: Transaction) => {
+    saveTransactionToDb(optimisticTransaction)
+      .then((saved: any) => {
+        if (saved?.id) {
+          setTransactions(prev => prev.map(t => (
+            t.id === optimisticTransaction.id
+              ? { ...t, ...saved, id: String(saved.id) } as Transaction
+              : t
+          )));
+        }
+      })
+      .catch((err) => {
+        console.warn('Transaction gardée localement, synchronisation Supabase échouée:', err);
+      });
+  }, []);
 
   const addLogRef = React.useRef(addActivityLog);
   useEffect(() => {
@@ -1600,6 +1617,13 @@ const App: React.FC = () => {
 
           setUsers(prev => [...prev, newStudentUser]);
           setPayments(prev => [...prev, newPaymentRecord]);
+          saveUserToDb(newStudentUser)
+            .then((saved: any) => {
+              if (saved?.id) {
+                setUsers(prev => prev.map(u => u.id === newId ? { ...u, ...saved, id: saved.id } : u));
+              }
+            })
+            .catch((err) => console.warn('Élève gardé localement, synchronisation Supabase échouée:', err));
       } else {
           // EXISTING STUDENT (for Frais Mensuels, Réinscription, or Dossier d'Examen)
           const student = (payments || []).find(p => p.id === targetStudentId) || (users || []).find(u => u.id === targetStudentId);
@@ -1644,6 +1668,30 @@ const App: React.FC = () => {
           } else {
               studentName = `Élève #${targetStudentId}`;
           }
+      }
+
+      if (pType === 'Inscription' || pType === 'Réinscription') {
+        checkInterSchoolStudentDebt({
+          name: studentName,
+          studentName,
+          matricule: paymentData.newStudentData?.matricule || paymentData.matricule,
+          parentName: paymentData.newStudentData?.parentTuteur || paymentData.parentTuteur,
+          parentTuteur: paymentData.newStudentData?.parentTuteur || paymentData.parentTuteur
+        }).then((result: any) => {
+          if (result?.hasDebt && Array.isArray(result.matches) && result.matches.length > 0) {
+            const debtSummary = result.matches
+              .map((m: any) => `${m.studentName || studentName} — ${m.previousSchoolName}: ${Number(m.outstanding || 0).toLocaleString()} ${schoolSettings?.currency || 'FCFA'}`)
+              .join('\n');
+            alert(`⚠️ Vérification financière inter-école\n\nDette détectée dans le réseau :\n${debtSummary}\n\nMerci de contacter l'établissement d'origine avant validation définitive.`);
+            addNotification(
+              `Dette inter-école détectée pour ${studentName}: ${debtSummary}`,
+              'Vérification financière',
+              ['Responsable des finances', 'Promoteur', 'Admin'],
+              'Inscriptions & Élèves'
+            );
+            addActivityLog('Dette inter-école détectée', debtSummary);
+          }
+        }).catch((err) => console.warn('Vérification inter-école indisponible:', err));
       }
 
       // Build transaction description and category
@@ -1697,6 +1745,15 @@ const App: React.FC = () => {
         action: 'CREATE',
         payload: newTransaction,
       });
+      persistTransaction(newTransaction);
+      savePaymentToDb({
+        studentId: typeof targetStudentId === 'number' ? targetStudentId : undefined,
+        amount: paymentData.amount,
+        paymentDate: today.toISOString(),
+        receiptNumber: `REC-${Date.now()}-${targetStudentId || 'N'}`,
+        paymentMethod: paymentData.paymentMethod,
+        status: 'paid'
+      }).catch((err) => console.warn('Paiement gardé localement, synchronisation Supabase échouée:', err));
 
       // Logging & Notifications
       const details = `Paiement ${pType} pour ${studentName} (${studentClass}). Montant: ${paymentData.amount.toLocaleString()} ${schoolSettings?.currency || 'FCFA'}`;
@@ -1777,6 +1834,7 @@ const App: React.FC = () => {
       action: 'CREATE',
       payload: newTransaction,
     });
+    persistTransaction(newTransaction);
     addActivityLog('Paiement de salaire (en attente)', `Personnel: ${employee.name}, Période: ${pd.salaryPeriod || 'N/A'}, Montant: ${paymentData.netAmount.toLocaleString()} ${schoolSettings?.currency}`);
     
     addNotification(
@@ -1820,6 +1878,19 @@ const App: React.FC = () => {
       const transaction = transactions.find(t => t.id === transactionId);
       if (transaction && budget) {
           addActivityLog(`Validation transaction (${status}) par ${approvedByText}`, `ID: ${transactionId}, Desc: ${transaction.description}`);
+          if (/^\d+$/.test(String(transactionId))) {
+            updateTransactionStatusInDb(String(transactionId), status)
+              .then((saved: any) => {
+                if (saved?.id) {
+                  setTransactions(prev => prev.map(t => (
+                    String(t.id) === String(transactionId)
+                      ? { ...t, ...saved, id: String(saved.id), status } as Transaction
+                      : t
+                  )));
+                }
+              })
+              .catch((err) => console.warn('Validation gardée localement, synchronisation Supabase échouée:', err));
+          }
           
           // Notification to Caisse, RAF, DG (Promoteur) & Admin
           addNotification(
@@ -1945,6 +2016,7 @@ const App: React.FC = () => {
         action: 'CREATE',
         payload: newExpense,
       });
+      persistTransaction(newExpense);
       
       if (isRAFOrDG) {
         addActivityLog('Enregistrement dépense (Direction/RAF)', `Desc: ${description}, Montant: ${amount} ${schoolSettings?.currency}, Cat: ${category}`);
@@ -2056,6 +2128,7 @@ const App: React.FC = () => {
         action: 'CREATE',
         payload: newRevenue,
       });
+      persistTransaction(newRevenue);
       addActivityLog('Enregistrement revenu', `Desc: ${description}, Montant: ${amount} ${schoolSettings?.currency}, Cat: ${category}`);
       addNotification(
           `Nouveau revenu de ${amount.toLocaleString()} ${schoolSettings?.currency} enregistré.`,
@@ -2070,12 +2143,26 @@ const App: React.FC = () => {
     if (personnelToSave.id) {
         // Update
         setPersonnel(personnel.map(p => p.id === personnelToSave.id ? personnelToSave : p));
+        savePersonnelToDb(personnelToSave)
+          .then((saved: any) => {
+            if (saved?.id) {
+              setPersonnel(prev => prev.map(p => p.id === personnelToSave.id ? { ...p, ...saved } : p));
+            }
+          })
+          .catch((err) => console.warn('Personnel gardé localement, synchronisation Supabase échouée:', err));
         addActivityLog('Mise à jour fiche personnel', `ID: ${personnelToSave.id}, Nom: ${personnelToSave.name}`);
     } else {
         // Create
         const newId = personnel.length > 0 ? Math.max(...personnel.map(p => p.id as number)) + 1 : 1;
         const newPersonnel = { ...personnelToSave, id: newId };
         setPersonnel([...personnel, newPersonnel]);
+        savePersonnelToDb({ ...newPersonnel, id: undefined })
+          .then((saved: any) => {
+            if (saved?.id) {
+              setPersonnel(prev => prev.map(p => p.id === newId ? { ...p, ...saved } : p));
+            }
+          })
+          .catch((err) => console.warn('Personnel gardé localement, synchronisation Supabase échouée:', err));
         addActivityLog('Création membre du personnel', `Nom: ${newPersonnel.name}, Rôle: ${newPersonnel.role}`);
     }
   };
@@ -2127,6 +2214,12 @@ const App: React.FC = () => {
         timestamp: new Date().toISOString()
     };
     setMessages(prev => [...prev, newMessage]);
+    sendMessageToDb({
+      text,
+      title: `Message de ${currentUser.name}`,
+      targetSchoolId: (currentUser as any).schoolId || (schoolSettings as any)?.id,
+      roles: undefined
+    }).catch((err) => console.warn('Message gardé localement, synchronisation Supabase échouée:', err));
   };
 
   const handleUpdateAcademicYear = (newYear: AcademicYear) => {
@@ -2137,11 +2230,25 @@ const App: React.FC = () => {
   const handleSaveClass = (classToSave: Class) => {
     if (classToSave.id) {
       setClasses(classes.map(c => c.id === classToSave.id ? classToSave : c));
+      saveClassToDb(classToSave)
+        .then((saved: any) => {
+          if (saved?.id) {
+            setClasses(prev => prev.map(c => c.id === classToSave.id ? { ...c, ...saved } : c));
+          }
+        })
+        .catch((err) => console.warn('Classe gardée localement, synchronisation Supabase échouée:', err));
       addActivityLog('Modification classe', `ID: ${classToSave.id}, Nom: ${classToSave.name}`);
     } else {
       const newId = classes.length > 0 ? Math.max(...classes.map(c => c.id as number)) + 1 : 1;
       const newClass = { ...classToSave, id: newId };
       setClasses([...classes, newClass]);
+      saveClassToDb({ ...newClass, id: undefined })
+        .then((saved: any) => {
+          if (saved?.id) {
+            setClasses(prev => prev.map(c => c.id === newId ? { ...c, ...saved } : c));
+          }
+        })
+        .catch((err) => console.warn('Classe gardée localement, synchronisation Supabase échouée:', err));
       addActivityLog('Création classe', `Nom: ${newClass.name}`);
     }
   };
@@ -2157,11 +2264,25 @@ const App: React.FC = () => {
   const handleSaveFee = (feeToSave: Fee) => {
     if (feeToSave.id) {
         setFees(fees.map(f => f.id === feeToSave.id ? feeToSave : f));
+        saveFeeToDb(feeToSave)
+          .then((saved: any) => {
+            if (saved?.id) {
+              setFees(prev => prev.map(f => f.id === feeToSave.id ? { ...f, ...saved } : f));
+            }
+          })
+          .catch((err) => console.warn('Tarif gardé localement, synchronisation Supabase échouée:', err));
         addActivityLog('Modification tarif', `ID: ${feeToSave.id}, Classe/Service: ${feeToSave.class}`);
     } else {
         const newId = fees.length > 0 ? Math.max(...fees.map(f => f.id)) + 1 : 1;
         const newFee = { ...feeToSave, id: newId };
         setFees([...fees, newFee]);
+        saveFeeToDb({ ...newFee, id: undefined })
+          .then((saved: any) => {
+            if (saved?.id) {
+              setFees(prev => prev.map(f => f.id === newId ? { ...f, ...saved } : f));
+            }
+          })
+          .catch((err) => console.warn('Tarif gardé localement, synchronisation Supabase échouée:', err));
         addActivityLog('Création tarif', `Classe/Service: ${newFee.class}, Montant: ${newFee.amount}`);
     }
   };
@@ -2178,6 +2299,13 @@ const App: React.FC = () => {
     const newId = `grade_${Date.now()}`;
     const newGrade = { ...gradeToSave, id: newId };
     setGrades(prev => [...prev, newGrade]);
+    saveGradeToDb(newGrade)
+      .then((saved: any) => {
+        if (saved?.id) {
+          setGrades(prev => prev.map(g => g.id === newId ? { ...g, ...saved } : g));
+        }
+      })
+      .catch((err) => console.warn('Note gardée localement, synchronisation Supabase échouée:', err));
     const student = users.find(u => u.id === gradeToSave.studentId);
     addActivityLog('Ajout de note', `Élève: ${student?.name}, Matière: ${gradeToSave.subject}, Note: ${gradeToSave.score}`);
 
