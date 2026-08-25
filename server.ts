@@ -2767,8 +2767,8 @@ async function startServer() {
           isPreSubscription: true,
           planType: null,
           daysRemaining: 0,
-          schoolIdentifier: 'EDUCO-SCH-DEMO',
-          schoolName: 'Établissement Démo',
+          schoolIdentifier: null,
+          schoolName: null,
           message: 'Aucun établissement associé.'
         });
       }
@@ -2846,15 +2846,10 @@ async function startServer() {
         promoterName: activeSub.promoterName || dbUser.name,
       });
     } catch (error: any) {
-      res.json({
-        isActive: true,
-        isPreSubscription: false,
-        planType: 'standard',
-        planName: 'Abonnement Standard (Inclus)',
-        isAiEnabled: true,
-        daysRemaining: 365,
-        schoolIdentifier: 'EDUCO-SCH-DEMO',
-        schoolName: 'Établissement Scolaire',
+      console.error('Subscription status error:', error);
+      res.status(500).json({
+        success: false,
+        error: error?.message || 'Impossible de lire l’abonnement depuis Supabase.'
       });
     }
   });

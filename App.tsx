@@ -816,14 +816,16 @@ const App: React.FC = () => {
     setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
   };
 
-  // Data loading & Cloud SQL connection verification + Offline Storage
+  // Data loading & Supabase connection verification.
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Check local offline storage cache
+        // Keep only local preference/settings cache. Core business data is not
+        // rehydrated from localStorage so stale/mock records never appear while
+        // Supabase is loading or unavailable.
         const offlineCache = loadOfflineData();
 
-        // Verify Cloud SQL Database connection
+        // Verify Supabase connection
         checkDbConnection().then(status => {
           setDbStatus(status);
           if (status.connected) {
@@ -839,22 +841,22 @@ const App: React.FC = () => {
           }
         });
 
-        // Initialize App State from offline storage if available, or fall back to initial values
-        setUsers(offlineCache?.users || []);
-        setPayments(offlineCache?.payments || []);
-        setPersonnel(offlineCache?.personnel || []);
-        setTransactions(offlineCache?.transactions || []);
+        // Initialize business state empty; live Supabase/API data will populate it.
+        setUsers([]);
+        setPayments([]);
+        setPersonnel([]);
+        setTransactions([]);
         setBudget(offlineCache?.budget || initialBudget);
-        setTopClasses(offlineCache?.topClasses || []);
-        setNotifications(offlineCache?.notifications || []);
-        setMessages(offlineCache?.messages || []);
+        setTopClasses([]);
+        setNotifications([]);
+        setMessages([]);
         setAcademicYear(offlineCache?.academicYear || initialAcademicYear);
-        setClasses(offlineCache?.classes || []);
-        setFees(offlineCache?.fees || []);
-        setSubjects(offlineCache?.subjects || []);
-        setGrades(offlineCache?.grades || []);
-        setAttendance(offlineCache?.attendance || []);
-        setActivityLog(offlineCache?.activityLog || []);
+        setClasses([]);
+        setFees([]);
+        setSubjects([]);
+        setGrades([]);
+        setAttendance([]);
+        setActivityLog([]);
         setSchoolSettings(offlineCache?.schoolSettings || initialSchoolSettings);
         setMessageTemplates(offlineCache?.messageTemplates || initialMessageTemplates);
         const loadedCashierSettings = offlineCache?.cashierSettings || initialCashierSettings;
@@ -873,10 +875,10 @@ const App: React.FC = () => {
         setRafSettings(offlineCache?.rafSettings || initialRafSettings);
         setCommunicationSettings(offlineCache?.communicationSettings || initialCommunicationSettings);
         
-        setTimetable(offlineCache?.timetable || initialTimetableData);
-        setHomeworkDiary(offlineCache?.homeworkDiary || initialHomeworkDiaryData);
-        setReportCardComments(offlineCache?.reportCardComments || initialReportCardCommentsData);
-        setFinancialEvents(offlineCache?.financialEvents || initialFinancialEvents);
+        setTimetable([]);
+        setHomeworkDiary([]);
+        setReportCardComments([]);
+        setFinancialEvents([]);
         loadSubscription();
         setLoading(false);
       } catch (err) {
