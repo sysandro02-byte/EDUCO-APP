@@ -1753,13 +1753,28 @@ async function startServer() {
       if (!Number.isFinite(transactionId)) {
         return res.status(400).json({ error: 'Transaction Supabase invalide ou non synchronisée.' });
       }
-      const { data, error } = await supabaseAdmin
+      let updateResult = await supabaseAdmin
         .from('transactions')
-        .update({ description: `(Status: ${req.body.status}) ${req.body.description || ''}` })
+        .update({
+          status: req.body.status,
+          approved_by: dbUser.name || dbUser.email || 'Responsable',
+          approved_at: new Date().toISOString(),
+          ...(req.body.description !== undefined && { description: req.body.description })
+        })
         .eq('id', transactionId)
         .eq('school_id', dbUser.schoolId)
         .select('*')
         .single();
+      if (updateResult.error) {
+        updateResult = await supabaseAdmin
+          .from('transactions')
+          .update({ description: `(Status: ${req.body.status}) ${req.body.description || ''}` })
+          .eq('id', transactionId)
+          .eq('school_id', dbUser.schoolId)
+          .select('*')
+          .single();
+      }
+      const { data, error } = updateResult;
       if (error) throw error;
       res.json(mapSupabaseTransaction(data));
     } catch (error: any) {
