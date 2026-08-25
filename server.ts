@@ -190,10 +190,11 @@ async function startServer() {
 
   // DB Connection Status
   app.get('/api/db/status', async (req, res) => {
-    if (!isDbConfigured()) {
+    const supabaseAdmin = getSupabaseAdmin(req);
+    if (!supabaseAdmin) {
       return res.json({ 
         connected: false, 
-        message: 'Mode local / Déconnecté actif (Base de données en attente de configuration)',
+        message: 'Supabase non configuré',
         tablesConfigured: true,
         recordCount: 0,
         schoolsCount: 0,
@@ -201,21 +202,23 @@ async function startServer() {
       });
     }
     try {
-      const userList = await db.select().from(users).limit(50);
-      const schoolList = await db.select().from(schools).limit(50);
-      const personnelList = await db.select().from(personnel).limit(50);
+      const [{ data: userList }, { data: schoolList }, { data: personnelList }] = await Promise.all([
+        supabaseAdmin.from('users').select('id').limit(50),
+        supabaseAdmin.from('schools').select('id').limit(50),
+        supabaseAdmin.from('personnel').select('id').limit(50)
+      ]);
       res.json({ 
         connected: true, 
-        message: 'Base de données Supabase / PostgreSQL connectée et peuplée',
+        message: 'Base de données Supabase connectée',
         tablesConfigured: true,
-        recordCount: userList.length,
-        schoolsCount: schoolList.length,
-        personnelCount: personnelList.length
+        recordCount: userList?.length || 0,
+        schoolsCount: schoolList?.length || 0,
+        personnelCount: personnelList?.length || 0
       });
     } catch (error: any) {
       res.json({ 
         connected: false, 
-        message: 'Support local actif (Base de données en attente)',
+        message: 'Supabase indisponible',
         tablesConfigured: true,
         recordCount: 0,
         schoolsCount: 0,
@@ -1046,6 +1049,17 @@ async function startServer() {
       const email = req.query.email as string;
       if (!email) {
         return res.status(400).json({ error: 'Email requis.' });
+      }
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (supabaseAdmin) {
+        const { data: sbUser } = await supabaseAdmin
+          .from('users')
+          .select('*')
+          .eq('email', email.toLowerCase().trim())
+          .limit(1)
+          .maybeSingle();
+        return res.json({ user: mapSupabaseUser(sbUser) });
       }
       
       if (!isDbConfigured()) {

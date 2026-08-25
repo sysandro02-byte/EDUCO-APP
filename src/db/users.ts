@@ -1,6 +1,7 @@
 import { db, isDbConfigured } from './index.ts';
 import { users } from './schema.ts';
 import { eq } from 'drizzle-orm';
+import { getSupabaseAdminClient, getSupabaseUserByUid, mapSupabaseUser } from './supabaseOnly.ts';
 
 export async function getOrCreateUser(uid: string, email: string, name: string, role: string, schoolId?: number) {
   const fallbackUser = {
@@ -14,6 +15,33 @@ export async function getOrCreateUser(uid: string, email: string, name: string, 
     status: 'active',
     createdAt: new Date(),
   };
+
+  const supabase = getSupabaseAdminClient();
+  if (supabase) {
+    try {
+      const existing = await getSupabaseUserByUid(uid);
+      if (existing) return existing;
+
+      const payload = {
+        uid,
+        email,
+        name,
+        role,
+        school_id: schoolId,
+        status: 'active'
+      };
+      const { data, error } = await supabase
+        .from('users')
+        .insert([payload])
+        .select('*')
+        .single();
+      if (error) throw error;
+      return mapSupabaseUser(data) || fallbackUser;
+    } catch (error: any) {
+      console.warn("Supabase notice in getOrCreateUser (using fallback):", error?.message || error);
+      return fallbackUser;
+    }
+  }
 
   if (!isDbConfigured()) {
     return fallbackUser;
@@ -47,6 +75,9 @@ export async function getOrCreateUser(uid: string, email: string, name: string, 
 }
 
 export async function getUserByUid(uid: string) {
+  const supabaseUser = await getSupabaseUserByUid(uid);
+  if (supabaseUser) return supabaseUser;
+
   if (!isDbConfigured() || !uid) {
     return null;
   }
