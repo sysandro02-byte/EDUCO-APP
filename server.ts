@@ -3904,7 +3904,7 @@ async function startServer() {
           success: true,
           message: 'Authentification biométrique validée.',
           user: authUser,
-          token: `bio_session_${Date.now()}`,
+          token: authUser.uid || authUser.email,
         });
       }
 
@@ -3935,7 +3935,7 @@ async function startServer() {
             success: true,
             message: 'Connexion réussie.',
             user: authUser,
-            token: `token_${Date.now()}`,
+            token: authUser.uid || authUser.email,
           });
         }
       }
@@ -3973,6 +3973,7 @@ async function startServer() {
         } catch (e) {}
       }
 
+      let loginToken = dbUser?.uid || targetIdentifier;
       if (dbUser && supabaseDb) {
         try {
           const { data: authData, error: authError } = await supabaseDb.auth.signInWithPassword({
@@ -3987,6 +3988,11 @@ async function startServer() {
           }
           if (authData.user?.id) {
             dbUser.uid = authData.user.id;
+          }
+          if (authData.session?.access_token) {
+            loginToken = authData.session.access_token;
+          } else if (authData.user?.id) {
+            loginToken = authData.user.id;
           }
         } catch (e) {
           return res.status(401).json({
@@ -4022,7 +4028,7 @@ async function startServer() {
           success: true,
           message: 'Connexion réussie.',
           user: dbUser,
-          token: `token_${Date.now()}`,
+          token: loginToken,
         });
       }
 
