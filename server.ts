@@ -965,14 +965,55 @@ async function startServer() {
         if (authError || !authData?.user?.id) {
           const errorMessage = authError?.message || 'Impossible de créer le compte promoteur dans Supabase Auth.';
           const isDuplicateEmail = /already|exist|registered|duplicate/i.test(errorMessage);
-          return res.status(isDuplicateEmail ? 409 : 502).json({
-            error: isDuplicateEmail
-              ? 'Cette adresse email est déjà associée à un compte.'
-              : errorMessage
-          });
+          if (isDuplicateEmail && keyRole === 'service_role') {
+            const { data: existingAppUser } = await supabaseAdmin
+              .from('users')
+              .select('id, uid, email')
+              .eq('email', resolvedEmail)
+              .limit(1)
+              .maybeSingle();
+
+            if (existingAppUser?.uid) {
+              return res.status(409).json({
+                error: 'Cette adresse email est déjà associée à un compte.'
+              });
+            }
+
+            const { data: authUsers, error: listAuthError } = await supabaseAdmin.auth.admin.listUsers({
+              page: 1,
+              perPage: 1000,
+            });
+            if (!listAuthError) {
+              const orphanAuthUser = authUsers?.users?.find((user: any) =>
+                String(user.email || '').toLowerCase() === resolvedEmail.toLowerCase()
+              );
+              if (orphanAuthUser?.id) {
+                const { error: updateAuthError } = await supabaseAdmin.auth.admin.updateUserById(orphanAuthUser.id, {
+                  password: rawAdminPassword,
+                  email_confirm: true,
+                  user_metadata: authMetadata,
+                });
+                if (!updateAuthError) {
+                  resolvedUid = orphanAuthUser.id;
+                }
+              }
+            }
+          }
+
+          if (resolvedUid) {
+            console.warn(`Recovered orphan Supabase Auth user for school registration: ${resolvedEmail}`);
+          } else {
+            return res.status(isDuplicateEmail ? 409 : 502).json({
+              error: isDuplicateEmail
+                ? 'Cette adresse email est déjà associée à un compte.'
+                : errorMessage
+            });
+          }
         }
 
-        resolvedUid = authData.user.id;
+        if (!resolvedUid && authData?.user?.id) {
+          resolvedUid = authData.user.id;
+        }
       }
 
       // 1. Create the school with complete dossier
