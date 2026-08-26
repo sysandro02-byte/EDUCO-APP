@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { Transaction, SchoolSettings } from '../App';
+import type { Transaction, SchoolSettings } from '../App';
 
 /**
  * Generates and downloads a clean, professional A4 Payment Receipt PDF with jspdf.
@@ -22,6 +22,7 @@ export const generateReceiptPdf = (
   const receiptId = transaction.id ? transaction.id.split('_')[0] : `REC-${Date.now().toString().slice(-6)}`;
   const totalAmount = transaction.amount || 0;
   const description = (transaction.description || 'Paiement Frais de scolarité').replace('Frais de scolarité - ', '');
+  const receiptSummary = (transaction as any)?.receiptSummary || null;
 
   const drawReceiptSection = (startY: number, copyTitle: string) => {
     const pageWidth = 210;
@@ -116,8 +117,30 @@ export const generateReceiptPdf = (
     doc.setFontSize(10.5);
     doc.text(`${totalAmount.toLocaleString('fr-FR')} ${currency}`, margin + contentWidth - 4, totalY + 5.8, { align: 'right' });
 
+    // Optional financial summary for parent copies and detailed receipts
+    let footerY = totalY + 14;
+    if (receiptSummary) {
+      const summaryY = totalY + 13;
+      const paidTotal = Number(receiptSummary.totalPaidByStudent ?? totalAmount);
+      const remaining = Number(receiptSummary.remainingBalance ?? receiptSummary.debt ?? 0);
+      const debt = Number(receiptSummary.debt ?? remaining);
+
+      doc.setFillColor(250, 252, 253);
+      doc.roundedRect(margin, summaryY, contentWidth, 17, 1.5, 1.5, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(31, 74, 89);
+      doc.text(`Élève : ${receiptSummary.studentName || 'N/A'}`, margin + 4, summaryY + 5);
+      doc.text(`Classe : ${receiptSummary.studentClass || 'N/A'}`, margin + 88, summaryY + 5);
+      doc.setTextColor(40, 40, 40);
+      doc.text(`Montant encaissé : ${totalAmount.toLocaleString('fr-FR')} ${currency}`, margin + 4, summaryY + 11);
+      doc.text(`Total payé élève : ${paidTotal.toLocaleString('fr-FR')} ${currency}`, margin + 70, summaryY + 11);
+      doc.text(`Reste : ${remaining.toLocaleString('fr-FR')} ${currency}`, margin + 4, summaryY + 15);
+      doc.text(`Dette : ${debt.toLocaleString('fr-FR')} ${currency}`, margin + 70, summaryY + 15);
+      footerY = summaryY + 22;
+    }
+
     // Footer & Signature
-    const footerY = totalY + 14;
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(8);
     doc.setTextColor(90, 90, 90);
@@ -162,6 +185,67 @@ export const generateReceiptPdf = (
   // Download
   const filename = `Recu_${receiptId}_${now.toISOString().slice(0, 10)}.pdf`;
   doc.save(filename);
+};
+
+export const createReceiptPdfBlob = (
+  transaction: Transaction,
+  schoolSettings: SchoolSettings,
+  isSigned = false
+): Blob => {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const currency = schoolSettings?.currency || 'FCFA';
+  const now = new Date(transaction.date || Date.now());
+  const receiptId = transaction.id ? transaction.id.split('_')[0] : `REC-${Date.now().toString().slice(-6)}`;
+  const totalAmount = transaction.amount || 0;
+  const summary = (transaction as any)?.receiptSummary || {};
+  const description = (transaction.description || 'Paiement Frais de scolarité').replace('Frais de scolarité - ', '');
+  const paidTotal = Number(summary.totalPaidByStudent ?? totalAmount);
+  const remaining = Number(summary.remainingBalance ?? summary.debt ?? 0);
+  const debt = Number(summary.debt ?? remaining);
+
+  doc.setFillColor(31, 74, 89);
+  doc.rect(0, 0, 210, 24, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.text(schoolSettings?.name || 'ÉTABLISSEMENT SCOLAIRE', 105, 13, { align: 'center' });
+  doc.setFontSize(9);
+  doc.text(`Reçu parent - ${receiptId}`, 105, 20, { align: 'center' });
+
+  doc.setTextColor(31, 74, 89);
+  doc.setFontSize(14);
+  doc.text('COPIE DU REÇU DE PAIEMENT', 18, 40);
+
+  doc.setTextColor(40, 40, 40);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.text(`Date : ${now.toLocaleDateString('fr-FR')} ${now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`, 18, 52);
+  doc.text(`Élève : ${summary.studentName || 'N/A'}`, 18, 60);
+  doc.text(`Classe : ${summary.studentClass || 'N/A'}`, 18, 68);
+  doc.text(`Parent/Tuteur : ${summary.parentName || 'N/A'}`, 18, 76);
+  doc.text(`Motif : ${description}`, 18, 84);
+  doc.text(`Mode : ${transaction.paymentMethod || 'Espèces / Caisse'}`, 18, 92);
+
+  doc.setFillColor(243, 246, 248);
+  doc.roundedRect(18, 105, 174, 48, 2, 2, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Montant encaissé par la caisse : ${totalAmount.toLocaleString('fr-FR')} ${currency}`, 26, 118);
+  doc.text(`Montant total payé par l'élève : ${paidTotal.toLocaleString('fr-FR')} ${currency}`, 26, 130);
+  doc.text(`Reste à payer : ${remaining.toLocaleString('fr-FR')} ${currency}`, 26, 142);
+  doc.text(`Dette actuelle : ${debt.toLocaleString('fr-FR')} ${currency}`, 112, 142);
+
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(9);
+  doc.setTextColor(90, 90, 90);
+  doc.text('Message système : merci pour votre paiement. Ce reçu est une copie transmise au parent/tuteur.', 105, 170, { align: 'center' });
+  doc.text(`Contact école : ${schoolSettings?.contact || 'N/A'} • ${schoolSettings?.address || ''}`, 105, 178, { align: 'center' });
+
+  return doc.output('blob');
 };
 
 /**

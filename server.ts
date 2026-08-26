@@ -326,7 +326,7 @@ async function startServer() {
   const PORT = await findAvailablePort(preferredPort);
 
   app.use(cors({ origin: true, credentials: true }));
-  app.use(express.json());
+  app.use(express.json({ limit: '8mb' }));
 
   // WebAuthn / Passkeys API Routes
   app.use('/api/auth/webauthn', createWebAuthnRouter(getSupabaseAdmin, db, schema.webauthnCredentials));
@@ -5273,6 +5273,165 @@ async function startServer() {
         success: false,
         error: error.message || "Erreur lors de l'exécution de la campagne de messagerie Brevo",
         details: error.stack || null
+      });
+    }
+  });
+
+  app.post('/api/parent-receipts/send', async (req, res) => {
+    const normalizeWhatsAppPhone = (phone?: string) => {
+      const digits = String(phone || '').replace(/\D/g, '');
+      if (!digits) return '';
+      if (digits.startsWith('00')) return digits.slice(2);
+      if (digits.startsWith('0') && digits.length >= 9) return `242${digits.slice(1)}`;
+      return digits;
+    };
+
+    const sendWhatsAppDocument = async (params: {
+      to: string;
+      message: string;
+      filename: string;
+      pdfBase64?: string;
+    }) => {
+      const accessToken = process.env.WHATSAPP_BUSINESS_TOKEN
+        || process.env.WHATSAPP_ACCESS_TOKEN
+        || process.env.META_WHATSAPP_TOKEN
+        || '';
+      const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
+        || process.env.META_WHATSAPP_PHONE_NUMBER_ID
+        || '';
+      const apiVersion = process.env.WHATSAPP_API_VERSION || 'v20.0';
+
+      if (!accessToken || !phoneNumberId) {
+        return {
+          success: false,
+          channel: 'whatsapp',
+          error: 'WHATSAPP_BUSINESS_TOKEN/WHATSAPP_PHONE_NUMBER_ID non configurés.'
+        };
+      }
+
+      const cleanTo = normalizeWhatsAppPhone(params.to);
+      if (!cleanTo) {
+        return { success: false, channel: 'whatsapp', error: 'Numéro WhatsApp parent invalide ou manquant.' };
+      }
+
+      let mediaId = '';
+      if (params.pdfBase64) {
+        const pdfBuffer = Buffer.from(params.pdfBase64, 'base64');
+        const form = new FormData();
+        form.append('messaging_product', 'whatsapp');
+        form.append('file', new Blob([pdfBuffer], { type: 'application/pdf' }), params.filename);
+
+        const mediaRes = await fetch(`https://graph.facebook.com/${apiVersion}/${phoneNumberId}/media`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body: form as any,
+        });
+        const mediaData: any = await mediaRes.json().catch(() => ({}));
+        if (!mediaRes.ok || !mediaData?.id) {
+          return {
+            success: false,
+            channel: 'whatsapp',
+            status: mediaRes.status,
+            error: mediaData?.error?.message || mediaData?.message || `Échec upload média WhatsApp (${mediaRes.status}).`,
+            details: mediaData,
+          };
+        }
+        mediaId = mediaData.id;
+      }
+
+      const messageBody: any = mediaId
+        ? {
+            messaging_product: 'whatsapp',
+            to: cleanTo,
+            type: 'document',
+            document: {
+              id: mediaId,
+              filename: params.filename,
+              caption: params.message.slice(0, 1024),
+            },
+          }
+        : {
+            messaging_product: 'whatsapp',
+            to: cleanTo,
+            type: 'text',
+            text: { preview_url: false, body: params.message },
+          };
+
+      const msgRes = await fetch(`https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(messageBody),
+      });
+      const msgData: any = await msgRes.json().catch(() => ({}));
+
+      if (!msgRes.ok) {
+        return {
+          success: false,
+          channel: 'whatsapp',
+          status: msgRes.status,
+          error: msgData?.error?.message || msgData?.message || `Échec envoi WhatsApp (${msgRes.status}).`,
+          details: msgData,
+        };
+      }
+
+      return {
+        success: true,
+        channel: 'whatsapp',
+        messageId: msgData?.messages?.[0]?.id || mediaId || `wa_${Date.now()}`,
+        details: msgData,
+      };
+    };
+
+    try {
+      const {
+        recipient,
+        message,
+        subject,
+        schoolName,
+        filename = `recu-parent-${Date.now()}.pdf`,
+        pdfBase64,
+      } = req.body || {};
+
+      const parentPhone = recipient?.phone || recipient?.parentPhone || '';
+      const parentEmail = recipient?.email || recipient?.parentEmail || '';
+      const parentName = recipient?.name || recipient?.parentName || 'Parent/Tuteur';
+
+      const whatsappResult = parentPhone
+        ? await sendWhatsAppDocument({ to: parentPhone, message, filename, pdfBase64 })
+        : { success: false, channel: 'whatsapp', error: 'Aucun numéro WhatsApp parent fourni.' };
+
+      let emailResult: any = null;
+      if (!whatsappResult.success && parentEmail) {
+        emailResult = await sendBrevoEmail({
+          to: [{ email: parentEmail, name: parentName }],
+          subject: subject || `Reçu de paiement - ${schoolName || 'EDUCO'}`,
+          htmlContent: `
+            <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
+              <h2 style="color:#1F4A59">Reçu de paiement</h2>
+              <p>Bonjour <strong>${parentName}</strong>,</p>
+              <p>${String(message || '').replace(/\n/g, '<br>')}</p>
+              <p>Le reçu PDF est joint à ce message.</p>
+            </div>
+          `,
+          attachment: pdfBase64 ? [{ name: filename, content: pdfBase64 }] : undefined,
+          tags: ['parent-receipt', 'payment'],
+        });
+      }
+
+      return res.json({
+        success: whatsappResult.success || !!emailResult?.success,
+        whatsapp: whatsappResult,
+        email: emailResult,
+        fallbackUsed: !whatsappResult.success && !!emailResult?.success,
+      });
+    } catch (error: any) {
+      console.error('Parent receipt delivery error:', error);
+      return res.status(500).json({
+        success: false,
+        error: error?.message || 'Erreur lors de l’envoi du reçu parent.',
       });
     }
   });

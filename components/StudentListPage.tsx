@@ -20,7 +20,8 @@ import {
   BookOpen,
   Zap,
   ShieldCheck,
-  Lock
+  Lock,
+  FileSpreadsheet
 } from 'lucide-react';
 import { SchoolSettings } from '../App';
 import UserAvatar from './UserAvatar';
@@ -49,6 +50,7 @@ const StudentListPage: React.FC<StudentListPageProps> = ({
   const [selectedStudentForBadge, setSelectedStudentForBadge] = useState<User | null>(null);
   const [studentToDelete, setStudentToDelete] = useState<User | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [exportGrouping, setExportGrouping] = useState<'classe' | 'cycle'>('classe');
 
   const classes = useMemo(() => {
     const rawClasses = Array.from(new Set(students.map(s => s.class).filter(Boolean)));
@@ -88,6 +90,61 @@ const StudentListPage: React.FC<StudentListPageProps> = ({
 
   const canGenerateBadges = ['Admin', 'Caissière', 'Responsable des finances', 'Directeur des Etudes'].includes(currentUserRole);
   const canDeleteStudent = ['Admin', 'Responsable des finances'].includes(currentUserRole) && !!onDeleteStudent;
+  const canExportStudents = [
+    'Directeur Général',
+    'Directeur des Etudes',
+    'Directeur du Primaire',
+    'Caissière',
+    'Responsable des finances',
+  ].includes(currentUserRole);
+
+  const getCycleFromClass = (className?: string) => {
+    const value = (className || '').toLowerCase();
+    if (!value) return 'Cycle non renseigné';
+    if (value.includes('garderie') || value.includes('maternelle') || value.includes('petite') || value.includes('moyenne') || value.includes('grande section')) return 'Préscolaire';
+    if (/(cp|ce1|ce2|cm1|cm2|primaire)/i.test(className || '')) return 'Primaire';
+    if (/(6|5|4|3|collège|college)/i.test(className || '')) return 'Collège';
+    if (/(2nde|seconde|1ère|première|terminale|tle|lycée|lycee)/i.test(className || '')) return 'Lycée';
+    return 'Autre cycle';
+  };
+
+  const handleExportStudentsAlphabetically = () => {
+    const sorted = [...filteredStudents].sort((a, b) => {
+      const groupA = exportGrouping === 'classe' ? (a.class || 'Classe non renseignée') : getCycleFromClass(a.class);
+      const groupB = exportGrouping === 'classe' ? (b.class || 'Classe non renseignée') : getCycleFromClass(b.class);
+      return groupA.localeCompare(groupB, 'fr') || (a.name || '').localeCompare(b.name || '', 'fr');
+    });
+
+    let csv = '\uFEFF';
+    csv += `"LISTE ALPHABÉTIQUE DES ÉLÈVES - ${schoolSettings?.name || 'ÉTABLISSEMENT'}"\n`;
+    csv += `"Regroupement";"${exportGrouping === 'classe' ? 'Classe' : 'Cycle'}"\n`;
+    csv += `"Généré le";"${new Date().toLocaleString('fr-FR')}"\n\n`;
+    csv += `"${exportGrouping === 'classe' ? 'Classe' : 'Cycle'}";"Classe";"Nom";"Matricule";"Statut";"Téléphone parent";"Email";"Adresse"\n`;
+
+    sorted.forEach(student => {
+      const group = exportGrouping === 'classe' ? (student.class || 'Classe non renseignée') : getCycleFromClass(student.class);
+      csv += [
+        group,
+        student.class || '',
+        student.name || '',
+        student.studentId || '',
+        student.status || '',
+        student.parentPhone || student.guardianPhone || student.phone || student.contact || '',
+        student.email || '',
+        student.address || '',
+      ].map(value => `"${String(value).replace(/"/g, '""')}"`).join(';') + '\n';
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Eleves_alphabetique_par_${exportGrouping}_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const totalStudents = students.length;
   const activeStudents = students.filter(s => s.status === 'Actif').length;
@@ -187,6 +244,28 @@ const StudentListPage: React.FC<StudentListPageProps> = ({
               <option value="Inactif">Inactif</option>
             </select>
           </div>
+
+          {canExportStudents && (
+            <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/30 p-1 rounded-2xl border border-emerald-200 dark:border-emerald-800 text-xs">
+              <select
+                value={exportGrouping}
+                onChange={(e) => setExportGrouping(e.target.value as 'classe' | 'cycle')}
+                className="bg-transparent text-xs font-bold text-emerald-800 dark:text-emerald-200 focus:outline-none px-2 cursor-pointer"
+                title="Choisir le regroupement de l'export"
+              >
+                <option value="classe">Par classe</option>
+                <option value="cycle">Par cycle</option>
+              </select>
+              <button
+                onClick={handleExportStudentsAlphabetically}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-black transition-colors"
+                title="Exporter la liste des élèves par ordre alphabétique"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Exporter A-Z</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

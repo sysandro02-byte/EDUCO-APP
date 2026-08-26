@@ -19,6 +19,7 @@ import {
   GraduationCap,
   Eye,
   FileSpreadsheet,
+  FileText,
   X,
   Filter,
   Calendar
@@ -117,6 +118,11 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({
     normalizedRole.includes('finances') || 
     normalizedRole.includes('raf');
 
+  const canPrintStudentPaymentHistory =
+    currentUserRole === 'Caissière' ||
+    currentUserRole === 'Responsable des finances' ||
+    currentUserRole === 'Directeur Général';
+
   const toggleClassCollapse = (className: string) => {
     setCollapsedClasses(prev => ({
       ...prev,
@@ -183,6 +189,94 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({
   const handleDownloadReceiptPDF = (payment: Payment) => {
     const tx = getReceiptTransaction(payment);
     generateReceiptPdf(tx, schoolSettings);
+  };
+
+  const getStudentTransactions = (payment: Payment) => {
+    const studentNameLower = payment.name.toLowerCase().trim();
+    const studentIdLower = payment.studentId ? payment.studentId.toLowerCase().trim() : '';
+    return transactions
+      .filter(t => {
+        if (t.type !== 'Revenu') return false;
+        const descLower = (t.description || '').toLowerCase();
+        return descLower.includes(studentNameLower) || (studentIdLower && descLower.includes(studentIdLower));
+      })
+      .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+  };
+
+  const handlePrintStudentPaymentHistory = (payment: Payment) => {
+    const history = getStudentTransactions(payment);
+    const totalPaid = history.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const balance = Math.max(0, Number(payment.totalFees || 0) - Number(payment.amountPaid || totalPaid || 0));
+    const rows = history.length > 0
+      ? history.map(tx => `
+          <tr>
+            <td>${new Date(tx.date || Date.now()).toLocaleDateString('fr-FR')}</td>
+            <td>${tx.description || 'Paiement'}</td>
+            <td>${tx.paymentMethod || 'Espèces'}</td>
+            <td>${tx.status || 'En attente'}</td>
+            <td class="right">${Number(tx.amount || 0).toLocaleString('fr-FR')} ${currency}</td>
+          </tr>
+        `).join('')
+      : `<tr><td colspan="5" class="empty">Aucun paiement détaillé trouvé pour cet élève.</td></tr>`;
+
+    const win = window.open('', '_blank', 'width=1024,height=768');
+    if (!win) {
+      alert("Impossible d'ouvrir la fenêtre d'impression. Autorisez les popups puis réessayez.");
+      return;
+    }
+
+    win.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>Historique paiements - ${payment.name}</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #0f172a; padding: 28px; }
+            .header { text-align: center; border-bottom: 3px solid #1F4A59; padding-bottom: 14px; margin-bottom: 22px; }
+            .header h1 { color: #1F4A59; margin: 0; font-size: 22px; }
+            .meta, .summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 18px; }
+            .box { border: 1px solid #dbe5ea; border-radius: 10px; padding: 10px 12px; background: #f8fafc; }
+            .label { font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 700; }
+            .value { font-size: 14px; font-weight: 800; margin-top: 4px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th { background: #1F4A59; color: #fff; text-align: left; padding: 9px; }
+            td { border-bottom: 1px solid #e2e8f0; padding: 8px; vertical-align: top; }
+            .right { text-align: right; font-weight: 700; }
+            .empty { text-align: center; color: #64748b; padding: 24px; }
+            .footer { margin-top: 28px; display: flex; justify-content: space-between; font-size: 11px; color: #64748b; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>${schoolSettings?.name || 'Établissement scolaire'}</h1>
+            <p>${schoolSettings?.address || ''} ${schoolSettings?.contact ? `• ${schoolSettings.contact}` : ''}</p>
+            <h2>Historique des paiements d'écolage</h2>
+          </div>
+          <div class="meta">
+            <div class="box"><div class="label">Élève</div><div class="value">${payment.name}</div></div>
+            <div class="box"><div class="label">Matricule</div><div class="value">${payment.studentId || 'N/A'}</div></div>
+            <div class="box"><div class="label">Classe</div><div class="value">${payment.class || 'N/A'}</div></div>
+            <div class="box"><div class="label">Date d'impression</div><div class="value">${new Date().toLocaleString('fr-FR')}</div></div>
+          </div>
+          <div class="summary">
+            <div class="box"><div class="label">Frais totaux</div><div class="value">${Number(payment.totalFees || 0).toLocaleString('fr-FR')} ${currency}</div></div>
+            <div class="box"><div class="label">Montant payé</div><div class="value">${Number(payment.amountPaid || totalPaid || 0).toLocaleString('fr-FR')} ${currency}</div></div>
+            <div class="box"><div class="label">Reste à payer</div><div class="value">${balance.toLocaleString('fr-FR')} ${currency}</div></div>
+            <div class="box"><div class="label">Dette</div><div class="value">${balance.toLocaleString('fr-FR')} ${currency}</div></div>
+          </div>
+          <table>
+            <thead>
+              <tr><th>Date</th><th>Désignation</th><th>Mode</th><th>Statut</th><th>Montant</th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <div class="footer"><span>Imprimé par ${currentUserRole || 'Utilisateur'}</span><span>Signature caisse / RAF</span></div>
+        </body>
+      </html>
+    `);
+    win.document.close();
+    win.focus();
+    win.print();
   };
 
   // Unique list of classes from payments & school classes
@@ -820,6 +914,15 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({
                                     >
                                       <FileDownloadIcon className="w-4 h-4" />
                                     </button>
+                                    {canPrintStudentPaymentHistory && (
+                                      <button
+                                        onClick={() => handlePrintStudentPaymentHistory(p)}
+                                        className="p-1.5 text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 rounded-lg transition-colors"
+                                        title="Imprimer l'historique des paiements de cet élève"
+                                      >
+                                        <FileText className="w-4 h-4" />
+                                      </button>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -945,6 +1048,15 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({
                             >
                               <FileDownloadIcon className="w-5 h-5" />
                             </button>
+                            {canPrintStudentPaymentHistory && (
+                              <button
+                                onClick={() => handlePrintStudentPaymentHistory(p)}
+                                className="p-1.5 text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 rounded-lg transition-colors"
+                                title="Imprimer l'historique des paiements de cet élève"
+                              >
+                                <FileText className="w-5 h-5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -972,6 +1084,7 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({
             onSave={handleSaveAndShowReceipt}
             onCancel={() => setPaymentModalState('closed')}
             currency={currency}
+            currentUserRole={currentUserRole}
           />
         )}
         {paymentModalState === 'receipt' && transactionForReceipt && (
@@ -987,4 +1100,3 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({
 };
 
 export default PaymentsPage;
-

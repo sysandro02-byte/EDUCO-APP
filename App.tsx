@@ -42,6 +42,7 @@ import MobileBottomNav from './components/MobileBottomNav';
 import MobileQuickSearchModal from './components/MobileQuickSearchModal';
 import { PasskeyRegisterPromptModal } from './components/auth/PasskeyRegisterPromptModal';
 import { isWebAuthnSupported, fetchUserDevices } from './src/services/webauthnService';
+import { deliverParentPaymentReceipt, buildParentReceiptMessage } from './utils/parentReceiptDelivery';
 
 import { MenuIcon, SearchIcon, MoonIcon, SunIcon, ChatIcon, LogoIcon } from './components/Icons';
 import { 
@@ -165,6 +166,10 @@ export interface SinglePaymentData {
     mobileMoneyNumber?: string;
     notes?: string;
     paymentType?: 'Frais Mensuels' | 'Inscription' | 'Réinscription' | 'Frais de dossier d\'examen' | string;
+    sendReceiptCopyToParent?: boolean;
+    parentReceiptPhone?: string;
+    parentReceiptEmail?: string;
+    parentReceiptName?: string;
     newStudentData?: {
         name: string;
         class: string;
@@ -1808,6 +1813,34 @@ const App: React.FC = () => {
           category = 'Scolarité';
       }
 
+      const existingPaymentRecord = payments.find(p => p.id === targetStudentId);
+      const totalFeesForReceipt = existingPaymentRecord?.totalFees || fees.find(f => f.class === studentClass && f.type === 'Scolarité')?.amount || 0;
+      const paidBeforeReceipt = existingPaymentRecord?.amountPaid || 0;
+      const totalPaidByStudent = paidBeforeReceipt + paymentData.amount;
+      const remainingBalanceForReceipt = Math.max(0, totalFeesForReceipt - totalPaidByStudent);
+      const normalizeContact = (value?: string) => String(value || '').replace(/\D/g, '');
+      const parentRecipientPhone = paymentData.parentReceiptPhone
+        || paymentData.newStudentData?.contact
+        || users.find(u => u.id === targetStudentId)?.parentPhone
+        || users.find(u => u.id === targetStudentId)?.guardianPhone
+        || users.find(u => u.id === targetStudentId)?.phone
+        || users.find(u => u.id === targetStudentId)?.contact
+        || '';
+      const parentRecipientName = paymentData.parentReceiptName
+        || paymentData.newStudentData?.parentTuteur
+        || paymentData.parentTuteur
+        || users.find(u => u.id === targetStudentId)?.parentName
+        || users.find(u => u.id === targetStudentId)?.guardian
+        || 'Parent/Tuteur';
+      const parentAccount = users.find(u => {
+        if (u.role !== 'Parent') return false;
+        const sameEmail = paymentData.parentReceiptEmail && u.email?.toLowerCase() === paymentData.parentReceiptEmail.toLowerCase();
+        const samePhone = parentRecipientPhone && [u.phone, u.contact].filter(Boolean).some(v => normalizeContact(v) === normalizeContact(parentRecipientPhone));
+        const sameName = parentRecipientName && u.name?.toLowerCase().includes(parentRecipientName.toLowerCase());
+        return sameEmail || samePhone || sameName;
+      });
+      const parentRecipientEmail = paymentData.parentReceiptEmail || parentAccount?.email || '';
+
       const newTransaction: Transaction = {
           id: `TXN${Date.now()}_${targetStudentId || 'N'}`,
           description,
@@ -1819,7 +1852,26 @@ const App: React.FC = () => {
           paymentMethod: (paymentData.paymentMethod as any) || 'Espèces',
           mobileMoneyNumber: paymentData.mobileMoneyNumber,
           notes: paymentData.notes,
-      };
+          receiptSummary: {
+            studentName,
+            studentClass,
+            parentName: parentRecipientName,
+            parentPhone: parentRecipientPhone,
+            parentEmail: parentRecipientEmail,
+            schoolName: schoolSettings?.name || '',
+            amountCollected: paymentData.amount,
+            totalPaidByStudent,
+            remainingBalance: remainingBalanceForReceipt,
+            debt: remainingBalanceForReceipt,
+            cashierName: currentUser?.name || loggedInRole || 'Caisse',
+          },
+          parentReceiptDelivery: {
+            requested: !!paymentData.sendReceiptCopyToParent,
+            phone: parentRecipientPhone,
+            email: parentRecipientEmail,
+            accountUserId: parentAccount?.id,
+          },
+      } as any;
 
       // Add new transaction
       setTransactions(prev => [newTransaction, ...prev]);
@@ -1849,6 +1901,56 @@ const App: React.FC = () => {
           ['Responsable des finances', 'Admin', 'Promoteur'],
           'Opérations à valider'
       );
+
+      if (paymentData.sendReceiptCopyToParent) {
+        const parentMessage = buildParentReceiptMessage(newTransaction, schoolSettings, {
+          name: parentRecipientName,
+          phone: parentRecipientPhone,
+          email: parentRecipientEmail,
+        });
+
+        if (parentAccount?.id) {
+          setNotifications(prev => [{
+            id: `parent_receipt_${Date.now()}_${parentAccount.id}`,
+            message: parentMessage,
+            type: 'Reçu de paiement',
+            roles: ['Parent'],
+            userId: parentAccount.id,
+            timestamp: new Date().toISOString(),
+            read: false,
+            link: 'Paiements',
+            transactionId: newTransaction.id,
+          }, ...prev]);
+        }
+
+        deliverParentPaymentReceipt(newTransaction, schoolSettings, {
+          name: parentRecipientName,
+          phone: parentRecipientPhone,
+          email: parentRecipientEmail,
+        }).then((result) => {
+          addNotification(
+            `Copie parent du reçu de ${studentName}: ${result.message}`,
+            'Reçu de paiement',
+            ['Caissière', 'Responsable des finances', 'Directeur Général'],
+            'Caisse'
+          );
+        }).catch((err) => {
+          console.warn('Livraison copie reçu parent indisponible:', err);
+          if (parentAccount?.id) {
+            setNotifications(prev => [{
+              id: `parent_receipt_fallback_${Date.now()}_${parentAccount.id}`,
+              message: `${parentMessage}\n\nLe canal WhatsApp/email n'a pas pu être ouvert. Le reçu reste disponible auprès de la caisse.`,
+              type: 'Reçu de paiement',
+              roles: ['Parent'],
+              userId: parentAccount.id,
+              timestamp: new Date().toISOString(),
+              read: false,
+              link: 'Paiements',
+              transactionId: newTransaction.id,
+            }, ...prev]);
+          }
+        });
+      }
       
       return newTransaction;
   };

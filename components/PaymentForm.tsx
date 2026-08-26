@@ -59,6 +59,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
     const [mobileMoneyNumber, setMobileMoneyNumber] = useState('');
     const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
     const [notes, setNotes] = useState('');
+    const [sendReceiptCopyToParent, setSendReceiptCopyToParent] = useState(false);
+    const [parentReceiptEmail, setParentReceiptEmail] = useState('');
 
     // --- 1) FRAIS MENSUELS STATE ---
     const [filterClass, setFilterClass] = useState<string>('');
@@ -100,6 +102,37 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
     const [pendingPaymentData, setPendingPaymentData] = useState<SinglePaymentData | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    // Selected Student for Frais Mensuels / Réinscription
+    const selectedStudent = useMemo(() => {
+        if (!selectedStudentId) return null;
+        return (users || []).find(u => u.id === Number(selectedStudentId));
+    }, [selectedStudentId, users]);
+
+    const selectedStudentPayment = useMemo(() => {
+        if (!selectedStudentId) return null;
+        return (payments || []).find(p => p.id === Number(selectedStudentId));
+    }, [selectedStudentId, payments]);
+
+    const parentReceiptInfo = useMemo(() => {
+        const student = selectedStudent;
+        const parentName = parentTuteur || student?.parentName || student?.guardian || student?.fatherName || student?.motherName || '';
+        const phone = paymentType === 'Inscription'
+            ? newStudentContact
+            : (student?.parentPhone || student?.guardianPhone || student?.fatherPhone || student?.motherPhone || student?.phone || student?.contact || '');
+        const matchedParent = (users || []).find(u => {
+            if (u.role !== 'Parent') return false;
+            const sameEmail = parentReceiptEmail && u.email?.toLowerCase() === parentReceiptEmail.toLowerCase();
+            const samePhone = phone && [u.phone, u.contact].filter(Boolean).some(v => String(v).replace(/\D/g, '') === String(phone).replace(/\D/g, ''));
+            const sameName = parentName && u.name?.toLowerCase().includes(parentName.toLowerCase());
+            return sameEmail || samePhone || sameName;
+        });
+        return {
+            name: parentName || matchedParent?.name || '',
+            phone,
+            email: parentReceiptEmail || matchedParent?.email || '',
+        };
+    }, [paymentType, newStudentContact, selectedStudent, parentTuteur, users, parentReceiptEmail]);
+
     // --- MATRICE DE CONTRÔLE FINANCIER (VALIDATION MATRIX) ---
     const validationRules = useMemo((): ControlRule[] => {
         const commonRules: ControlRule[] = [
@@ -112,6 +145,11 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
                 id: 'mode',
                 label: paymentMode === 'Mobile Money' ? 'N° Mobile Money (min 6 chiffres)' : 'Mode de règlement sélectionné',
                 isValid: paymentMode !== 'Mobile Money' || (!!mobileMoneyNumber && mobileMoneyNumber.trim().length >= 6),
+            },
+            {
+                id: 'parentReceipt',
+                label: sendReceiptCopyToParent ? 'Contact parent disponible pour la copie du reçu' : 'Copie parent non demandée',
+                isValid: !sendReceiptCopyToParent || !!parentReceiptInfo.phone || !!parentReceiptInfo.email,
             }
         ];
 
@@ -219,7 +257,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
         freresSoeurs, 
         selectedExamClass, 
         selectedExamStudentId, 
-        examFeeAmount
+        examFeeAmount,
+        sendReceiptCopyToParent,
+        parentReceiptInfo
     ]);
 
     const isFormValid = useMemo(() => {
@@ -254,17 +294,6 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
 
         return list.sort((a, b) => a.name.localeCompare(b.name));
     }, [users, filterClass, searchStudentTerm]);
-
-    // Selected Student for Frais Mensuels / Réinscription
-    const selectedStudent = useMemo(() => {
-        if (!selectedStudentId) return null;
-        return (users || []).find(u => u.id === Number(selectedStudentId));
-    }, [selectedStudentId, users]);
-
-    const selectedStudentPayment = useMemo(() => {
-        if (!selectedStudentId) return null;
-        return (payments || []).find(p => p.id === Number(selectedStudentId));
-    }, [selectedStudentId, payments]);
 
     // Students in selected exam class
     const examClassStudents = useMemo(() => {
@@ -315,6 +344,10 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
                 mobileMoneyNumber: paymentMode === 'Mobile Money' ? mobileMoneyNumber : undefined,
                 notes,
                 paymentType: 'Frais Mensuels',
+                sendReceiptCopyToParent,
+                parentReceiptPhone: parentReceiptInfo.phone,
+                parentReceiptEmail: parentReceiptInfo.email,
+                parentReceiptName: parentReceiptInfo.name,
             };
         } 
         else if (paymentType === 'Inscription') {
@@ -342,6 +375,10 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
                 mobileMoneyNumber: paymentMode === 'Mobile Money' ? mobileMoneyNumber : undefined,
                 notes,
                 paymentType: 'Inscription',
+                sendReceiptCopyToParent,
+                parentReceiptPhone: parentReceiptInfo.phone,
+                parentReceiptEmail: parentReceiptInfo.email,
+                parentReceiptName: parentReceiptInfo.name,
                 newStudentData: {
                     name: newStudentName,
                     class: newStudentClass,
@@ -384,6 +421,10 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
                 mobileMoneyNumber: paymentMode === 'Mobile Money' ? mobileMoneyNumber : undefined,
                 notes,
                 paymentType: 'Réinscription',
+                sendReceiptCopyToParent,
+                parentReceiptPhone: parentReceiptInfo.phone,
+                parentReceiptEmail: parentReceiptInfo.email,
+                parentReceiptName: parentReceiptInfo.name,
                 isLargeFamily,
                 familyNameOrSiblings: isLargeFamily ? familyNameOrSiblings : undefined,
                 classeAnterieure,
@@ -418,6 +459,10 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
                 notes,
                 paymentType: 'Frais de dossier d\'examen',
                 examClass: selectedExamClass,
+                sendReceiptCopyToParent,
+                parentReceiptPhone: parentReceiptInfo.phone,
+                parentReceiptEmail: parentReceiptInfo.email,
+                parentReceiptName: parentReceiptInfo.name,
             };
         }
 
@@ -1226,6 +1271,44 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
                             placeholder="Mentions particulières sur le reçu..."
                         />
                     </div>
+
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 space-y-3">
+                        <label className="flex items-start gap-3 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={sendReceiptCopyToParent}
+                                onChange={(e) => setSendReceiptCopyToParent(e.target.checked)}
+                                className="mt-1 h-4 w-4 rounded border-emerald-300 text-emerald-700 focus:ring-emerald-600"
+                            />
+                            <span>
+                                <span className="block text-sm font-black text-emerald-900">Envoyer une copie du reçu au parent/tuteur</span>
+                                <span className="block text-[11px] text-emerald-800 mt-0.5">
+                                    Après validation, le PDF sera généré. WhatsApp sera ouvert avec un message prérempli vers le parent si un numéro existe ; sinon l'application privilégie le compte parent et l'email.
+                                </span>
+                            </span>
+                        </label>
+
+                        {sendReceiptCopyToParent && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-emerald-200">
+                                <div className="text-xs">
+                                    <p className="font-bold text-emerald-900">Contact WhatsApp détecté</p>
+                                    <p className="mt-1 text-emerald-800 bg-white rounded-lg border border-emerald-100 px-3 py-2">
+                                        {parentReceiptInfo.phone || 'Aucun numéro parent/tuteur disponible'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-emerald-900 mb-1">Email parent (facultatif)</label>
+                                    <input
+                                        type="email"
+                                        value={parentReceiptEmail}
+                                        onChange={(e) => setParentReceiptEmail(e.target.value)}
+                                        placeholder="parent@email.com"
+                                        className="block w-full rounded-lg border-emerald-200 text-xs focus:ring-emerald-600 focus:border-emerald-600"
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* Matrice de Contrôle de Saisie */}
@@ -1380,6 +1463,16 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
                                     <div className="p-2 bg-slate-100 rounded text-[11px]">
                                         <span className="font-semibold text-slate-600">Note: </span>
                                         <span>{pendingPaymentData.notes}</span>
+                                    </div>
+                                )}
+
+                                {pendingPaymentData.sendReceiptCopyToParent && (
+                                    <div className="p-2 bg-emerald-50 border border-emerald-200 rounded text-[11px] text-emerald-900">
+                                        <span className="font-semibold">Copie parent activée : </span>
+                                        <span>
+                                            {pendingPaymentData.parentReceiptPhone || 'WhatsApp non renseigné'}
+                                            {pendingPaymentData.parentReceiptEmail ? ` • ${pendingPaymentData.parentReceiptEmail}` : ''}
+                                        </span>
                                     </div>
                                 )}
                             </div>

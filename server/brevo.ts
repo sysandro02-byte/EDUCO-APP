@@ -25,6 +25,10 @@ export interface SendBrevoEmailOptions {
   textContent?: string;
   replyTo?: BrevoSender;
   tags?: string[];
+  attachment?: Array<{
+    name: string;
+    content: string;
+  }>;
 }
 
 export interface BrevoEmailResult {
@@ -507,6 +511,9 @@ export async function sendBrevoEmail(options: SendBrevoEmailOptions): Promise<Br
   }
   if (options.tags && options.tags.length > 0) {
     requestBody.tags = options.tags;
+  }
+  if (options.attachment && options.attachment.length > 0) {
+    requestBody.attachment = options.attachment;
   }
 
   try {
