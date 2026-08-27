@@ -83,6 +83,7 @@ const AdminSchoolsDirectory: React.FC<AdminSchoolsDirectoryProps> = ({ onOpenLic
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportSchoolId, setExportSchoolId] = useState<string>('all');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [schoolToDelete, setSchoolToDelete] = useState<SchoolDossier | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -221,14 +222,15 @@ const AdminSchoolsDirectory: React.FC<AdminSchoolsDirectoryProps> = ({ onOpenLic
     setIsLoading(true);
     try {
       const res = await fetchAdminRegisteredSchools();
-      if (res && res.schools) {
+      if (res?.success && Array.isArray(res.schools)) {
         setSchoolsList(res.schools);
+        setLoadError(null);
       } else {
-        setSchoolsList([]);
+        throw new Error(res?.error || 'La réponse du serveur ne contient aucune liste d’établissements.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setSchoolsList([]);
+      setLoadError(err?.message || 'Impossible de charger les établissements.');
     } finally {
       setIsLoading(false);
     }
@@ -283,6 +285,14 @@ const AdminSchoolsDirectory: React.FC<AdminSchoolsDirectoryProps> = ({ onOpenLic
 
   return (
     <div className="space-y-6">
+      {loadError && (
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-800">
+          <span>{loadError}</span>
+          <button onClick={loadSchools} className="shrink-0 rounded-xl bg-rose-700 px-3 py-2 font-bold text-white hover:bg-rose-800">
+            Réessayer
+          </button>
+        </div>
+      )}
       
       {/* Toast Alert */}
       {toastMessage && (

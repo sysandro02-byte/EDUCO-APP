@@ -222,6 +222,17 @@ const mapSupabaseSubscriptionRequest = (r: any) => r ? ({
   createdAt: r.created_at || r.createdAt,
 }) : null;
 
+const getPublicAppUrl = (req: any) => {
+  const configured = process.env.PUBLIC_APP_URL || process.env.APP_URL || process.env.VITE_APP_URL;
+  if (configured) return configured.replace(/\/$/, '');
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  const forwardedProto = String(req?.headers?.['x-forwarded-proto'] || '').split(',')[0].trim();
+  const forwardedHost = String(req?.headers?.['x-forwarded-host'] || '').split(',')[0].trim();
+  const protocol = forwardedProto || req?.protocol || 'https';
+  const host = forwardedHost || req?.get?.('host');
+  return host ? `${protocol}://${host}` : 'https://educo-app.school';
+};
+
 const mapSupabaseSurvey = (s: any) => s ? ({
   id: s.id,
   schoolId: s.school_id || s.schoolId,
@@ -1472,7 +1483,7 @@ async function startServer() {
           firebaseUser.uid,
           firebaseUser.email!,
           firebaseUser.name || 'Utilisateur',
-          'Admin' // Default role for first user if no school, though usually school register comes first
+          'Personnel'
         );
         return res.json({ user: newUser });
       }
@@ -1547,6 +1558,13 @@ async function startServer() {
   app.post('/api/users', requireAuth, async (req: AuthRequest, res) => {
     try {
       const dbUser = (req.user?.role || req.user?.schoolId) ? req.user : await getUserByUid(req.user!.uid);
+      const requestedRole = String(req.body.role || '');
+      if (requestedRole === 'Admin') {
+        return res.status(403).json({ error: 'Le compte Admin unique ne peut pas être créé depuis la gestion des utilisateurs.' });
+      }
+      if (requestedRole === 'Co-admin' && dbUser?.role !== 'Admin') {
+        return res.status(403).json({ error: 'Seul le compte Admin peut créer ou modifier un compte Co-admin.' });
+      }
       
       const isSelfUpdate = dbUser && (
         (req.body.id && Number(req.body.id) === dbUser.id) ||
@@ -1554,7 +1572,24 @@ async function startServer() {
         (req.body.email && req.body.email.toLowerCase() === dbUser.email.toLowerCase())
       );
 
-      const targetSchoolId = req.body.schoolId || dbUser?.schoolId || 1;
+      const isCentralAdmin = dbUser?.role === 'Admin' || dbUser?.role === 'Co-admin';
+      const requestedSchoolId = Number(req.body.schoolId);
+      const targetSchoolId: number | null = isCentralAdmin && Number.isInteger(requestedSchoolId) && requestedSchoolId > 0
+        ? requestedSchoolId
+        : (dbUser?.schoolId ? Number(dbUser.schoolId) : null);
+      if (!targetSchoolId && requestedRole !== 'Co-admin') {
+        return res.status(403).json({ error: 'Aucun établissement associé au créateur de ce compte.' });
+      }
+
+      if (req.body.id && !isCentralAdmin) {
+        const supabaseAdmin = getSupabaseAdmin(req);
+        const target = supabaseAdmin
+          ? (await supabaseAdmin.from('users').select('school_id').eq('id', Number(req.body.id)).maybeSingle()).data
+          : (await db.select().from(users).where(eq(users.id, Number(req.body.id))).limit(1))[0];
+        if (!target || Number(target.school_id ?? target.schoolId) !== Number(dbUser.schoolId)) {
+          return res.status(403).json({ error: 'Cet utilisateur appartient à un autre établissement.' });
+        }
+      }
 
       if (req.body.id) {
         const supabaseAdmin = getSupabaseAdmin(req);
@@ -1595,7 +1630,10 @@ async function startServer() {
       
       const adminClient = getSupabaseAdmin(req);
       if (adminClient && req.body.email) {
-        const tempPassword = req.body.tempPassword || 'Educo123!';
+        const tempPassword = req.body.tempPassword || req.body.password;
+        if (!tempPassword || String(tempPassword).length < 6) {
+          return res.status(400).json({ error: 'Un mot de passe initial d’au moins 6 caractères est obligatoire.' });
+        }
         const { data: authUser, error: createError } = await adminClient.auth.admin.createUser({
           email: req.body.email,
           password: tempPassword,
@@ -1662,6 +1700,35 @@ async function startServer() {
           }
         }
 
+        const normalizedRole = String(req.body.role || '').toLowerCase();
+        if (!normalizedRole.includes('élève') && !normalizedRole.includes('eleve') && normalizedRole !== 'parent' && normalizedRole !== 'co-admin') {
+          const { data: schoolRow } = await adminClient.from('schools').select('name').eq('id', targetSchoolId).maybeSingle();
+          const words = String(schoolRow?.name || 'EDUCO').normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[A-Za-z0-9]+/g) || [];
+          const acronym = (words.length > 1 ? words.map((word: string) => word[0]).join('') : (words[0] || 'EDUCO').slice(0, 5)).toUpperCase().slice(0, 6);
+          const matricule = req.body.matricule || `${acronym}-EMP-${new Date().getFullYear()}-${String(sbUser.id).padStart(5, '0')}`;
+          const { data: existingPersonnel } = await adminClient.from('personnel').select('id').eq('user_id', sbUser.id).eq('school_id', targetSchoolId).maybeSingle();
+          const personnelPayload = { user_id: sbUser.id, school_id: targetSchoolId, matricule, role: req.body.role };
+          const { error: personnelError } = existingPersonnel?.id
+            ? await adminClient.from('personnel').update(personnelPayload).eq('id', existingPersonnel.id).eq('school_id', targetSchoolId)
+            : await adminClient.from('personnel').insert([personnelPayload]);
+          if (personnelError) throw personnelError;
+          sbUser.matricule = matricule;
+        }
+
+
+        const { data: welcomeSchool } = targetSchoolId
+          ? await adminClient.from('schools').select('name,identifier').eq('id', targetSchoolId).maybeSingle()
+          : { data: null };
+        sendWelcomeEmail({
+          email: req.body.email,
+          name: req.body.name,
+          role: req.body.role || 'Personnel',
+          schoolName: welcomeSchool?.name || 'Administration Centrale EDUCO',
+          schoolIdentifier: welcomeSchool?.identifier || 'EDUCO-CENTRAL',
+          tempPassword,
+          loginUrl: `${getPublicAppUrl(req)}/?login=1`,
+        }).catch(err => console.warn('User welcome email warning:', err));
+
         return res.json(mapSupabaseUser(sbUser));
       }
 
@@ -1685,15 +1752,27 @@ async function startServer() {
       if (isNaN(targetUserId)) return res.status(400).json({ error: 'ID utilisateur invalide' });
 
       const { name, email, role, status, avatar, phone, schoolId } = req.body;
+      const actor = (req.user?.role ? req.user : await getUserByUid(req.user!.uid));
+      if (role === 'Admin') {
+        return res.status(403).json({ error: 'Il ne peut exister qu’un seul compte Admin et ce rôle ne peut pas être attribué.' });
+      }
+      if (role === 'Co-admin' && actor?.role !== 'Admin') {
+        return res.status(403).json({ error: 'Seul le compte Admin peut attribuer le rôle Co-admin.' });
+      }
+      const isCentralAdmin = actor?.role === 'Admin' || actor?.role === 'Co-admin';
       const supabaseAdmin = getSupabaseAdmin(req);
       if (supabaseAdmin) {
+        const { data: target } = await supabaseAdmin.from('users').select('school_id').eq('id', targetUserId).maybeSingle();
+        if (!target || (!isCentralAdmin && Number(target.school_id) !== Number(actor?.schoolId))) {
+          return res.status(403).json({ error: 'Cet utilisateur appartient à un autre établissement.' });
+        }
         const payload = {
           ...(name !== undefined && { name }),
           ...(email !== undefined && { email }),
           ...(role !== undefined && { role }),
           ...(status !== undefined && { status: status === 'Inactif' ? 'inactive' : 'active' }),
           ...(avatar !== undefined && { avatar }),
-          ...(schoolId !== undefined && { school_id: Number(schoolId) })
+          ...(isCentralAdmin && schoolId !== undefined && { school_id: Number(schoolId) })
         };
         const { data: updatedUser, error: updateError } = await supabaseAdmin
           .from('users')
@@ -1705,6 +1784,12 @@ async function startServer() {
         return res.json({ success: true, user: mapSupabaseUser(updatedUser) });
       }
 
+      if (!supabaseAdmin) {
+        const [target] = await db.select().from(users).where(eq(users.id, targetUserId)).limit(1);
+        if (!target || (!isCentralAdmin && Number(target.schoolId) !== Number(actor?.schoolId))) {
+          return res.status(403).json({ error: 'Cet utilisateur appartient à un autre établissement.' });
+        }
+      }
       const [updatedUser] = await db.update(users)
         .set({
           ...(name !== undefined && { name }),
@@ -1712,7 +1797,7 @@ async function startServer() {
           ...(role !== undefined && { role }),
           ...(status !== undefined && { status }),
           ...(avatar !== undefined && { avatar }),
-          ...(schoolId !== undefined && { schoolId: Number(schoolId) })
+          ...(isCentralAdmin && schoolId !== undefined && { schoolId: Number(schoolId) })
         })
         .where(eq(users.id, targetUserId))
         .returning();
@@ -1729,6 +1814,8 @@ async function startServer() {
       const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
       const targetUserId = parseInt(rawId, 10);
       if (isNaN(targetUserId)) return res.status(400).json({ error: 'ID utilisateur invalide' });
+      const actor = await getUserByUid(req.user!.uid);
+      const isCentralAdmin = actor?.role === 'Admin' || actor?.role === 'Co-admin';
 
       const supabaseAdmin = getSupabaseAdmin(req);
       if (supabaseAdmin) {
@@ -1739,6 +1826,12 @@ async function startServer() {
           .limit(1)
           .maybeSingle();
         if (existingError) throw existingError;
+        if (!existingUser || (!isCentralAdmin && Number(existingUser.school_id) !== Number(actor?.schoolId))) {
+          return res.status(403).json({ error: 'Cet utilisateur appartient à un autre établissement.' });
+        }
+        if ((existingUser.role === 'Admin' || existingUser.role === 'Co-admin') && actor?.role !== 'Admin') {
+          return res.status(403).json({ error: 'Seul l’Admin peut gérer les comptes de l’administration centrale.' });
+        }
         const currentStatus = existingUser?.status || 'active';
         const newStatus = currentStatus === 'active' || currentStatus === 'Actif' ? 'inactive' : 'active';
         const { data: updatedUser, error: updateError } = await supabaseAdmin
@@ -1752,6 +1845,12 @@ async function startServer() {
       }
 
       const [existing] = await db.select().from(users).where(eq(users.id, targetUserId));
+      if (!existing || (!isCentralAdmin && Number(existing.schoolId) !== Number(actor?.schoolId))) {
+        return res.status(403).json({ error: 'Cet utilisateur appartient à un autre établissement.' });
+      }
+      if ((existing.role === 'Admin' || existing.role === 'Co-admin') && actor?.role !== 'Admin') {
+        return res.status(403).json({ error: 'Seul l’Admin peut gérer les comptes de l’administration centrale.' });
+      }
       const currentStatus = existing?.status || 'Actif';
       const newStatus = currentStatus === 'Actif' ? 'Inactif' : 'Actif';
 
@@ -1772,6 +1871,8 @@ async function startServer() {
       const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
       const targetUserId = parseInt(rawId, 10);
       if (isNaN(targetUserId)) return res.status(400).json({ error: 'ID utilisateur invalide' });
+      const actor = await getUserByUid(req.user!.uid);
+      const isCentralAdmin = actor?.role === 'Admin' || actor?.role === 'Co-admin';
 
       const supabaseAdmin = getSupabaseAdmin(req);
       let targetUser: any = null;
@@ -1782,6 +1883,12 @@ async function startServer() {
       } else {
         const [dbTargetUser] = await db.select().from(users).where(eq(users.id, targetUserId));
         targetUser = dbTargetUser;
+      }
+      if (!targetUser || (!isCentralAdmin && Number(targetUser.schoolId) !== Number(actor?.schoolId))) {
+        return res.status(403).json({ error: 'Cet utilisateur appartient à un autre établissement.' });
+      }
+      if ((targetUser.role === 'Admin' || targetUser.role === 'Co-admin') && actor?.role !== 'Admin') {
+        return res.status(403).json({ error: 'Seul l’Admin peut réinitialiser un compte de l’administration centrale.' });
       }
       const tempPass = `Educo${Math.floor(1000 + Math.random() * 9000)}!`;
 
@@ -1827,6 +1934,17 @@ async function startServer() {
         if (error) throw error;
         targetUser = mapSupabaseUser(data);
 
+        const isCentralAdmin = dbUser?.role === 'Admin' || dbUser?.role === 'Co-admin';
+        if (!targetUser || (!isCentralAdmin && Number(targetUser.schoolId) !== Number(dbUser?.schoolId))) {
+          return res.status(403).json({ error: 'Cet utilisateur appartient à un autre établissement.' });
+        }
+        if (targetUser.role === 'Admin') {
+          return res.status(403).json({ error: 'Le compte Admin unique ne peut pas être supprimé.' });
+        }
+        if (targetUser.role === 'Co-admin' && dbUser?.role !== 'Admin') {
+          return res.status(403).json({ error: 'Seul l’Admin peut supprimer un Co-admin.' });
+        }
+
         await Promise.all([
           supabaseAdmin.from('students').delete().eq('user_id', targetUserId),
           supabaseAdmin.from('personnel').delete().eq('user_id', targetUserId),
@@ -1842,6 +1960,16 @@ async function startServer() {
         // Fetch target user details before deletion
         const [dbTargetUser] = await db.select().from(users).where(eq(users.id, targetUserId));
         targetUser = dbTargetUser;
+        const isCentralAdmin = dbUser?.role === 'Admin' || dbUser?.role === 'Co-admin';
+        if (!targetUser || (!isCentralAdmin && Number(targetUser.schoolId) !== Number(dbUser?.schoolId))) {
+          return res.status(403).json({ error: 'Cet utilisateur appartient à un autre établissement.' });
+        }
+        if (targetUser.role === 'Admin') {
+          return res.status(403).json({ error: 'Le compte Admin unique ne peut pas être supprimé.' });
+        }
+        if (targetUser.role === 'Co-admin' && dbUser?.role !== 'Admin') {
+          return res.status(403).json({ error: 'Seul l’Admin peut supprimer un Co-admin.' });
+        }
 
         // Delete referencing dependent records
         await db.delete(students).where(eq(students.userId, targetUserId));
@@ -1900,6 +2028,9 @@ async function startServer() {
       const schoolName = req.body?.schoolName || `Établissement #${targetSchoolId}`;
       if (!targetSchoolId || isNaN(targetSchoolId)) {
         return res.status(400).json({ error: 'Identifiant établissement invalide.' });
+      }
+      if (dbUser?.role === 'Promoteur' && Number(dbUser.schoolId) !== targetSchoolId) {
+        return res.status(403).json({ error: 'Vous ne pouvez administrer que votre propre établissement.' });
       }
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2939,8 +3070,10 @@ async function startServer() {
       }
 
       // Check if it belongs to another school
-      if (sub.schoolId && sub.schoolId !== dbUser.schoolId) {
-        return res.status(400).json({ error: 'Ce code d\'abonnement est déjà assigné à un autre établissement.' });
+      const sameSchoolId = Number(sub.schoolId) === Number(dbUser.schoolId);
+      const sameSchoolIdentifier = String(sub.schoolIdentifier || '').trim().toUpperCase() === String(school?.identifier || '').trim().toUpperCase();
+      if (!sameSchoolId || !sameSchoolIdentifier) {
+        return res.status(403).json({ error: 'Cette clé a été émise pour un autre établissement et ne peut pas être utilisée ici.' });
       }
 
       const now = new Date();
@@ -3184,7 +3317,7 @@ async function startServer() {
       const now = new Date();
       const endDate = new Date(now.getTime() + numMonths * 30 * 24 * 60 * 60 * 1000);
 
-      // Match school if exists
+      // A licence must always be bound to one existing school at issuance time.
       let matchedSchoolId: number | null = null;
       const supabaseAdmin = getSupabaseAdmin(req);
       if (schoolIdentifier) {
@@ -3197,7 +3330,11 @@ async function startServer() {
         }
       }
 
-      const fallbackIdentifier = schoolIdentifier || `EDUCO-SCH-${Math.floor(1000 + Math.random() * 9000)}`;
+      if (!matchedSchoolId) {
+        return res.status(400).json({ error: 'Sélectionnez un établissement enregistré avant de générer la licence.' });
+      }
+
+      const fallbackIdentifier = schoolIdentifier.trim().toUpperCase();
       let newSub: any;
       if (supabaseAdmin) {
         const { data, error } = await supabaseAdmin.from('subscriptions').insert([{
@@ -4794,11 +4931,11 @@ async function startServer() {
   });
 
   // =========================================================================
-  // ADMIN ACCOUNT REGISTRATION ENDPOINT (Super Admin & Co-Admin)
+  // ONE-TIME ADMIN BOOTSTRAP ENDPOINT. Co-admins are created later by this Admin.
   // =========================================================================
-  app.post(['/api/auth/register-admin', '/api/admin/create-account', '/api/admin/register'], async (req, res) => {
+  app.post('/api/auth/register-admin', async (req, res) => {
     try {
-      const { name, email, phone, password, role = 'Admin', securityKey } = req.body;
+      const { name, email, phone, password, securityKey } = req.body;
       if (!name || !email || !password) {
         return res.status(400).json({ error: 'Le nom, l\'adresse email et le mot de passe sont obligatoires.' });
       }
@@ -4809,53 +4946,64 @@ async function startServer() {
 
       const cleanEmail = email.toLowerCase().trim();
 
-      // Check if user already exists
-      let existingUser = null;
-      if (isDbConfigured()) {
-        try {
-          const found = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
-          if (found.length > 0) {
-            existingUser = found[0];
-          }
-        } catch (e) {}
+      const supabaseAdmin = getSupabaseAdmin(req);
+      let existingAdmins: any[] = [];
+      if (supabaseAdmin) {
+        const { data, error } = await supabaseAdmin.from('users').select('id,email,uid,role,created_at').eq('role', 'Admin').order('created_at', { ascending: true });
+        if (error) throw error;
+        existingAdmins = data || [];
+      } else if (isDbConfigured()) {
+        existingAdmins = await db.select().from(users).where(eq(users.role, 'Admin')).limit(1);
+      }
+      if (existingAdmins.length > 0) {
+        return res.status(409).json({
+          error: 'Le compte Admin unique existe déjà. Connectez-vous avec ce compte pour créer des Co-admins.'
+        });
       }
 
       // Generate UID
       let userUid = `admin_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      let createdUser: any = null;
 
       // Attempt Supabase Admin Auth creation if configured
-      const supabaseAdmin = getSupabaseAdmin();
       if (supabaseAdmin) {
-        try {
-          const { data: sbUser, error: sbErr } = await supabaseAdmin.auth.admin.createUser({
-            email: cleanEmail,
-            password: password,
-            email_confirm: true,
-            user_metadata: {
-              name: name.trim(),
-              role: role || 'Admin',
-              contact: phone || '',
-            }
-          });
-          if (sbUser?.user?.id) {
-            userUid = sbUser.user.id;
-          } else if (sbErr) {
-            console.warn("Supabase admin createUser warning:", sbErr.message);
+        const { data: existingEmail } = await supabaseAdmin.from('users').select('id').eq('email', cleanEmail).maybeSingle();
+        if (existingEmail) return res.status(409).json({ error: 'Un compte utilise déjà cette adresse e-mail.' });
+        const { data: sbUser, error: sbErr } = await supabaseAdmin.auth.admin.createUser({
+          email: cleanEmail,
+          password: password,
+          email_confirm: true,
+          user_metadata: {
+            name: name.trim(),
+            role: 'Admin',
+            contact: phone || '',
           }
-        } catch (sbEx: any) {
-          console.warn("Supabase admin create exception:", sbEx?.message);
+        });
+        if (sbErr || !sbUser.user) throw sbErr || new Error('Impossible de créer le compte Admin dans Supabase Auth.');
+        userUid = sbUser.user.id;
+        const { data: insertedAdmin, error: insertError } = await supabaseAdmin.from('users').insert([{
+          uid: userUid,
+          name: name.trim(),
+          email: cleanEmail,
+          role: 'Admin',
+          school_id: null,
+          status: 'active'
+        }]).select('*').single();
+        if (insertError) {
+          await supabaseAdmin.auth.admin.deleteUser(userUid).catch(() => {});
+          throw insertError;
         }
+        createdUser = mapSupabaseUser(insertedAdmin);
       }
 
       // Save in DB users table
-      let createdUser = null;
-      if (isDbConfigured()) {
+      if (!createdUser && isDbConfigured()) {
         try {
           const [newUser] = await db.insert(users).values({
             uid: userUid,
             name: name.trim(),
             email: cleanEmail,
-            role: role || 'Admin',
+            role: 'Admin',
             schoolId: 1,
             status: 'active',
           }).returning();
@@ -4866,15 +5014,7 @@ async function startServer() {
       }
 
       if (!createdUser) {
-        createdUser = {
-          id: Date.now(),
-          uid: userUid,
-          name: name.trim(),
-          email: cleanEmail,
-          role: role || 'Admin',
-          schoolId: 1,
-          status: 'active',
-        };
+        return res.status(503).json({ error: 'Aucune base de données disponible pour enregistrer le compte Admin.' });
       }
 
       // Persist in registered accounts memory registry for instantaneous login
@@ -4888,7 +5028,7 @@ async function startServer() {
         sendWelcomeEmail({
           email: cleanEmail,
           name: name.trim(),
-          role: role || 'Admin',
+          role: 'Admin',
           schoolName: 'Administration Centrale EDUCO',
           schoolIdentifier: 'EDUCO-CENTRAL',
           tempPassword: password,
@@ -4903,6 +5043,46 @@ async function startServer() {
     } catch (error: any) {
       console.error('Register Admin Error:', error);
       res.status(500).json({ error: error.message || 'Erreur lors de la création du compte administrateur.' });
+    }
+  });
+
+  app.post(['/api/admin/create-account', '/api/admin/register'], requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const actor = (req.user?.role ? req.user : await getUserByUid(req.user!.uid));
+      if (actor?.role !== 'Admin') {
+        return res.status(403).json({ error: 'Seul le compte Admin unique peut créer un Co-admin.' });
+      }
+      const { name, email, phone, password } = req.body;
+      if (!name || !email || !password || String(password).length < 6) {
+        return res.status(400).json({ error: 'Nom, e-mail et mot de passe (6 caractères minimum) requis.' });
+      }
+      const cleanEmail = String(email).toLowerCase().trim();
+      const adminClient = getSupabaseAdmin(req);
+      if (!adminClient) return res.status(503).json({ error: 'Supabase Admin est requis.' });
+      const { data: existing } = await adminClient.from('users').select('id').eq('email', cleanEmail).maybeSingle();
+      if (existing) return res.status(409).json({ error: 'Un compte utilise déjà cette adresse e-mail.' });
+      const { data: authUser, error: authError } = await adminClient.auth.admin.createUser({
+        email: cleanEmail,
+        password,
+        email_confirm: true,
+        user_metadata: { name: String(name).trim(), role: 'Co-admin', contact: phone || '' }
+      });
+      if (authError || !authUser.user) throw authError || new Error('Création Auth impossible.');
+      const { data: coAdmin, error: insertError } = await adminClient.from('users').insert([{
+        uid: authUser.user.id,
+        name: String(name).trim(),
+        email: cleanEmail,
+        role: 'Co-admin',
+        school_id: actor.schoolId || null,
+        status: 'active'
+      }]).select('*').single();
+      if (insertError) {
+        await adminClient.auth.admin.deleteUser(authUser.user.id).catch(() => {});
+        throw insertError;
+      }
+      return res.json({ success: true, message: 'Compte Co-admin créé par l’Admin.', user: mapSupabaseUser(coAdmin) });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || 'Erreur lors de la création du Co-admin.' });
     }
   });
 
@@ -5002,7 +5182,7 @@ async function startServer() {
         schoolName,
         schoolIdentifier,
         tempPassword,
-        loginUrl: loginUrl || `${req.protocol}://${req.get('host')}/login`,
+        loginUrl: loginUrl || `${getPublicAppUrl(req)}/?login=1`,
         templateId: templateId || null,
         customApiKey,
       });
@@ -5034,7 +5214,7 @@ async function startServer() {
         email,
         name: email.split('@')[0],
         resetCode,
-        resetUrl: `${req.protocol}://${req.get('host')}/login?resetEmail=${encodeURIComponent(email)}`,
+        resetUrl: `${getPublicAppUrl(req)}/?resetEmail=${encodeURIComponent(email)}`,
         templateId: templateId || null,
         customApiKey,
       });

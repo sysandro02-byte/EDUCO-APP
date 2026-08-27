@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { XIcon } from './Icons';
 
 interface ModalProps {
@@ -32,7 +33,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 
     '4xl': 'max-w-7xl',
   };
 
-  return (
+  return createPortal(
     <div 
       className="fixed inset-0 z-[100] flex justify-center items-center p-2 sm:p-4 md:p-6 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200 overflow-y-auto" 
       onClick={onClose}
@@ -56,7 +57,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 
         </div>
       </div>
     </div>
-  );
+  , document.body);
 };
 
 export default Modal;

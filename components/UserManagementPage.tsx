@@ -703,6 +703,7 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
           onOpenSubscriptionModal={onOpenSubscriptionModal}
           classes={classes}
           fees={fees}
+          schoolSettings={schoolSettings}
         />
       </Modal>
 

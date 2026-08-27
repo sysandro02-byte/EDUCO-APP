@@ -56,11 +56,23 @@ export const requireAuth = async (
   }
 
   try {
-    const jwtPayload = decodeJwtPayload(token);
+    let jwtPayload = decodeJwtPayload(token);
     let matched: any = null;
 
     const supabase = getSupabaseAuthClient();
-    const lookupEmail = jwtPayload?.email || (token.includes('@') ? token : '');
+    if (supabase && jwtPayload) {
+      const { data: verified, error: verificationError } = await supabase.auth.getUser(token);
+      if (verificationError || !verified.user) {
+        return res.status(401).json({ error: 'Accès non autorisé : session invalide ou expirée.' });
+      }
+      jwtPayload = {
+        ...jwtPayload,
+        sub: verified.user.id,
+        email: verified.user.email,
+        user_metadata: verified.user.user_metadata,
+      };
+    }
+    const lookupEmail = jwtPayload?.email || (!supabase && token.includes('@') ? token : '');
     if (supabase && lookupEmail) {
       const { data: sbUser } = await supabase
         .from('users')

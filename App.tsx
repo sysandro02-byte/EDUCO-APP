@@ -380,6 +380,7 @@ const App: React.FC = () => {
     try {
       let loggedUser: any = null;
       let authData: any = null;
+      let backendToken = '';
       const isAdminPortal = activePage === 'AdminSpecialLogin';
 
       // 1. Try unified Backend Login API (/api/auth/login)
@@ -399,6 +400,7 @@ const App: React.FC = () => {
         if (loginRes.ok) {
           if (resData.success && resData.user) {
             loggedUser = resData.user;
+            backendToken = resData.token || '';
           }
         } else {
           // If the backend explicitly returned an error (e.g., 403 Forbidden for admin on homepage), return it
@@ -504,7 +506,9 @@ const App: React.FC = () => {
         sessionStorage.setItem('EDUCO_SESSION_ACTIVE', 'true');
         setInactivityNotice(null);
         localStorage.setItem('EDUCO_CURRENT_USER', JSON.stringify(loggedUser));
-        if (authData?.session?.access_token) {
+        if (backendToken) {
+          localStorage.setItem('EDUCO_USER_TOKEN', backendToken);
+        } else if (authData?.session?.access_token) {
           localStorage.setItem('EDUCO_USER_TOKEN', authData.session.access_token);
         } else {
           localStorage.setItem('EDUCO_USER_TOKEN', trimmedEmail);
@@ -1525,23 +1529,9 @@ const App: React.FC = () => {
         return;
       }
     } catch (err) {
-      console.warn('DB save failed, falling back to local state storage:', err);
-    }
-
-    // Fallback local persistence ensuring account creation never fails
-    if (userToSave.id) {
-      setUsers(users.map(user => (user.id === userToSave.id ? userToSave : user)));
-      addActivityLog('Modification utilisateur (local)', `Nom: ${userToSave.name}`);
-    } else {
-      const maxId = users.length > 0 ? Math.max(...users.map(u => typeof u.id === 'number' ? u.id : 0)) : 0;
-      const newId = maxId + 1;
-      const newUser = { ...userToSave, id: newId };
-      setUsers([...users, newUser]);
-      addActivityLog('Création utilisateur (local)', `Nom: ${newUser.name}`);
-      
-      if (isNewParent) {
-        triggerParentCreationNotification(newUser);
-      }
+      console.error('DB save failed:', err);
+      alert(err instanceof Error ? err.message : 'Impossible de créer ce compte. Veuillez réessayer.');
+      return;
     }
   };
 

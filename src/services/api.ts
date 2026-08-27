@@ -151,10 +151,14 @@ export async function saveUserToDb(user: any) {
       headers,
       body: JSON.stringify(user),
     });
-    return await res.json();
+    const data = await safeJson(res, {});
+    if (!res.ok || data?.error) {
+      throw new Error(data?.error || 'Impossible de créer le compte utilisateur.');
+    }
+    return data;
   } catch (error) {
     console.warn('Error saving user to DB:', error);
-    return null;
+    throw error;
   }
 }
 
@@ -468,13 +472,8 @@ export async function fetchCurrentSubscription(): Promise<SchoolSubscriptionInfo
     if (!res.ok) throw new Error('Erreur réseau');
     return await res.json();
   } catch (error) {
-    // Return local stored subscription if any
-    const saved = localStorage.getItem('educo_local_subscription');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
+    // A licence is a server-side entitlement. Never trust a browser cache as proof.
+    localStorage.removeItem('educo_local_subscription');
     return null;
   }
 }
@@ -488,18 +487,7 @@ export async function activateSubscriptionCode(code: string) {
       body: JSON.stringify({ code }),
     });
     const data = await res.json();
-    if (res.ok && data.subscription) {
-      localStorage.setItem('educo_local_subscription', JSON.stringify({
-        isActive: true,
-        isPreSubscription: false,
-        planType: data.subscription.planType,
-        isAiEnabled: data.subscription.planType === 'ai_premium',
-        daysRemaining: (data.subscription.months || 1) * 30,
-        endDate: data.subscription.endDate,
-        schoolIdentifier: data.subscription.schoolIdentifier,
-        schoolName: data.subscription.schoolName,
-      }));
-    }
+    localStorage.removeItem('educo_local_subscription');
     return data;
   } catch (error: any) {
     console.error('Error activating subscription:', error);
@@ -612,7 +600,11 @@ export async function fetchAdminRegisteredSchools() {
   try {
     const headers = await getAuthHeaders();
     const res = await fetch(getApiUrl('/api/admin/registered-schools'), { headers });
-    return await safeJson(res, { success: false, schools: [] });
+    const data = await safeJson(res, { success: false, schools: [] });
+    if (!res.ok) {
+      throw new Error(data?.error || `Impossible de charger les établissements (${res.status}).`);
+    }
+    return data;
   } catch (error: any) {
     console.warn('Error fetching admin registered schools:', error?.message || error);
     return { success: false, schools: [], error: error.message || 'Erreur lors du chargement des établissements' };

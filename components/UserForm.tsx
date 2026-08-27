@@ -78,6 +78,8 @@ export interface User {
   activatedBy?: string;
   activatedAt?: string;
   enrollmentType?: string;
+  schoolId?: number;
+  matricule?: string;
 }
 
 interface UserFormProps {
@@ -90,6 +92,7 @@ interface UserFormProps {
   onOpenSubscriptionModal?: () => void;
   classes: Class[];
   fees: Fee[];
+  schoolSettings?: { name?: string; id?: number };
 }
 
 const UserForm: React.FC<UserFormProps> = ({ 
@@ -101,12 +104,28 @@ const UserForm: React.FC<UserFormProps> = ({
   isLicenseActive = true,
   onOpenSubscriptionModal,
   classes, 
-  fees 
+  fees,
+  schoolSettings
 }) => {
   const getAllowedRoles = () => {
-    if (currentUserRole === 'Admin' || currentUserRole === 'Co-admin') {
+    if (currentUserRole === 'Admin') {
       return [
         'Co-admin',
+        'Promoteur',
+        'Directeur Général',
+        'Directeur des Etudes',
+        'Directeur du Primaire',
+        'Responsable des finances',
+        'Surveillant Général',
+        'Surveillant Général Adjoint',
+        'Caissière',
+        'Enseignant',
+        'Élève',
+        'Parent'
+      ];
+    }
+    if (currentUserRole === 'Co-admin') {
+      return [
         'Promoteur',
         'Directeur Général',
         'Directeur des Etudes',
@@ -226,6 +245,12 @@ const UserForm: React.FC<UserFormProps> = ({
   };
 
   const isStudent = formData.role === 'Élève';
+
+  const getSchoolAcronym = () => {
+    const words = String(schoolSettings?.name || 'EDUCO').normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[A-Za-z0-9]+/g) || [];
+    const acronym = words.length > 1 ? words.map(word => word[0]).join('') : (words[0] || 'EDUCO').slice(0, 5);
+    return acronym.toUpperCase().slice(0, 6) || 'EDUCO';
+  };
 
   // Steps definition
   const studentSteps = [
@@ -368,6 +393,9 @@ const UserForm: React.FC<UserFormProps> = ({
       setIsSubmitting(true);
       // Auto-generate email if missing for students
       const finalData = { ...formData };
+      if (!isStudent && !finalData.id && !finalData.matricule) {
+        finalData.matricule = `${getSchoolAcronym()}-EMP-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
+      }
       if (!finalData.email && finalData.studentId) {
         const cleanName = finalData.name.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
         finalData.email = `${cleanName || 'eleve'}@ecole-educo.cg`;
