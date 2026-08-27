@@ -10,7 +10,8 @@
     "start": "node dist/server.js",
     "preview": "vite preview",
     "test:e2e": "playwright test",
-    "test:e2e:receipt-bulletin": "playwright test tests/e2e/receipt-bulletin-print.spec.ts"
+    "test:e2e:receipt-bulletin": "playwright test tests/e2e/receipt-bulletin-print.spec.ts",
+    "test:webauthn": "tsx --test tests/webauthn-flow.test.ts"
   },
   "dependencies": {
     "@e965/xlsx": "^0.20.3",
