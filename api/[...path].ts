@@ -56,6 +56,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     headers.set(key, Array.isArray(value) ? value.join(',') : value);
   }
 
+  // Render must validate WebAuthn against the public browser origin, not its
+  // own internal host. Preserve Vercel's original host explicitly.
+  const publicHost = req.headers['x-forwarded-host'] || req.headers.host;
+  if (publicHost) headers.set('x-forwarded-host', Array.isArray(publicHost) ? publicHost[0] : publicHost);
+  if (!headers.has('x-forwarded-proto')) headers.set('x-forwarded-proto', 'https');
+
   try {
     const method = req.method || 'GET';
     const body = ['GET', 'HEAD'].includes(method.toUpperCase()) ? undefined : await readBody(req);
@@ -69,6 +75,19 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     });
 
     const responseBody = Buffer.from(await response.arrayBuffer());
+    const contentType = response.headers.get('content-type') || '';
+    const looksLikeHtml = /text\/html/i.test(contentType) || /^\s*</.test(responseBody.toString('utf8'));
+
+    if (looksLikeHtml) {
+      res.statusCode = response.ok ? 502 : response.status;
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({
+        success: false,
+        error: `Le backend Render a renvoyé une page HTML au lieu de JSON (HTTP ${response.status}).`,
+      }));
+      return;
+    }
+
     res.end(responseBody);
   } catch (error: any) {
     res.statusCode = 502;

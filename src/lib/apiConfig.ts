@@ -1,7 +1,6 @@
 /// <reference types="vite/client" />
 
 // API Configuration for cross-origin or proxied API requests
-const EDUCO_RENDER_API_URL = 'https://educo-app.onrender.com';
 const LOCAL_FRONTEND_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0'];
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
@@ -36,10 +35,13 @@ export function getApiUrl(path: string): string {
     return configuredBaseUrl ? `${configuredBaseUrl}${cleanPath}` : cleanPath;
   }
 
-  if (isLocalFrontendHost(window.location.hostname)) {
+  // Browser requests should normally stay same-origin. In production this lets
+  // Vercel's /api function proxy the request to Render while preserving the
+  // public host WebAuthn uses as its RP ID and expected origin. It also keeps
+  // local development on the Express/Vite server instead of calling Render.
+  if (isLocalFrontendHost(window.location.hostname) || isInvalidApiBaseUrl(configuredBaseUrl)) {
     return cleanPath;
   }
 
-  const baseUrl = isInvalidApiBaseUrl(configuredBaseUrl) ? EDUCO_RENDER_API_URL : configuredBaseUrl;
-  return `${baseUrl}${cleanPath}`;
+  return `${configuredBaseUrl}${cleanPath}`;
 }

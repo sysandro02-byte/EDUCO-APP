@@ -17,18 +17,23 @@ export interface WebAuthnDevice {
  * Parsing that page with response.json() hid the real problem behind
  * "Unexpected token '<'".
  */
-async function readApiJson(response: Response): Promise<any> {
+export async function readApiJson(response: Response): Promise<any> {
   const body = await response.text();
+  const contentType = response.headers.get('content-type') || '';
+
+  if (!body.trim()) {
+    if (response.ok) return {};
+    throw new Error(`Le service biométrique n'a renvoyé aucun détail (HTTP ${response.status}).`);
+  }
 
   try {
     return body ? JSON.parse(body) : {};
   } catch {
-    const contentType = response.headers.get('content-type') || '';
     const looksLikeHtml = /text\/html/i.test(contentType) || /^\s*</.test(body);
     throw new Error(
       looksLikeHtml
-        ? "Le service biométrique est indisponible : la route API a renvoyé une page web au lieu d'une réponse serveur."
-        : "Le service biométrique a renvoyé une réponse invalide."
+        ? `Le service biométrique est indisponible (HTTP ${response.status}) : le proxy API a renvoyé une page HTML au lieu de JSON.`
+        : `Le service biométrique a renvoyé une réponse non-JSON invalide (HTTP ${response.status}).`
     );
   }
 }
@@ -211,7 +216,7 @@ export async function loginWithWebAuthn(
     const verifyRes = await fetch(getApiUrl('/api/auth/webauthn/login/verify'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ authenticationResponse })
+      body: JSON.stringify({ authenticationResponse, challengeId: optionsData.challengeId })
     });
 
     const verifyData = await readApiJson(verifyRes);

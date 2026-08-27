@@ -7,6 +7,7 @@ import {
 } from '@simplewebauthn/server';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 
 // Local JSON fallback storage file
 const LOCAL_WEBAUTHN_FILE = path.join(process.cwd(), 'data_webauthn_credentials.json');
@@ -30,7 +31,7 @@ export interface StoredCredential {
 const challengeStore = new Map<string, { challenge: string; email: string; expiresAt: number }>();
 
 // Helper to clean expired challenges
-setInterval(() => {
+const challengeCleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const [key, val] of challengeStore.entries()) {
     if (val.expiresAt < now) {
@@ -38,6 +39,7 @@ setInterval(() => {
     }
   }
 }, 60000);
+challengeCleanupTimer.unref();
 
 // Helper for local file storage
 function getLocalCredentials(): StoredCredential[] {
@@ -103,11 +105,12 @@ export function createWebAuthnRouter(getSupabaseAdmin?: (req?: any) => any, db?:
 
   // Utility to determine RP ID & Origin dynamically from request
   const getRpConfig = (req: Request) => {
-    const hostHeader = req.get('host') || 'localhost:3000';
+    const forwardedHost = req.get('x-forwarded-host')?.split(',')[0]?.trim();
+    const hostHeader = forwardedHost || req.get('host') || 'localhost:3000';
     const hostname = hostHeader.split(':')[0]; // Strips port
     
     // Protocol detection
-    const proto = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
+    const proto = req.get('x-forwarded-proto')?.split(',')[0]?.trim() || (req.secure ? 'https' : 'http');
     const origin = `${proto}://${hostHeader}`;
     
     // RP ID must be domain without protocol/port
@@ -401,14 +404,15 @@ export function createWebAuthnRouter(getSupabaseAdmin?: (req?: any) => any, db?:
         userVerification: 'preferred'
       });
 
-      const challengeKey = `login_${options.challenge}`;
+      const challengeId = crypto.randomUUID();
+      const challengeKey = `login_${challengeId}`;
       challengeStore.set(challengeKey, {
         challenge: options.challenge,
         email: targetEmail,
         expiresAt: Date.now() + 5 * 60 * 1000
       });
 
-      return res.json({ options });
+      return res.json({ options, challengeId });
     } catch (err: any) {
       console.error('Error generating WebAuthn login options:', err);
       return res.status(500).json({ error: err.message || 'Erreur d\'initialisation biométrique.' });
@@ -420,7 +424,7 @@ export function createWebAuthnRouter(getSupabaseAdmin?: (req?: any) => any, db?:
   // -------------------------------------------------------------
   router.post('/login/verify', async (req: Request, res: Response) => {
     try {
-      const { authenticationResponse } = req.body;
+      const { authenticationResponse, challengeId } = req.body;
       if (!authenticationResponse || !authenticationResponse.id) {
         return res.status(400).json({ error: 'Réponse d\'authentification biométrique absente.' });
       }
@@ -461,17 +465,13 @@ export function createWebAuthnRouter(getSupabaseAdmin?: (req?: any) => any, db?:
         return res.status(400).json({ error: 'Aucune clé biométrique enregistrée ne correspond à cet appareil.' });
       }
 
-      // Find challenge by verifying against active challenges
-      let matchedChallengeKey: string | null = null;
-      let matchedChallenge: string | null = null;
-
-      for (const [key, val] of challengeStore.entries()) {
-        if (key.startsWith('login_')) {
-          matchedChallengeKey = key;
-          matchedChallenge = val.challenge;
-          break;
-        }
-      }
+      // Correlate the assertion with the exact options request. Picking the
+      // first active challenge breaks as soon as two users authenticate at
+      // the same time (or an earlier attempt remains pending).
+      const matchedChallengeKey = challengeId ? `login_${challengeId}` : null;
+      const matchedChallenge = matchedChallengeKey
+        ? challengeStore.get(matchedChallengeKey)?.challenge
+        : null;
 
       if (!matchedChallenge) {
         return res.status(400).json({ error: 'Challenge d\'authentification expiré ou invalide.' });
