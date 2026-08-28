@@ -1,4 +1,4 @@
-import { getApiUrl } from '../lib/apiConfig';
+import { getApiUrl, getEmailApiUrl } from '../lib/apiConfig';
 
 /**
  * Client-side Brevo Email Service
@@ -184,7 +184,7 @@ class BrevoEmailServiceClient {
     error?: string;
   }> {
     try {
-      return await safeFetchJson(getApiUrl('/api/email/send-reset-password'), {
+      return await safeFetchJson(getEmailApiUrl('/api/email/send-reset-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params),
@@ -204,7 +204,7 @@ class BrevoEmailServiceClient {
     error?: string;
   }> {
     try {
-      return await safeFetchJson(getApiUrl('/api/email/confirm-reset-password'), {
+      return await safeFetchJson(getEmailApiUrl('/api/email/confirm-reset-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params),

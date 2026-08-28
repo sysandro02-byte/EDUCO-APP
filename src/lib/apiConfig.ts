@@ -2,6 +2,7 @@
 
 // API Configuration for cross-origin or proxied API requests
 const LOCAL_FRONTEND_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0'];
+const EDUCO_RENDER_API_URL = 'https://educo-app.onrender.com';
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 
@@ -44,4 +45,18 @@ export function getApiUrl(path: string): string {
   }
 
   return `${configuredBaseUrl}${cleanPath}`;
+}
+
+/** Public endpoint used for email and OTP operations. */
+export function getEmailApiUrl(path: string): string {
+  const meta = import.meta as any;
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const configuredBaseUrl = trimTrailingSlash(meta.env?.VITE_API_URL || meta.env?.VITE_BACKEND_URL || '');
+
+  if (typeof window === 'undefined' || isLocalFrontendHost(window.location.hostname)) {
+    return configuredBaseUrl ? `${configuredBaseUrl}${cleanPath}` : cleanPath;
+  }
+
+  const baseUrl = isInvalidApiBaseUrl(configuredBaseUrl) ? EDUCO_RENDER_API_URL : configuredBaseUrl;
+  return `${baseUrl}${cleanPath}`;
 }
