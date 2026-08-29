@@ -73,6 +73,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     studentsCount: null,
     usersCount: null
   });
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+
+  const asNumber = (value: unknown) => {
+    const rawValue = String(value ?? '').replace(/\s/g, '');
+    const normalizedValue = rawValue.includes(',') && !rawValue.includes('.')
+      ? rawValue.replace(',', '.')
+      : rawValue.replace(/,/g, '');
+    const numberValue = typeof value === 'number' ? value : Number(normalizedValue);
+    return Number.isFinite(numberValue) ? numberValue : 0;
+  };
+
+  const sameId = (left: unknown, right: unknown) => String(left ?? '') === String(right ?? '');
 
   const loadDashboardData = async () => {
     try {
@@ -80,26 +93,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       const res = await fetchAdminExportData();
       if (res && res.success) {
-        setSchoolsList(prev => areEqual(prev, res.schools || []) ? prev : (res.schools || []));
+        const loadedSchools = Array.isArray(res.schools) ? res.schools : [];
+        const loadedStudents = Array.isArray(res.students) ? res.students : [];
+        setSchoolsList(prev => areEqual(prev, loadedSchools) ? prev : loadedSchools);
         setDbStats(prev => {
           const next = {
-            studentsCount: res.students?.length || 0,
-            usersCount: res.users?.length || 0
+            studentsCount: loadedStudents.length,
+            usersCount: Array.isArray(res.users) ? res.users.length : 0
           };
           return areEqual(prev, next) ? prev : next;
         });
         setDbPayments(prev => areEqual(prev, res.payments || []) ? prev : (res.payments || []));
         setDbTransactions(prev => areEqual(prev, res.transactions || []) ? prev : (res.transactions || []));
         setDbAttendance(prev => areEqual(prev, res.attendance || []) ? prev : (res.attendance || []));
-        setDbStudents(prev => areEqual(prev, res.students || []) ? prev : (res.students || []));
+        setDbStudents(prev => areEqual(prev, loadedStudents) ? prev : loadedStudents);
+        setLoadError(null);
+        setLastUpdatedAt(new Date());
       } else {
         const schRes = await fetchAdminRegisteredSchools();
         if (schRes && schRes.schools) {
           setSchoolsList(prev => areEqual(prev, schRes.schools) ? prev : schRes.schools);
         }
+        setLoadError(res?.error || 'Les données administratives n’ont pas pu être chargées.');
       }
     } catch (err) {
       console.error("Error loading schools in AdminDashboard:", err);
+      setLoadError(err instanceof Error ? err.message : 'Erreur de synchronisation des données administratives.');
     }
   };
 
@@ -126,15 +145,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const totalStudentsCount = useMemo(() => {
     if (dbStats.studentsCount !== null && dbStats.studentsCount > 0) return dbStats.studentsCount;
     if (dbStudents.length > 0) return dbStudents.length;
+    const studentsStoredAsUsers = users.filter(user => /élève|eleve|student/i.test(String(user.role || ''))).length;
+    if (studentsStoredAsUsers > 0) return studentsStoredAsUsers;
     if (dbPayments.length > 0) {
       return Array.from(new Set(dbPayments.map(p => p.studentId || p.studentName))).length;
     }
     return 0;
-  }, [dbStats.studentsCount, dbStudents, dbPayments]);
+  }, [dbStats.studentsCount, dbStudents, users, dbPayments]);
 
   const financialStats = useMemo(() => {
-    const totalFees = dbPayments.reduce((sum, p) => sum + (p.totalFees || p.amount || 0), 0);
-    const totalPaid = dbPayments.reduce((sum, p) => sum + (p.amountPaid || p.amount || 0), 0);
+    const totalFees = dbPayments.reduce((sum, p) => sum + asNumber(p.totalFees ?? p.total_fees ?? p.expectedAmount ?? p.expected_amount ?? p.amount), 0);
+    const totalPaid = dbPayments.reduce((sum, p) => sum + asNumber(p.amountPaid ?? p.amount_paid ?? p.amount), 0);
     const recoveryRate = totalFees > 0 ? ((totalPaid / totalFees) * 100).toFixed(1) : '0.0';
     return {
       totalFees,
@@ -267,8 +288,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const days = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
     const filtered = dbAttendance.filter(item => {
       if (selectedSchoolId === 'all') return true;
-      const studentObj = dbStudents.find(s => s.id === item.studentId);
-      return studentObj?.schoolId === Number(selectedSchoolId);
+      const studentObj = dbStudents.find(s => sameId(s.id, item.studentId ?? item.student_id));
+      return sameId(studentObj?.schoolId ?? studentObj?.school_id ?? item.schoolId ?? item.school_id, selectedSchoolId);
     });
 
     if (filtered.length === 0) {
@@ -312,10 +333,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
 
     const filteredPayments = dbPayments.filter(p => {
-      return selectedSchoolId === 'all' || p.schoolId === Number(selectedSchoolId);
+      return selectedSchoolId === 'all' || sameId(p.schoolId ?? p.school_id, selectedSchoolId);
     });
     const filteredTxs = dbTransactions.filter(t => {
-      return selectedSchoolId === 'all' || t.schoolId === Number(selectedSchoolId);
+      return selectedSchoolId === 'all' || sameId(t.schoolId ?? t.school_id, selectedSchoolId);
     });
 
     const hasData = filteredPayments.length > 0 || filteredTxs.length > 0;
@@ -329,19 +350,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     return activeMonths.map(m => {
       const payIn = filteredPayments.filter(p => {
-        const pDate = new Date(p.paymentDate);
-        return pDate.getMonth() === m.index;
-      }).reduce((sum, p) => sum + (p.amount || 0), 0);
+        const pDate = new Date(p.paymentDate ?? p.payment_date ?? p.date);
+        return !Number.isNaN(pDate.getTime()) && pDate.getMonth() === m.index;
+      }).reduce((sum, p) => sum + asNumber(p.amountPaid ?? p.amount_paid ?? p.amount), 0);
 
       const txIn = filteredTxs.filter(t => {
-        const tDate = new Date(t.date);
-        return tDate.getMonth() === m.index && t.type === 'income';
-      }).reduce((sum, t) => sum + (t.amount || 0), 0);
+        const tDate = new Date(t.date ?? t.transactionDate ?? t.transaction_date);
+        const type = String(t.type || '').toLowerCase();
+        return !Number.isNaN(tDate.getTime()) && tDate.getMonth() === m.index && (type === 'income' || type === 'recette');
+      }).reduce((sum, t) => sum + asNumber(t.amount), 0);
 
       const exp = filteredTxs.filter(t => {
-        const tDate = new Date(t.date);
-        return tDate.getMonth() === m.index && t.type === 'expense';
-      }).reduce((sum, t) => sum + (t.amount || 0), 0);
+        const tDate = new Date(t.date ?? t.transactionDate ?? t.transaction_date);
+        const type = String(t.type || '').toLowerCase();
+        return !Number.isNaN(tDate.getTime()) && tDate.getMonth() === m.index && (type === 'expense' || type === 'dépense' || type === 'depense');
+      }).reduce((sum, t) => sum + asNumber(t.amount), 0);
 
       const totalIncomeMillions = Number(((payIn + txIn) / 1_000_000).toFixed(2));
       const totalExpenseMillions = Number((exp / 1_000_000).toFixed(2));
@@ -354,9 +377,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
   }, [dbPayments, dbTransactions, schoolsList, selectedSchoolId]);
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    setTimeout(() => setIsRefreshing(false), 800);
+    await loadDashboardData();
+    setIsRefreshing(false);
   };
 
   return (
@@ -406,7 +430,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <button
             onClick={() => {
               handleRefresh();
-              loadDashboardData();
             }}
             className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg border border-slate-200 dark:border-slate-700 transition-all cursor-pointer text-[11px]"
             title="Rafraîchir"
@@ -415,6 +438,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </button>
         </div>
       </div>
+
+      {loadError && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200 flex items-center justify-between gap-3">
+          <span>Synchronisation administrative incomplète : {loadError}</span>
+          <button onClick={handleRefresh} className="font-bold underline cursor-pointer">Réessayer</button>
+        </div>
+      )}
 
       {/* 4 Core Top-Tier Executive KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -425,7 +455,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
           <p className="text-2xl font-black text-slate-900 dark:text-white font-mono">{totalStudentsCount.toLocaleString('fr-FR')}</p>
           <span className="text-[11px] text-emerald-600 font-bold flex items-center gap-1">
-            <ArrowUpRight className="w-3.5 h-3.5" /> Données synchronisées en direct
+            <ArrowUpRight className="w-3.5 h-3.5" /> {lastUpdatedAt ? `Mis à jour à ${lastUpdatedAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Données synchronisées en direct'}
           </span>
         </div>
 

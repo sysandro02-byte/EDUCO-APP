@@ -340,9 +340,26 @@ const orderByCreatedDesc = (items: any[]) => [...items].sort((a, b) => {
 });
 
 const getSupabaseRows = async (client: any, table: string, columns = '*') => {
-  const { data, error } = await client.from(table).select(columns);
-  if (error) throw error;
-  return data || [];
+  // PostgREST returns at most 1,000 rows by default.  The administration
+  // dashboard is a consolidated view, so silently accepting the first page
+  // makes its totals wrong as soon as a school grows.  Read every page and
+  // propagate query errors instead of turning a failed query into an empty set.
+  const pageSize = 1000;
+  const rows: any[] = [];
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await client
+      .from(table)
+      .select(columns)
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+
+    const page = data || [];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  return rows;
 };
 
 const deleteSupabaseBySchool = async (client: any, table: string, schoolId: number) => {
@@ -4065,36 +4082,39 @@ async function startServer() {
       // Merge Supabase DB entities if available
       if (supabaseAdmin) {
         try {
+          // Do not discard Supabase errors. The former destructuring ignored
+          // `error` and therefore returned a successful payload full of zero
+          // counters whenever a table could not be read.
           const [
-            { data: sbSchools },
-            { data: sbUsers },
-            { data: sbStudents },
-            { data: sbPersonnel },
-            { data: sbClasses },
-            { data: sbPayments },
-            { data: sbTx },
-            { data: sbAtt },
-            { data: sbFees },
-            { data: sbNotifs },
-            { data: sbSubs },
-            { data: sbReqs },
-            { data: sbGrades },
-            { data: sbSubjects }
+            sbSchools,
+            sbUsers,
+            sbStudents,
+            sbPersonnel,
+            sbClasses,
+            sbPayments,
+            sbTx,
+            sbAtt,
+            sbFees,
+            sbNotifs,
+            sbSubs,
+            sbReqs,
+            sbGrades,
+            sbSubjects
           ] = await Promise.all([
-            supabaseAdmin.from('schools').select('*'),
-            supabaseAdmin.from('users').select('*'),
-            supabaseAdmin.from('students').select('*'),
-            supabaseAdmin.from('personnel').select('*'),
-            supabaseAdmin.from('classes').select('*'),
-            supabaseAdmin.from('payments').select('*'),
-            supabaseAdmin.from('transactions').select('*'),
-            supabaseAdmin.from('attendance').select('*'),
-            supabaseAdmin.from('fees').select('*'),
-            supabaseAdmin.from('notifications').select('*'),
-            supabaseAdmin.from('subscriptions').select('*'),
-            supabaseAdmin.from('subscription_requests').select('*'),
-            supabaseAdmin.from('grades').select('*'),
-            supabaseAdmin.from('subjects').select('*')
+            getSupabaseRows(supabaseAdmin, 'schools'),
+            getSupabaseRows(supabaseAdmin, 'users'),
+            getSupabaseRows(supabaseAdmin, 'students'),
+            getSupabaseRows(supabaseAdmin, 'personnel'),
+            getSupabaseRows(supabaseAdmin, 'classes'),
+            getSupabaseRows(supabaseAdmin, 'payments'),
+            getSupabaseRows(supabaseAdmin, 'transactions'),
+            getSupabaseRows(supabaseAdmin, 'attendance'),
+            getSupabaseRows(supabaseAdmin, 'fees'),
+            getSupabaseRows(supabaseAdmin, 'notifications'),
+            getSupabaseRows(supabaseAdmin, 'subscriptions'),
+            getSupabaseRows(supabaseAdmin, 'subscription_requests'),
+            getSupabaseRows(supabaseAdmin, 'grades'),
+            getSupabaseRows(supabaseAdmin, 'subjects')
           ]);
 
           if (sbSchools) {
@@ -4310,14 +4330,27 @@ async function startServer() {
       const enrichedSchools = allSchools.map(sch => {
         const schoolSubs = allSubscriptions.filter(s => Number(s.schoolId) === Number(sch.id) || s.schoolIdentifier === sch.identifier);
         const activeSub = schoolSubs.find(s => s.status === 'active' && new Date(s.endDate).getTime() > Date.now());
+        const studentRowsCount = allStudents.filter((student: any) =>
+          String(student.schoolId ?? student.school_id ?? '') === String(sch.id ?? '')
+        ).length;
+        // Older registrations created only a `users` row with the Élève role.
+        // Keep those existing pupils visible while the dedicated students table
+        // is progressively filled, without double-counting newer records.
+        const studentUsersCount = allUsers.filter((user: any) =>
+          String(user.schoolId ?? user.school_id ?? '') === String(sch.id ?? '')
+          && /élève|eleve|student/i.test(String(user.role || ''))
+        ).length;
+        const studentCount = studentRowsCount || studentUsersCount;
         
         return {
           ...sch,
           name: sch.name || 'École Inconnue',
           identifier: sch.identifier || `EDUCO-SCH-${sch.id?.toString().padStart(4, '0') || '0000'}`,
+          studentCount,
           subscription: activeSub ? {
             isActive: true,
             planType: activeSub.planType,
+            plan: activeSub.planType,
             months: activeSub.months,
             endDate: activeSub.endDate,
             code: activeSub.code,
