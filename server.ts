@@ -4315,7 +4315,10 @@ async function startServer() {
             });
           }
         } catch (e) {
-          console.warn('Supabase export-data merge warning:', e);
+          // A partial failure must be visible to the administration screen;
+          // returning `success: true` with empty arrays was the direct cause
+          // of the misleading zero-valued dashboard.
+          throw e;
         }
       }
 
