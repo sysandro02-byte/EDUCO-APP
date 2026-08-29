@@ -27,6 +27,7 @@ interface SubscriptionModalProps {
   isOpen: boolean;
   onClose: () => void;
   subscriptionInfo: SchoolSubscriptionInfo | null;
+  isLoading?: boolean;
   onSubscriptionUpdated: () => void;
   userRole?: string;
 }
@@ -35,6 +36,7 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   isOpen,
   onClose,
   subscriptionInfo,
+  isLoading = false,
   onSubscriptionUpdated,
   userRole = 'Promoteur',
 }) => {
@@ -56,7 +58,7 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 
   if (!isOpen) return null;
 
-  const schoolId = subscriptionInfo?.schoolIdentifier || 'Non renseigné';
+  const schoolId = subscriptionInfo?.schoolIdentifier || (isLoading ? 'Chargement…' : 'Indisponible');
   const isActive = subscriptionInfo?.isActive || false;
   const planType = subscriptionInfo?.planType;
   const daysRemaining = subscriptionInfo?.daysRemaining ?? 0;
@@ -64,6 +66,7 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   const isPreSubscription = subscriptionInfo?.isPreSubscription ?? true;
 
   const handleCopyId = () => {
+    if (!subscriptionInfo?.schoolIdentifier) return;
     navigator.clipboard.writeText(schoolId);
     setCopiedId(true);
     setTimeout(() => setCopiedId(false), 3000);
@@ -219,7 +222,8 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                   <button 
                     onClick={handleCopyId}
                     title="Copier l'identifiant"
-                    className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800 transition-colors"
+                    disabled={!subscriptionInfo?.schoolIdentifier}
+                    className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {copiedId ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                   </button>
@@ -246,6 +250,13 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               Saisissez le code fourni par l'administrateur EDUCO suite à votre paiement pour déverrouiller ou prolonger votre licence.
             </p>
 
+            {isLoading && (
+              <div className="p-3 bg-sky-50 text-sky-800 text-xs rounded-xl border border-sky-200 flex items-center gap-2">
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-sky-500 border-t-transparent animate-spin shrink-0" />
+                <span>Chargement des informations de votre établissement…</span>
+              </div>
+            )}
+
             {activationError && (
               <div className="p-3 bg-rose-50 text-rose-800 text-xs rounded-xl border border-rose-200 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
@@ -270,7 +281,7 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               />
               <button
                 type="submit"
-                disabled={isActivating || !activationCode.trim()}
+                disabled={isLoading || isActivating || !activationCode.trim()}
                 className="px-5 py-2.5 bg-[#1F4A59] hover:bg-[#275d70] disabled:bg-slate-300 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 shrink-0 active:scale-95"
               >
                 {isActivating ? (
@@ -300,7 +311,8 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsRequestingRenewal(true)}
-                  className="px-4 py-2 bg-teal-50 hover:bg-teal-100 text-[#1F4A59] border border-teal-300 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0"
+                  disabled={isLoading || !subscriptionInfo?.schoolIdentifier}
+                  className="px-4 py-2 bg-teal-50 hover:bg-teal-100 text-[#1F4A59] border border-teal-300 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Send className="w-3.5 h-3.5" />
                   <span>Demander un renouvellement</span>

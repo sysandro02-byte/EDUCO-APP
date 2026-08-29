@@ -696,15 +696,33 @@ const App: React.FC = () => {
   // Subscription & Licensing State
   const [subscriptionInfo, setSubscriptionInfo] = useState<SchoolSubscriptionInfo | null>(null);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
+  const [isSubscriptionLoading, setIsSubscriptionLoading] = useState(false);
 
   const loadSubscription = useCallback(async () => {
+    setIsSubscriptionLoading(true);
     try {
       const info = await fetchCurrentSubscription();
       setSubscriptionInfo(info);
     } catch (e) {
       console.warn('Could not fetch subscription status:', e);
+      setSubscriptionInfo(null);
+    } finally {
+      setIsSubscriptionLoading(false);
     }
   }, []);
+
+  // The app mounts before a school user authenticates. Refresh the entitlement
+  // once that user is available so the modal receives the real school identifier.
+  useEffect(() => {
+    if (currentUser?.schoolId && currentUser.role !== 'Admin') {
+      loadSubscription();
+      return;
+    }
+
+    if (!currentUser) {
+      setSubscriptionInfo(null);
+    }
+  }, [currentUser?.schoolId, currentUser?.role, loadSubscription]);
 
   // Header profile menu & search states
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
@@ -3921,6 +3939,7 @@ const App: React.FC = () => {
           isOpen={isSubscriptionModalOpen}
           onClose={() => setIsSubscriptionModalOpen(false)}
           subscriptionInfo={subscriptionInfo}
+          isLoading={isSubscriptionLoading}
           onSubscriptionUpdated={() => {
             loadSubscription();
           }}
