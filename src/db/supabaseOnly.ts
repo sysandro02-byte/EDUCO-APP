@@ -74,6 +74,9 @@ export const mapSupabaseUser = (user: any) => user ? ({
   role: user.role || 'Personnel',
   avatar: user.avatar,
   status: user.status || 'active',
+  studentId: user.student_id || user.studentId || user.matricule,
+  parentName: user.parent_name || user.parentName,
+  parentEmail: user.parent_email || user.parentEmail,
   createdAt: user.created_at || user.createdAt,
 }) : null;
 

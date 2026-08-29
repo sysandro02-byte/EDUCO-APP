@@ -129,6 +129,7 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
       (parentStudentId && u.studentId?.toLowerCase() === parentStudentId.toLowerCase()) ||
       (parentStudentId && `STD-${u.id}`.toLowerCase() === parentStudentId.toLowerCase()) ||
       (currentUser.email && u.email?.toLowerCase() === currentUser.email.toLowerCase()) ||
+      (currentUser.email && (u as any).parentEmail?.toLowerCase() === currentUser.email.toLowerCase()) ||
       (currentUser.name && u.parentName?.toLowerCase() === currentUser.name.toLowerCase())
     )
   );
@@ -161,10 +162,22 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
     p.studentName === linkedStudent.name
   );
 
-  const studentTransactions = transactions.filter(t => 
+  const childTransactions = transactions.filter(t =>
     String(t.description || '').toLowerCase().includes(linkedStudent.name.toLowerCase()) ||
     (linkedStudent.studentId && String(t.description || '').toLowerCase().includes(linkedStudent.studentId.toLowerCase()))
   );
+
+  const studentTransactions = studentPayments.map((payment: any) => ({
+    id: String(payment.receiptNumber || payment.receipt_number || payment.reference || payment.id),
+    description: payment.description || `Paiement scolarité — ${linkedStudent.name}`,
+    type: 'Revenu',
+    amount: Number(payment.amountPaid ?? payment.amount_paid ?? payment.amount ?? 0),
+    date: payment.paymentDate || payment.payment_date || payment.date || '',
+    category: payment.type || 'Scolarité',
+    paymentMethod: payment.paymentMethod || payment.payment_method || 'Non renseigné',
+  } as Transaction)).concat(childTransactions.filter((transaction: any) =>
+    !studentPayments.some((payment: any) => String(payment.reference || payment.receiptNumber || payment.id) === String(transaction.id))
+  ));
 
   const studentHomework = homeworkDiary.filter(h => 
     h.className === linkedStudent.class || 

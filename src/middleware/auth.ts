@@ -38,6 +38,9 @@ const mapSupabaseUser = (user: any) => user ? {
   schoolId: user.school_id || user.schoolId,
   avatar: user.avatar,
   status: user.status || 'active',
+  studentId: user.student_id || user.studentId || user.matricule,
+  parentName: user.parent_name || user.parentName,
+  parentEmail: user.parent_email || user.parentEmail,
 } : null;
 
 export const requireAuth = async (

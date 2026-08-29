@@ -145,6 +145,9 @@ const mapSupabaseUser = (user: any) => user ? ({
   role: user.role,
   avatar: user.avatar,
   status: user.status,
+  studentId: user.student_id || user.studentId || user.matricule,
+  parentName: user.parent_name || user.parentName,
+  parentEmail: user.parent_email || user.parentEmail,
   createdAt: user.created_at || user.createdAt,
 }) : null;
 
@@ -1445,7 +1448,8 @@ async function startServer() {
             .from('students')
             .update({
               parent_name: parentName,
-              parent_phone: parentPhone || ''
+              parent_phone: parentPhone || '',
+              parent_email: parentEmail
             })
             .eq('school_id', schoolObj.id)
             .eq('student_id', studentMatricule.trim());
@@ -4164,6 +4168,7 @@ async function startServer() {
                 id: st.id,
                 name: st.name || linkedUser?.name || `Élève #${st.id}`,
                 schoolId: st.school_id || st.schoolId || linkedUser?.schoolId || 1,
+                classId: st.class_id || st.classId || null,
                 matricule: st.matricule || (linkedUser as any)?.studentId || (linkedUser as any)?.matricule || `MAT-${st.id}`,
                 class: st.class || (linkedUser as any)?.class || 'Non assignée',
                 email: st.email || linkedUser?.email || '',
@@ -4219,7 +4224,7 @@ async function startServer() {
           if (sbClasses) {
             sbClasses.forEach(c => {
               if (!allClasses.some(x => x.id === c.id)) {
-                allClasses.push({ id: c.id, name: c.name, schoolId: c.school_id || c.schoolId || 1, section: c.section, capacity: c.capacity } as any);
+                allClasses.push({ id: c.id, name: c.name, schoolId: c.school_id || c.schoolId || 1, section: c.section, capacity: c.capacity, teacherId: c.teacher_id || c.teacherId || null } as any);
               }
             });
           }
@@ -4261,7 +4266,7 @@ async function startServer() {
           if (sbAtt) {
             sbAtt.forEach(a => {
               if (!allAttendance.some(x => x.id === a.id)) {
-                allAttendance.push({ id: a.id, schoolId: a.school_id || a.schoolId || 1, studentId: a.student_id || a.studentId, date: a.date, status: a.status } as any);
+                allAttendance.push({ id: a.id, schoolId: a.school_id || a.schoolId || 1, studentId: a.student_id || a.studentId, classId: a.class_id || a.classId || null, date: a.date, status: a.status } as any);
               }
             });
           }
@@ -4341,7 +4346,22 @@ async function startServer() {
       }
 
       // Add schoolName to all data entities for consolidation display in frontend
-      const enrichedUsers = allUsers.map(u => ({ ...u, schoolName: allSchools.find(s => Number(s.id) === Number(u.schoolId))?.name || 'Inconnu' }));
+      const enrichedUsers = allUsers.map(u => {
+        const linkedStudent = allStudents.find((student: any) =>
+          String(student.userId || student.user_id || '') === String(u.id || '')
+          || (!!u.studentId && String(student.studentId || student.matricule || '') === String(u.studentId))
+        );
+        return {
+          ...u,
+          schoolName: allSchools.find(s => Number(s.id) === Number(u.schoolId))?.name || 'Inconnu',
+          studentId: u.studentId || linkedStudent?.studentId || linkedStudent?.matricule,
+          class: u.class || linkedStudent?.class,
+          classId: u.classId || linkedStudent?.classId,
+          parentName: u.parentName || linkedStudent?.parentName,
+          parentEmail: u.parentEmail || linkedStudent?.parentEmail,
+          parentPhone: u.parentPhone || linkedStudent?.parentPhone,
+        };
+      });
       const enrichedStudents = allStudents.map(st => ({ ...st, schoolName: allSchools.find(s => Number(s.id) === Number(st.schoolId))?.name || 'Inconnu' }));
       const enrichedPersonnel = allPersonnel.map(p => ({ ...p, schoolName: allSchools.find(s => Number(s.id) === Number(p.schoolId))?.name || 'Inconnu' }));
       const enrichedClasses = allClasses.map(c => ({ ...c, schoolName: allSchools.find(s => Number(s.id) === Number(c.schoolId))?.name || 'Inconnu' }));
@@ -4402,30 +4422,92 @@ async function startServer() {
           (!!currentUserEmail && rowEmail === currentUserEmail)
         );
       };
-      const visibleSchools = isSuperAdmin
+      let visibleSchools = isSuperAdmin
         ? enrichedSchools
         : enrichedSchools.filter((school: any) => Number(school?.id) === currentSchoolId);
-      const visibleUsers = isSuperAdmin
+      let visibleUsers = isSuperAdmin
         ? enrichedUsers
         : enrichedUsers.filter((u: any) => belongsToCurrentSchool(u) || isCurrentUserRow(u));
-      const visibleStudents = isSuperAdmin
+      let visibleStudents = isSuperAdmin
         ? enrichedStudents
         : enrichedStudents.filter((st: any) => belongsToCurrentSchool(st) || String(st?.parentEmail || '').toLowerCase() === currentUserEmail || String(st?.email || '').toLowerCase() === currentUserEmail);
-      const visiblePersonnel = isSuperAdmin ? enrichedPersonnel : enrichedPersonnel.filter(belongsToCurrentSchool);
-      const visibleClasses = isSuperAdmin ? enrichedClasses : enrichedClasses.filter(belongsToCurrentSchool);
-      const visiblePayments = isSuperAdmin ? enrichedPayments : enrichedPayments.filter(belongsToCurrentSchool);
-      const visibleTransactions = isSuperAdmin ? enrichedTransactions : enrichedTransactions.filter(belongsToCurrentSchool);
-      const visibleAttendance = isSuperAdmin ? allAttendance : allAttendance.filter(belongsToCurrentSchool);
-      const visibleFees = isSuperAdmin ? allFees : allFees.filter(belongsToCurrentSchool);
-      const currentSchoolClassIds = new Set(visibleClasses.map((c: any) => Number(c.id)));
-      const visibleGrades = isSuperAdmin
+      let visiblePersonnel = isSuperAdmin ? enrichedPersonnel : enrichedPersonnel.filter(belongsToCurrentSchool);
+      let visibleClasses = isSuperAdmin ? enrichedClasses : enrichedClasses.filter(belongsToCurrentSchool);
+      let visiblePayments = isSuperAdmin ? enrichedPayments : enrichedPayments.filter(belongsToCurrentSchool);
+      let visibleTransactions = isSuperAdmin ? enrichedTransactions : enrichedTransactions.filter(belongsToCurrentSchool);
+      let visibleAttendance = isSuperAdmin ? allAttendance : allAttendance.filter(belongsToCurrentSchool);
+      let visibleFees = isSuperAdmin ? allFees : allFees.filter(belongsToCurrentSchool);
+      let currentSchoolClassIds = new Set(visibleClasses.map((c: any) => String(c.id)));
+      let visibleGrades = isSuperAdmin
         ? allGrades
-        : allGrades.filter((g: any) => currentSchoolClassIds.has(Number(g.classId || g.class_id)) || String(g.studentId || g.student_id || '') === String(currentUserId || ''));
-      const visibleNotifications = isSuperAdmin
+        : allGrades.filter((g: any) => currentSchoolClassIds.has(String(g.classId || g.class_id || '')) || String(g.studentId || g.student_id || '') === String(currentUserId || ''));
+      let visibleNotifications = isSuperAdmin
         ? allNotifications
         : allNotifications.filter((n: any) => belongsToCurrentSchool(n) || String(n?.userId || n?.user_id || '') === String(currentUserId || ''));
-      const visibleSubscriptions = isSuperAdmin ? allSubscriptions : allSubscriptions.filter(belongsToCurrentSchool);
-      const visibleSubscriptionRequests = isSuperAdmin ? allSubscriptionRequests : allSubscriptionRequests.filter(belongsToCurrentSchool);
+
+      // Principle of least privilege for personal and teacher spaces. Other
+      // establishment roles keep their school-wide operational data.
+      const normalizedRole = String(userRole || '').toLowerCase();
+      const currentAppUser = enrichedUsers.find(isCurrentUserRow) || dbUser || req.user;
+      const parentStudentReference = String(currentAppUser?.studentId || currentAppUser?.student_id || '').toLowerCase();
+      const parentName = String(currentAppUser?.name || '').toLowerCase();
+      const linkedParentStudents = enrichedStudents.filter((student: any) =>
+        (parentStudentReference && String(student.studentId || student.matricule || '').toLowerCase() === parentStudentReference)
+        || (!!currentUserEmail && (String(student.parentEmail || '').toLowerCase() === currentUserEmail || String(student.email || '').toLowerCase() === currentUserEmail))
+        || (!!parentName && String(student.parentName || '').toLowerCase() === parentName)
+      );
+      const linkedStudentIds = new Set(linkedParentStudents.map((student: any) => String(student.id)));
+      const linkedStudentReferences = new Set(linkedParentStudents.map((student: any) => String(student.studentId || student.matricule || '')));
+      const linkedStudentNames = new Set(linkedParentStudents.map((student: any) => String(student.name || '').toLowerCase()));
+      const linkedStudentUserIds = new Set(enrichedUsers
+        .filter((user: any) => /élève|eleve|student/i.test(String(user.role || '')) && (linkedStudentReferences.has(String(user.studentId || user.matricule || '')) || linkedStudentNames.has(String(user.name || '').toLowerCase())))
+        .map((user: any) => String(user.id)));
+
+      if (!isSuperAdmin && /parent/.test(normalizedRole)) {
+        const linkedClassIds = new Set(linkedParentStudents.map((student: any) => String(student.classId || student.class_id || '')));
+        visibleUsers = enrichedUsers.filter((user: any) => isCurrentUserRow(user) || linkedStudentUserIds.has(String(user.id)));
+        visibleStudents = linkedParentStudents;
+        visiblePersonnel = [];
+        visibleClasses = enrichedClasses.filter((schoolClass: any) => linkedClassIds.has(String(schoolClass.id)));
+        visiblePayments = enrichedPayments.filter((payment: any) => linkedStudentIds.has(String(payment.studentId || payment.student_id || '')) || linkedStudentReferences.has(String(payment.studentId || payment.student_id || '')));
+        visibleAttendance = allAttendance.filter((record: any) => linkedStudentIds.has(String(record.studentId || record.student_id || '')) || linkedStudentUserIds.has(String(record.studentId || record.student_id || '')));
+        currentSchoolClassIds = new Set(visibleClasses.map((schoolClass: any) => String(schoolClass.id)));
+        visibleGrades = allGrades.filter((grade: any) => linkedStudentIds.has(String(grade.studentId || grade.student_id || '')) || linkedStudentUserIds.has(String(grade.studentId || grade.student_id || '')));
+        visibleFees = allFees.filter((fee: any) => currentSchoolClassIds.has(String(fee.classId || fee.class_id || '')));
+        // Transactions do not carry a reliable student foreign key in the
+        // legacy schema. Do not expose school cash records to a parent; the
+        // parent dashboard derives its receipt list from that child's payments.
+        visibleTransactions = [];
+        visibleNotifications = allNotifications.filter((notification: any) => String(notification.userId || notification.user_id || '') === String(currentUserId || ''));
+      } else if (!isSuperAdmin && /enseignant|professeur|teacher/.test(normalizedRole)) {
+        const teacherIds = new Set([String(currentUserId || ''), String(currentAppUser?.id || ''), String(currentAppUser?.uid || '')]);
+        visibleClasses = enrichedClasses.filter((schoolClass: any) => teacherIds.has(String(schoolClass.teacherId || schoolClass.teacher_id || '')));
+        currentSchoolClassIds = new Set(visibleClasses.map((schoolClass: any) => String(schoolClass.id)));
+        const teacherClassNames = new Set(visibleClasses.map((schoolClass: any) => String(schoolClass.name || '')));
+        visibleStudents = enrichedStudents.filter((student: any) => currentSchoolClassIds.has(String(student.classId || student.class_id || '')) || teacherClassNames.has(String(student.class || '')));
+        const teacherStudentIds = new Set(visibleStudents.map((student: any) => String(student.id)));
+        visibleUsers = enrichedUsers.filter((user: any) =>
+          isCurrentUserRow(user)
+          || (
+            /élève|eleve|student/i.test(String(user.role || ''))
+            && (teacherClassNames.has(String(user.class || user.className || '')) || teacherStudentIds.has(String(user.id)))
+          )
+        );
+        visibleAttendance = allAttendance.filter((record: any) => currentSchoolClassIds.has(String(record.classId || record.class_id || '')) || teacherStudentIds.has(String(record.studentId || record.student_id || '')));
+        visibleGrades = allGrades.filter((grade: any) => currentSchoolClassIds.has(String(grade.classId || grade.class_id || '')) || teacherStudentIds.has(String(grade.studentId || grade.student_id || '')));
+        visiblePersonnel = [];
+        visiblePayments = [];
+        visibleTransactions = [];
+        visibleFees = [];
+        visibleNotifications = allNotifications.filter((notification: any) => String(notification.userId || notification.user_id || '') === String(currentUserId || ''));
+      }
+      let visibleSubscriptions = isSuperAdmin ? allSubscriptions : allSubscriptions.filter(belongsToCurrentSchool);
+      let visibleSubscriptionRequests = isSuperAdmin ? allSubscriptionRequests : allSubscriptionRequests.filter(belongsToCurrentSchool);
+
+      if (!isSuperAdmin && (/parent/.test(normalizedRole) || /enseignant|professeur|teacher/.test(normalizedRole))) {
+        visibleSubscriptions = [];
+        visibleSubscriptionRequests = [];
+      }
 
       res.json({
         success: true,
