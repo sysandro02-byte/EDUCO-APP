@@ -3,6 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import net from 'net';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 
@@ -37,6 +38,61 @@ import Groq from 'groq-sdk';
 import { requireAuth, AuthRequest } from './src/middleware/auth.ts';
 import { getOrCreateUser, getUserByUid } from './src/db/users.ts';
 import { createClient } from '@supabase/supabase-js';
+
+const base64UrlEncode = (value: Buffer) => value.toString('base64url');
+const base64UrlDecode = (value: string) => Buffer.from(value, 'base64url');
+
+/**
+ * Password-reset OTPs must survive a Render instance restart/load-balancer hop.
+ * The challenge is encrypted (not merely signed), so the OTP is never exposed
+ * to the browser while no server-side session storage is required.
+ */
+const createPasswordResetChallenge = (email: string, code: string): string | null => {
+  const secret = process.env.OTP_SIGNING_SECRET
+    || process.env.SUPABASE_SERVICE_ROLE_KEY
+    || process.env.SUPABASE_KEY
+    || process.env.SUPABASE_ANON_KEY;
+  if (!secret) return null;
+
+  const key = crypto.createHash('sha256').update(secret).digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const payload = JSON.stringify({
+    email: email.toLowerCase().trim(),
+    code,
+    purpose: 'password_reset',
+    expiresAt: Date.now() + 10 * 60 * 1000,
+  });
+  const encrypted = Buffer.concat([cipher.update(payload, 'utf8'), cipher.final()]);
+  return `${base64UrlEncode(iv)}.${base64UrlEncode(cipher.getAuthTag())}.${base64UrlEncode(encrypted)}`;
+};
+
+const verifyPasswordResetChallenge = (challenge: unknown, email: string, code: string): boolean => {
+  if (typeof challenge !== 'string') return false;
+  const secret = process.env.OTP_SIGNING_SECRET
+    || process.env.SUPABASE_SERVICE_ROLE_KEY
+    || process.env.SUPABASE_KEY
+    || process.env.SUPABASE_ANON_KEY;
+  if (!secret) return false;
+
+  try {
+    const [ivPart, tagPart, encryptedPart] = challenge.split('.');
+    if (!ivPart || !tagPart || !encryptedPart) return false;
+    const key = crypto.createHash('sha256').update(secret).digest();
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, base64UrlDecode(ivPart));
+    decipher.setAuthTag(base64UrlDecode(tagPart));
+    const payload = JSON.parse(Buffer.concat([
+      decipher.update(base64UrlDecode(encryptedPart)),
+      decipher.final(),
+    ]).toString('utf8'));
+    return payload.purpose === 'password_reset'
+      && payload.email === email.toLowerCase().trim()
+      && payload.code === code.trim()
+      && Number(payload.expiresAt) > Date.now();
+  } catch {
+    return false;
+  }
+};
 
 const decodeSupabaseJwtPayload = (key?: string | null): any | null => {
   if (!key || !key.includes('.')) return null;
@@ -5206,15 +5262,17 @@ async function startServer() {
       if (!email || !email.includes('@')) {
         return res.status(400).json({ error: "Adresse email valide requise." });
       }
+      const cleanEmail = String(email).toLowerCase().trim();
 
       // Generate a 6-digit reset OTP
-      const resetCode = otpManager.generateOtp(email, 'password_reset');
+      const resetCode = otpManager.generateOtp(cleanEmail, 'password_reset');
+      const resetChallenge = createPasswordResetChallenge(cleanEmail, resetCode);
       
       const emailResult = await sendPasswordResetEmail({
-        email,
-        name: email.split('@')[0],
+        email: cleanEmail,
+        name: cleanEmail.split('@')[0],
         resetCode,
-        resetUrl: `${getPublicAppUrl(req)}/?resetEmail=${encodeURIComponent(email)}`,
+        resetUrl: `${getPublicAppUrl(req)}/?resetEmail=${encodeURIComponent(cleanEmail)}`,
         templateId: templateId || null,
         customApiKey,
       });
@@ -5224,7 +5282,9 @@ async function startServer() {
         message: "Instructions de réinitialisation et code OTP envoyés par email.",
         messageId: emailResult.messageId,
         mode: emailResult.mode,
-      });
+        // Allows verification after a Render restart without exposing the OTP.
+        resetChallenge,
+        });
     } catch (error: any) {
       console.error("Send Password Reset Error:", error);
       res.status(500).json({ error: error.message || "Erreur lors de la demande de réinitialisation" });
@@ -5234,7 +5294,7 @@ async function startServer() {
   // 5. Confirm Password Reset with OTP & Update
   app.post('/api/email/confirm-reset-password', async (req, res) => {
     try {
-      const { email, otpCode, newPassword } = req.body;
+      const { email, otpCode, newPassword, resetChallenge } = req.body;
       if (!email || !otpCode || !newPassword) {
         return res.status(400).json({ error: "Email, code OTP et nouveau mot de passe requis." });
       }
@@ -5243,40 +5303,36 @@ async function startServer() {
         return res.status(400).json({ error: "Le mot de passe doit contenir au moins 6 caractères." });
       }
 
-      const verification = otpManager.verifyOtp(email, otpCode, 'password_reset');
-      if (!verification.valid) {
-        return res.status(400).json({ error: verification.error || "Code OTP invalide ou expiré." });
+      const cleanEmail = String(email).toLowerCase().trim();
+      const challengeValid = verifyPasswordResetChallenge(resetChallenge, cleanEmail, String(otpCode));
+      if (!challengeValid) {
+        // Backward compatibility for an OTP issued before this version.
+        const verification = otpManager.verifyOtp(cleanEmail, otpCode, 'password_reset');
+        if (!verification.valid) {
+          return res.status(400).json({ error: verification.error || "Code OTP invalide ou expiré." });
+        }
       }
 
-      // Find user in PostgreSQL and update if necessary
-      const matchingUsers = await db.select().from(users).where(eq(users.email, email.toLowerCase().trim()));
-      if (matchingUsers.length > 0) {
-        // Notification for the user
-        await db.insert(notifications).values({
-          userId: matchingUsers[0].id,
-          title: "Mot de passe réinitialisé",
-          message: "Le mot de passe de votre compte a été mis à jour avec succès.",
-          type: "Information",
-        });
+      const adminClient = getSupabaseAdmin(req);
+      if (!adminClient) {
+        return res.status(503).json({ error: "Le service Supabase de réinitialisation est indisponible." });
+      }
 
-        const adminClient = getSupabaseAdmin();
-        if (adminClient) {
-          const userUid = matchingUsers[0].uid;
-          if (userUid && userUid.length > 20) {
-            try {
-              const { error: updateError } = await adminClient.auth.admin.updateUserById(userUid, {
-                password: newPassword
-              });
-              if (updateError) {
-                console.error("Failed to update password in Supabase Auth:", updateError.message);
-              } else {
-                console.log("Successfully updated password in Supabase Auth for user:", userUid);
-              }
-            } catch (err: any) {
-              console.error("Error during Supabase Admin password reset:", err.message);
-            }
-          }
-        }
+      const { data: profile, error: profileError } = await adminClient
+        .from('users')
+        .select('uid')
+        .eq('email', cleanEmail)
+        .maybeSingle();
+      if (profileError || !profile?.uid) {
+        return res.status(404).json({ error: "Compte utilisateur introuvable pour cette adresse e-mail." });
+      }
+
+      const { error: updateError } = await adminClient.auth.admin.updateUserById(profile.uid, {
+        password: newPassword
+      });
+      if (updateError) {
+        console.error("Failed to update password in Supabase Auth:", updateError.message);
+        return res.status(502).json({ error: "Impossible de modifier le mot de passe dans Supabase Auth." });
       }
 
       res.json({

@@ -36,15 +36,24 @@ export function getApiUrl(path: string): string {
     return configuredBaseUrl ? `${configuredBaseUrl}${cleanPath}` : cleanPath;
   }
 
-  // Browser requests should normally stay same-origin. In production this lets
-  // Vercel's /api function proxy the request to Render while preserving the
-  // public host WebAuthn uses as its RP ID and expected origin. It also keeps
-  // local development on the Express/Vite server instead of calling Render.
-  if (isLocalFrontendHost(window.location.hostname) || isInvalidApiBaseUrl(configuredBaseUrl)) {
+  // Local development is served by Express/Vite, so it must remain same-origin.
+  if (isLocalFrontendHost(window.location.hostname)) {
     return cleanPath;
   }
 
-  return `${configuredBaseUrl}${cleanPath}`;
+  // In production the Vercel deployment is static: it has no /api proxy.
+  // Use an explicitly configured API when available, otherwise use the EDUCO
+  // Render service. This prevents Vercel 404 pages from being mistaken for an
+  // authentication failure.
+  if (!isInvalidApiBaseUrl(configuredBaseUrl)) {
+    return `${configuredBaseUrl}${cleanPath}`;
+  }
+
+  if (window.location.hostname === new URL(EDUCO_RENDER_API_URL).hostname) {
+    return cleanPath;
+  }
+
+  return `${EDUCO_RENDER_API_URL}${cleanPath}`;
 }
 
 /** Public endpoint used for email and OTP operations. */

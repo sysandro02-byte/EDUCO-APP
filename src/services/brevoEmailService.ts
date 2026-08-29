@@ -43,6 +43,7 @@ export interface ConfirmPasswordResetRequest {
   email: string;
   otpCode: string;
   newPassword: string;
+  resetChallenge?: string;
 }
 
 export interface TestBrevoRequest {
@@ -182,6 +183,7 @@ class BrevoEmailServiceClient {
     success: boolean;
     message?: string;
     error?: string;
+    resetChallenge?: string;
   }> {
     try {
       return await safeFetchJson(getEmailApiUrl('/api/email/send-reset-password'), {

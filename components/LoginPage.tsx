@@ -29,6 +29,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
   const [resetEmail, setResetEmail] = useState('');
   const [resetStep, setResetStep] = useState<'request' | 'verify'>('request');
   const [resetOtpCode, setResetOtpCode] = useState('');
+  const [resetChallenge, setResetChallenge] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [resetMessage, setResetMessage] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
@@ -271,8 +272,11 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
     setError('');
     setResetLoading(true);
     try {
-      const res = await brevoEmailService.sendPasswordReset({ email: resetEmail });
+      const normalizedEmail = resetEmail.trim().toLowerCase();
+      const res = await brevoEmailService.sendPasswordReset({ email: normalizedEmail });
       if (res.success) {
+        setResetEmail(normalizedEmail);
+        setResetChallenge(res.resetChallenge || '');
         setResetStep('verify');
         setResetMessage('Un code OTP à 6 chiffres a été envoyé par e-mail.');
       } else {
@@ -296,16 +300,18 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
     setResetLoading(true);
     try {
       const res = await brevoEmailService.confirmPasswordReset({
-        email: resetEmail,
-        otpCode: resetOtpCode,
-        newPassword,
+          email: resetEmail,
+          otpCode: resetOtpCode,
+          newPassword,
+          resetChallenge,
       });
       if (res.success) {
         setResetMessage('Mot de passe modifié avec succès ! Vous pouvez maintenant vous connecter.');
         setTimeout(() => {
           setIsForgotPassword(false);
           setResetStep('request');
-          setResetOtpCode('');
+           setResetOtpCode('');
+           setResetChallenge('');
           setNewPassword('');
           setResetMessage('');
           setEmail(resetEmail);

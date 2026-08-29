@@ -381,6 +381,8 @@ const App: React.FC = () => {
       let loggedUser: any = null;
       let authData: any = null;
       let backendToken = '';
+      let backendError = '';
+      let backendUnavailable = false;
       const isAdminPortal = activePage === 'AdminSpecialLogin';
 
       // 1. Try unified Backend Login API (/api/auth/login)
@@ -396,67 +398,67 @@ const App: React.FC = () => {
           })
         });
 
-        const resData = await loginRes.json();
+        const resData = await loginRes.json().catch(() => null);
         if (loginRes.ok) {
           if (resData.success && resData.user) {
             loggedUser = resData.user;
             backendToken = resData.token || '';
+          } else {
+            backendUnavailable = true;
           }
         } else {
-          // If the backend explicitly returned an error (e.g., 403 Forbidden for admin on homepage), return it
+          // Keep explicit access denials, but allow a direct Supabase attempt when
+          // the API service itself is unavailable or returned an invalid response.
           if (resData && resData.error) {
-            return { success: false, error: resData.error };
+            backendError = resData.error;
           }
+          backendUnavailable = loginRes.status >= 500 || !resData;
         }
       } catch (backendErr) {
         console.warn('Backend login endpoint check error:', backendErr);
+        backendUnavailable = true;
       }
 
-      if (!loggedUser) {
-        return {
-          success: false,
-          error: "Identifiants invalides ou service d'authentification indisponible."
-        };
-      }
-
-      // 2. If not found via backend API, check Supabase Auth / DB
+      // 2. If the API cannot be reached, authenticate directly with Supabase.
+      // A row in public.users alone is not sufficient: a valid Auth session is
+      // required before the profile is accepted.
       if (!loggedUser) {
         const { url } = getStoredSupabaseConfig();
-        if (url && !url.includes('demo-educo.supabase.co')) {
+        if (url && !url.includes('demo-educo.supabase.co') && !url.includes('your-project.supabase.co')) {
           try {
             const supabase = getSupabaseClient();
-
-            // Query Supabase DB 'users' table directly
-            const { data: dbUsers } = await supabase
-              .from('users')
-              .select('*')
-              .ilike('email', trimmedEmail);
-
-            if (dbUsers && dbUsers.length > 0) {
-              const dbU = dbUsers[0];
-              loggedUser = {
-                id: dbU.id,
-                uid: dbU.uid || `usr_${dbU.id}`,
-                name: dbU.name || trimmedEmail.split('@')[0],
-                email: dbU.email || trimmedEmail,
-                role: dbU.role || 'Admin',
-                schoolId: dbU.school_id || dbU.schoolId || 1,
-                status: dbU.status || 'active',
-                avatar: dbU.avatar,
-                permissions: dbU.permissions,
-                contact: dbU.contact,
-                address: dbU.address
-              };
-            }
-
-            // Try Supabase Auth login if password is provided
             if (!isBiometric) {
               const res = await supabase.auth.signInWithPassword({
                 email: trimmedEmail,
                 password: password
-              }).catch(() => ({ data: { user: null, session: null }, error: null }));
+              });
 
               authData = res.data;
+              if (res.data?.session?.user && !res.error) {
+                const { data: dbU, error: profileError } = await supabase
+                  .from('users')
+                  .select('*')
+                  .ilike('email', trimmedEmail)
+                  .maybeSingle();
+
+                if (dbU && !profileError) {
+                  loggedUser = {
+                    id: dbU.id,
+                    uid: dbU.uid || res.data.user.id,
+                    name: dbU.name || trimmedEmail.split('@')[0],
+                    email: dbU.email || trimmedEmail,
+                    role: dbU.role || 'Personnel',
+                    schoolId: dbU.school_id || dbU.schoolId || 1,
+                    status: dbU.status || 'active',
+                    avatar: dbU.avatar,
+                    permissions: dbU.permissions,
+                    contact: dbU.contact,
+                    address: dbU.address
+                  };
+                } else {
+                  backendError = 'Compte authentifié, mais son profil utilisateur est introuvable dans la base EDUCO.';
+                }
+              }
             }
           } catch (sbErr) {
             console.warn('Supabase login check:', sbErr);
@@ -484,7 +486,9 @@ const App: React.FC = () => {
       if (!loggedUser) {
         return { 
           success: false, 
-          error: 'Accès refusé : Ce compte ou cette adresse e-mail n\'est pas reconnu(e) par le système.' 
+          error: backendError || (backendUnavailable
+            ? "Service d'authentification indisponible. Vérifiez la connexion Supabase puis réessayez."
+            : 'Identifiants invalides. Vérifiez votre e-mail et votre mot de passe.')
         };
       }
 
