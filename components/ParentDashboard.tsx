@@ -131,19 +131,16 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
       (currentUser.email && u.email?.toLowerCase() === currentUser.email.toLowerCase()) ||
       (currentUser.name && u.parentName?.toLowerCase() === currentUser.name.toLowerCase())
     )
-  ) || {
-    id: 999,
-    name: currentUser.studentName || "Élève Rattaché",
-    email: "eleve@educo.cg",
-    role: "Élève",
-    class: "Terminales C",
-    studentId: parentStudentId || "EDUCO-STD-2026",
-    avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300",
-    dob: "2008-05-14",
-    parentName: currentUser.name,
-    parentPhone: currentUser.phone || "+242 06 123 4567",
-    status: "active"
-  };
+  );
+
+  if (!linkedStudent) {
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center text-amber-950 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-100">
+        <h2 className="text-lg font-black">Aucun élève rattaché à ce compte parent</h2>
+        <p className="mt-2 text-sm">Demandez à l’établissement d’associer ce compte au matricule de votre enfant. Aucune donnée de démonstration n’est affichée.</p>
+      </div>
+    );
+  }
 
   const studentClass = classes.find(c => c.name === linkedStudent.class);
 
@@ -151,11 +148,11 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
   const studentGrades = grades.filter(g => g.studentId === linkedStudent.id || g.studentName === linkedStudent.name);
   const studentComments = reportCardComments.find(c => c.studentId === linkedStudent.id || c.studentName === linkedStudent.name) || {
     studentId: linkedStudent.id,
-    period: 'Trimestre 1',
-    year: '2025-2026',
-    teacherComment: 'Élève discipliné, travailleur et assidu. Excellents résultats en mathématiques et sciences.',
-    principalComment: 'Félicitations du Conseil de Classe. Continuez ainsi !',
-    conductGrade: 'Très Bien',
+    period: '',
+    year: '',
+    teacherComment: 'Aucune appréciation publiée.',
+    principalComment: 'Aucune observation de la direction publiée.',
+    conductGrade: 'Non renseigné',
   };
 
   const studentPayments = payments.filter(p => 
@@ -165,8 +162,8 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
   );
 
   const studentTransactions = transactions.filter(t => 
-    t.description.toLowerCase().includes(linkedStudent.name.toLowerCase()) ||
-    (linkedStudent.studentId && t.description.toLowerCase().includes(linkedStudent.studentId.toLowerCase()))
+    String(t.description || '').toLowerCase().includes(linkedStudent.name.toLowerCase()) ||
+    (linkedStudent.studentId && String(t.description || '').toLowerCase().includes(linkedStudent.studentId.toLowerCase()))
   );
 
   const studentHomework = homeworkDiary.filter(h => 
@@ -182,8 +179,11 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
   const studentAttendance = attendance.filter(a => a.studentId === linkedStudent.id);
 
   // Financial calculations
-  const totalFeesRequired = fees.filter(f => f.class === linkedStudent.class).reduce((sum, f) => sum + (Number(f.amount) || 0), 0) || 350000;
-  const totalPaid = studentPayments.reduce((sum, p) => sum + (Number(p.amountPaid) || Number(p.amount) || 0), 0) || (studentTransactions.reduce((s, t) => s + t.amount, 0) || 250000);
+  const totalFeesRequired = fees.filter(f => f.class === linkedStudent.class).reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
+  const totalPaid = studentPayments.reduce((sum, p) => sum + (Number(p.amountPaid) || Number(p.amount) || 0), 0)
+    || studentTransactions
+      .filter(t => /revenu|income|recette/i.test(String(t.type || '')))
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
   const balanceDue = Math.max(0, totalFeesRequired - totalPaid);
   const isLatePayment = balanceDue > 0;
 
@@ -198,7 +198,7 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
   const totalPoints = studentGrades.reduce((sum, g) => sum + g.score, 0);
   const overallAverage = studentGrades.length > 0 
     ? (totalPoints / studentGrades.length).toFixed(2) 
-    : '15.50';
+    : '—';
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
@@ -585,7 +585,7 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
                 <div className="relative pl-6 space-y-4 pt-2 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200 dark:before:bg-slate-700">
                   
                   {/* Item 1: RAF & Caisse */}
-                  {(timelineFilter === 'all' || timelineFilter === 'finances') && (
+                  {studentTransactions.length > 0 && (timelineFilter === 'all' || timelineFilter === 'finances') && (
                     <div className="relative group animate-fade-in">
                       <div className="absolute -left-6 top-1.5 w-5 h-5 rounded-full bg-emerald-500 border-4 border-white dark:border-slate-800 shadow-md"></div>
                       <div className="p-4 bg-slate-50 dark:bg-slate-700/40 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
@@ -847,33 +847,7 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
                     </tr>
                   ))
                 ) : (
-                  <tr className="hover:bg-slate-50 dark:hover:bg-slate-700/40">
-                    <td className="p-3.5 font-mono font-bold">REC-2026-0891</td>
-                    <td className="p-3.5 font-bold">Acompte Frais de Scolarité 1ère Tranche</td>
-                    <td className="p-3.5 text-slate-500">12/02/2026</td>
-                    <td className="p-3.5">
-                      <span className="px-2.5 py-1 bg-slate-100 dark:bg-slate-700 rounded-md font-bold text-[10px] uppercase">Mobile Money</span>
-                    </td>
-                    <td className="p-3.5 text-right font-black text-emerald-600 text-sm">
-                      150 000 {defaultSchoolSettings.currency}
-                    </td>
-                    <td className="p-3.5 text-center">
-                      <button
-                        onClick={() => setSelectedReceiptTx({
-                          id: 'REC-2026-0891',
-                          description: `Paiement Scolarité - ${linkedStudent.name}`,
-                          type: 'revenue',
-                          amount: 150000,
-                          date: '2026-02-12',
-                          category: 'Scolarité'
-                        })}
-                        className="px-3 py-1.5 bg-[#1F4A59] text-white text-[11px] font-bold rounded-xl shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <FileDownloadIcon className="w-3.5 h-3.5" />
-                        <span>Télécharger Reçu</span>
-                      </button>
-                    </td>
-                  </tr>
+                  <tr><td colSpan={6} className="p-8 text-center text-slate-500">Aucun paiement ou reçu disponible pour cet élève.</td></tr>
                 )}
               </tbody>
             </table>

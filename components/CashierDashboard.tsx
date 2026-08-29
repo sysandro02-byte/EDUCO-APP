@@ -68,6 +68,11 @@ const CashierDashboard: React.FC<CashierDashboardProps> = ({
     rafSettings, schoolSettings, isCaisseOpen, currentUserRole, onEditTransaction,
     cashierSettings
 }) => {
+  const paymentAmount = (payment: any) => Number(payment.amountPaid ?? payment.amount_paid ?? payment.amount ?? 0) || 0;
+  const paymentExpected = (payment: any) => Number(payment.totalFees ?? payment.total_fees ?? payment.expectedAmount ?? payment.expected_amount ?? 0) || 0;
+  const isApproved = (transaction: any) => /approuvé|approuve|validé|valide|paid|completed/i.test(String(transaction.status || ''));
+  const isIncome = (transaction: any) => /revenu|income|recette/i.test(String(transaction.type || ''));
+  const isExpense = (transaction: any) => /dépense|depense|expense/i.test(String(transaction.type || ''));
   // Navigation Tabs inside Dashboard
   const [activeTab, setActiveTab] = useState<'overview' | 'transactions' | 'reports' | 'salaries'>('overview');
 
@@ -305,22 +310,22 @@ const CashierDashboard: React.FC<CashierDashboardProps> = ({
     
     // Collectes du jour
     const todayRevenue = (transactions || [])
-      .filter(t => t.type === 'Revenu' && t.status === 'Approuvé' && new Date(t.date).getTime() >= today)
-      .reduce((sum, t) => sum + t.amount, 0);
+      .filter(t => isIncome(t) && isApproved(t) && new Date(t.date).getTime() >= today)
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
     // 1) Total Frais Impayés
-    const totalUnpaidFees = (payments || []).reduce((sum, p) => sum + Math.max(0, (p.totalFees || 0) - (p.amountPaid || 0)), 0);
+    const totalUnpaidFees = (payments || []).reduce((sum, p) => sum + Math.max(0, paymentExpected(p) - paymentAmount(p)), 0);
 
     // 2) Total Frais Encaissés
-    const totalCollectedFees = (payments || []).reduce((sum, p) => sum + (p.amountPaid || 0), 0);
+    const totalCollectedFees = (payments || []).reduce((sum, p) => sum + paymentAmount(p), 0);
 
     // 3) Total des Dépenses (Approuvées)
     const totalExpenses = (transactions || [])
-      .filter(t => t.type === 'Dépense' && t.status === 'Approuvé')
-      .reduce((sum, t) => sum + t.amount, 0);
+      .filter(t => isExpense(t) && isApproved(t))
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
     // 4) Total d'élèves qui n'ont pas payé les frais d'écolages (solde restant > 0)
-    const unpaidStudentsCount = (payments || []).filter(p => ((p.totalFees || 0) - (p.amountPaid || 0)) > 0).length;
+    const unpaidStudentsCount = (payments || []).filter(p => (paymentExpected(p) - paymentAmount(p)) > 0).length;
 
     // 5) Total d'enseignants
     const totalTeachers = (personnel || []).filter(p => p.role === 'Enseignant').length || 
@@ -344,23 +349,23 @@ const CashierDashboard: React.FC<CashierDashboardProps> = ({
   // Session Statistics for the current day cashier reconciliation
   const sessionStats = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
-    const todayTXs = (transactions || []).filter(t => t.date && t.date.split('T')[0] === todayStr && t.status === 'Approuvé');
+    const todayTXs = (transactions || []).filter(t => t.date && t.date.split('T')[0] === todayStr && isApproved(t));
     
     const cashIn = todayTXs
-      .filter(t => t.type === 'Revenu' && (t.paymentMethod === 'Espèce' || t.paymentMethod === 'Espèces' || !t.paymentMethod))
-      .reduce((sum, t) => sum + t.amount, 0);
+      .filter(t => isIncome(t) && (t.paymentMethod === 'Espèce' || t.paymentMethod === 'Espèces' || !t.paymentMethod))
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
     const mobileIn = todayTXs
-      .filter(t => t.type === 'Revenu' && t.paymentMethod === 'Mobile Money')
-      .reduce((sum, t) => sum + t.amount, 0);
+      .filter(t => isIncome(t) && t.paymentMethod === 'Mobile Money')
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
     const otherIn = todayTXs
-      .filter(t => t.type === 'Revenu' && t.paymentMethod !== 'Mobile Money' && t.paymentMethod !== 'Espèce' && t.paymentMethod !== 'Espèces' && t.paymentMethod)
-      .reduce((sum, t) => sum + t.amount, 0);
+      .filter(t => isIncome(t) && t.paymentMethod !== 'Mobile Money' && t.paymentMethod !== 'Espèce' && t.paymentMethod !== 'Espèces' && t.paymentMethod)
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
     const cashOut = todayTXs
-      .filter(t => t.type === 'Dépense') // Expenses are assumed to be physical cash withdrawals from drawer
-      .reduce((sum, t) => sum + t.amount, 0);
+      .filter(isExpense) // Expenses are assumed to be physical cash withdrawals from drawer
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
     const totalIn = cashIn + mobileIn + otherIn;
     const theoreticalCash = openingCash + cashIn - cashOut;
@@ -849,12 +854,7 @@ const CashierDashboard: React.FC<CashierDashboardProps> = ({
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {(financialEvents.length > 0 ? financialEvents.slice(0, 4) : [
-                    { id: '1', title: 'Échéance 1ère Tranche Écolage', start: '2026-08-15' },
-                    { id: '2', title: 'Virement Salaires - Août 2026', start: '2026-08-28' },
-                    { id: '3', title: 'Rentrée Scolaire 2026-2027', start: '2026-09-01' },
-                    { id: '4', title: 'Frais de Cantine & Transport T1', start: '2026-09-15' },
-                  ]).map((evt: any) => {
+                  {financialEvents.length > 0 ? financialEvents.slice(0, 4).map((evt: any) => {
                     const eventDate = new Date(evt.start);
                     const formattedDate = isNaN(eventDate.getTime()) ? evt.start : eventDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
                     return (
@@ -868,7 +868,7 @@ const CashierDashboard: React.FC<CashierDashboardProps> = ({
                         </span>
                       </div>
                     );
-                  })}
+                  }) : <p className="col-span-full rounded-xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-500">Aucune échéance enregistrée.</p>}
                 </div>
               </div>
 

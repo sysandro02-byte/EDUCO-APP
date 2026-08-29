@@ -97,6 +97,10 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
   onOpenSubscriptionModal
 }) => {
   const currency = schoolSettings?.currency || 'FCFA';
+  const paymentAmount = (payment: any) => Number(payment.amountPaid ?? payment.amount_paid ?? payment.amount ?? 0) || 0;
+  const paymentExpected = (payment: any) => Number(payment.totalFees ?? payment.total_fees ?? payment.expectedAmount ?? payment.expected_amount ?? 0) || 0;
+  const isIncome = (transaction: any) => /revenu|income|recette/i.test(String(transaction.type || ''));
+  const isExpense = (transaction: any) => /dépense|depense|expense/i.test(String(transaction.type || ''));
 
   // State
   const [activeTab, setActiveTab] = useState<TabType>('overview');
@@ -156,17 +160,17 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
   // 1. Calculations for the 5 requested metrics
   // KPI 1: Total Frais Impayés (Reste à payer sur la scolarité / écolages)
   const totalUnpaidFees = useMemo(() => {
-    return filteredPayments.reduce((sum, p) => sum + Math.max(0, (p.totalFees || 0) - (p.amountPaid || 0)), 0);
+    return filteredPayments.reduce((sum, p) => sum + Math.max(0, paymentExpected(p) - paymentAmount(p)), 0);
   }, [filteredPayments]);
 
   // KPI 2: Total Frais Encaissés (Total des paiements d'écolage perçus)
   const totalFeesCollected = useMemo(() => {
-    return filteredPayments.reduce((sum, p) => sum + (p.amountPaid || 0), 0);
+    return filteredPayments.reduce((sum, p) => sum + paymentAmount(p), 0);
   }, [filteredPayments]);
 
   // Total Fees Expected
   const totalFeesExpected = useMemo(() => {
-    return filteredPayments.reduce((sum, p) => sum + (p.totalFees || 0), 0) || (totalFeesCollected + totalUnpaidFees);
+    return filteredPayments.reduce((sum, p) => sum + paymentExpected(p), 0);
   }, [filteredPayments, totalFeesCollected, totalUnpaidFees]);
 
   // KPI 3: Total des Dépenses (Dépenses validées et approuvées)
@@ -175,11 +179,11 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
   }, [transactions]);
 
   const totalExpenses = useMemo(() => {
-    return approvedTransactions.filter(t => t.type === 'Dépense').reduce((sum, t) => sum + (t.amount || 0), 0);
+    return approvedTransactions.filter(isExpense).reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
   }, [approvedTransactions]);
 
   const totalApprovedRevenue = useMemo(() => {
-    return approvedTransactions.filter(t => t.type === 'Revenu').reduce((sum, t) => sum + (t.amount || 0), 0);
+    return approvedTransactions.filter(isIncome).reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
   }, [approvedTransactions]);
 
   // KPI 4: Total d'élèves qui n'ont pas payé les frais d'écolages (solde débiteur > 0)
@@ -187,8 +191,8 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
     return filteredPayments
       .map(p => {
         const student = users.find(u => u.id === p.studentId || u.id === p.id || u.name === p.name);
-        const total = p.totalFees || 0;
-        const paid = p.amountPaid || 0;
+        const total = paymentExpected(p);
+        const paid = paymentAmount(p);
         const balanceDue = Math.max(0, total - paid);
         const paymentRate = total > 0 ? (paid / total) * 100 : 0;
         
@@ -207,10 +211,10 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
           balanceDue,
           paymentRate,
           statusCategory,
-          parentPhone: student?.parentPhone || student?.phone || '+229 97 00 00 00',
-          parentEmail: student?.parentEmail || student?.email || 'parent@ecole.com',
+          parentPhone: student?.parentPhone || student?.phone || '',
+          parentEmail: student?.parentEmail || student?.email || '',
           avatar: student?.avatar,
-          lastPaymentDate: p.lastPaymentDate || '2026-08-10'
+          lastPaymentDate: p.lastPaymentDate || p.paymentDate || p.payment_date || null
         };
       })
       .filter(d => d.balanceDue > 0);
@@ -235,20 +239,20 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
     p.role?.toLowerCase().includes('enseignant') || 
     p.role?.toLowerCase().includes('professeur')
   ).length;
-  const totalTeachersCount = teachersFromUsers > 0 ? teachersFromUsers : (teachersFromPersonnel > 0 ? teachersFromPersonnel : 14);
+  const totalTeachersCount = teachersFromUsers > 0 ? teachersFromUsers : teachersFromPersonnel;
 
   // Overall Strategic Financials
-  const totalStudents = users.filter(u => u.role === 'Élève').length || payments.length || 840;
+  const totalStudents = users.filter(u => u.role === 'Élève').length || new Set(payments.map(p => String(p.studentId ?? p.student_id ?? p.id ?? '')).filter(Boolean)).size;
   const effectiveRevenue = totalApprovedRevenue > 0 ? totalApprovedRevenue : totalFeesCollected;
   const netCashflow = effectiveRevenue - totalExpenses;
-  const collectionRate = totalFeesExpected > 0 ? (totalFeesCollected / totalFeesExpected) * 100 : 85;
+  const collectionRate = totalFeesExpected > 0 ? (totalFeesCollected / totalFeesExpected) * 100 : 0;
 
   // Personnel & Payroll Stats
   const totalMonthlyPayroll = useMemo(() => {
-    return (personnel || []).reduce((sum, p) => sum + (p.salary || p.baseSalary || 150000), 0) || (totalTeachersCount * 180000);
+    return (personnel || []).reduce((sum, p) => sum + (Number(p.salary ?? p.baseSalary ?? 0) || 0), 0);
   }, [personnel, totalTeachersCount]);
 
-  const payrollCoverageMonths = totalMonthlyPayroll > 0 ? Math.max(0, netCashflow / totalMonthlyPayroll).toFixed(1) : '3.5';
+  const payrollCoverageMonths = totalMonthlyPayroll > 0 ? Math.max(0, netCashflow / totalMonthlyPayroll).toFixed(1) : '—';
 
   // Pending transactions awaiting Promoter / DG approval
   const pendingTxns = useMemo(() => {
@@ -754,7 +758,7 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
 
                 <div className="mt-4 pt-2.5 border-t border-teal-100 dark:border-teal-900/40 flex items-center justify-between text-[11px]">
                   <span className="text-teal-700 dark:text-teal-300 font-bold">
-                    {totalStudents > 0 ? `1 prof / ${Math.round(totalStudents / (totalTeachersCount || 1))} él.` : 'Actifs'}
+                    {totalStudents > 0 && totalTeachersCount > 0 ? `1 prof / ${Math.round(totalStudents / totalTeachersCount)} él.` : 'Non renseigné'}
                   </span>
                   <span className="text-teal-600 dark:text-teal-400 font-bold flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
                     Équipe →
@@ -893,12 +897,7 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
                 </div>
 
                 <div className="space-y-2.5">
-                  {(financialEvents.length > 0 ? financialEvents.slice(0, 4) : [
-                    { id: '1', title: 'Échéance 1ère Tranche Écolage', start: '2026-08-15' },
-                    { id: '2', title: 'Virement Salaires du Personnel', start: '2026-08-28' },
-                    { id: '3', title: 'Rentrée Scolaire 2026-2027', start: '2026-09-01' },
-                    { id: '4', title: 'Clôture Trimestre 1 - Frais Cantine', start: '2026-09-15' },
-                  ]).map((evt: any) => {
+                  {financialEvents.length > 0 ? financialEvents.slice(0, 4).map((evt: any) => {
                     const eventDate = new Date(evt.start);
                     const formattedDate = isNaN(eventDate.getTime()) ? evt.start : eventDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
                     return (
@@ -912,7 +911,7 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
                         </span>
                       </div>
                     );
-                  })}
+                  }) : <p className="rounded-xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-500">Aucune échéance enregistrée.</p>}
                 </div>
               </div>
             </div>
@@ -1252,14 +1251,14 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
                 {totalTeachersCount} <span className="text-xs">enseignants</span>
               </p>
               <p className="text-[11px] text-slate-500 mt-2">
-                Ratio : 1 enseignant pour {Math.round(totalStudents / (totalTeachersCount || 1))} élèves
+                Ratio : {totalTeachersCount > 0 ? `1 enseignant pour ${Math.round(totalStudents / totalTeachersCount)} élèves` : 'non renseigné'}
               </p>
             </div>
 
             <div className="p-5 bg-white dark:bg-slate-800 rounded-3xl border border-indigo-200 dark:border-indigo-900/40 shadow-sm">
               <span className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">Personnel Administratif & Support</span>
               <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
-                {Math.max(1, (personnel?.length || 10) - totalTeachersCount)} <span className="text-xs">collaborateurs</span>
+                {Math.max(0, personnel.length - totalTeachersCount)} <span className="text-xs">collaborateurs</span>
               </p>
               <p className="text-[11px] text-slate-500 mt-2">Direction, surveillance, caisse et intendance</p>
             </div>
@@ -1298,13 +1297,7 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
-                  {(personnel && personnel.length > 0 ? personnel.slice(0, 10) : [
-                    { id: 1, name: 'Jean-Baptiste HOUNDO', role: 'Enseignant', department: 'Mathématiques', status: 'Actif', phone: '+229 97 12 34 56' },
-                    { id: 2, name: 'Claire GOMEZ', role: 'Directrice des Études', department: 'Direction Pédagogique', status: 'Actif', phone: '+229 96 23 45 67' },
-                    { id: 3, name: 'Marc AGBESSI', role: 'Enseignant', department: 'Sciences Physiques', status: 'Actif', phone: '+229 95 34 56 78' },
-                    { id: 4, name: 'Fatouma DIALLO', role: 'Comptable / RAF', department: 'Administration Financière', status: 'Actif', phone: '+229 94 45 67 89' },
-                    { id: 5, name: 'Patrick MENSAH', role: 'Enseignant', department: 'Français & Philosophie', status: 'Actif', phone: '+229 97 56 78 90' },
-                  ]).map((p: any) => (
+                  {(personnel || []).slice(0, 10).map((p: any) => (
                     <tr key={p.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors">
                       <td className="py-3 px-4 font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2.5">
                         <UserAvatar name={p.name} size="sm" />
@@ -1324,10 +1317,13 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
                         </span>
                       </td>
                       <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">
-                        {p.phone || '+229 97 00 00 00'}
+                        {p.phone || 'Non renseigné'}
                       </td>
                     </tr>
                   ))}
+                  {personnel.length === 0 && (
+                    <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">Aucun collaborateur enregistré.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>

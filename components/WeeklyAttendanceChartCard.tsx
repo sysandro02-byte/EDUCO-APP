@@ -58,17 +58,13 @@ const WeeklyAttendanceChartCard: React.FC<WeeklyAttendanceChartCardProps> = ({
 
   // Compute weekly attendance dataset
   const weeklyData = useMemo(() => {
-    // Determine effective target classes
-    const targetClasses = selectedClass === 'all' 
-      ? classes 
-      : classes.filter(c => c.name === selectedClass || String(c.id) === selectedClass);
-
-    // Calculate baseline student headcount
-    const classStudents = selectedClass === 'all'
-      ? students
-      : students.filter(s => s.class === selectedClass);
-    
-    const totalStudentsCount = classStudents.length;
+    const selectedClassRecord = classes.find(c => c.name === selectedClass || String(c.id) === selectedClass);
+    const weekOffset = selectedWeek === 'prev' ? 7 : selectedWeek === 'prev2' ? 14 : 0;
+    const startOfWeek = new Date();
+    startOfWeek.setHours(0, 0, 0, 0);
+    startOfWeek.setDate(startOfWeek.getDate() - ((startOfWeek.getDay() + 6) % 7) - weekOffset);
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(endOfWeek.getDate() + 7);
 
     // Build day-by-day weekly metrics
     return DAYS_OF_WEEK.map((dayName, index) => {
@@ -76,10 +72,11 @@ const WeeklyAttendanceChartCard: React.FC<WeeklyAttendanceChartCardProps> = ({
       const dayAttendance = attendance.filter(a => {
         if (!a.date) return false;
         const recordDate = new Date(a.date);
+        if (Number.isNaN(recordDate.getTime()) || recordDate < startOfWeek || recordDate >= endOfWeek) return false;
         const dayOfWeekIndex = (recordDate.getDay() + 6) % 7; // Monday = 0
         const matchesDay = dayOfWeekIndex === index;
         if (!matchesDay) return false;
-        if (selectedClass !== 'all' && a.className && a.className !== selectedClass) return false;
+        if (selectedClass !== 'all' && String(a.className || '') !== selectedClass && String(a.classId ?? a.class_id ?? '') !== String(selectedClassRecord?.id ?? selectedClass)) return false;
         return true;
       });
 

@@ -3273,13 +3273,23 @@ const App: React.FC = () => {
             );
         }
         if (loggedInRole === 'Enseignant') {
-          return <TeacherDashboard setActivePage={setActivePage} />;
+          const teacherClasses = classes.filter((schoolClass: any) => String(schoolClass.teacherId ?? schoolClass.teacher_id ?? '') === String(currentUserId ?? ''));
+          const teacherClassIds = new Set(teacherClasses.map((schoolClass: any) => String(schoolClass.id)));
+          const teacherClassNames = new Set(teacherClasses.map((schoolClass: any) => String(schoolClass.name)));
+          const teacherStudents = users.filter((user: any) => user.role === 'Élève' && teacherClassNames.has(String(user.class || user.className || '')));
+          const teacherStudentIds = new Set(teacherStudents.map((student: any) => String(student.id)));
+          const teacherAttendance = attendance.filter((record: any) =>
+            teacherClassIds.has(String(record.classId ?? record.class_id ?? ''))
+            || teacherClassNames.has(String(record.className || ''))
+            || teacherStudentIds.has(String(record.studentId ?? record.student_id ?? ''))
+          );
+          return <TeacherDashboard setActivePage={setActivePage} classes={teacherClasses} attendance={teacherAttendance} users={teacherStudents} />;
         }
          if (loggedInRole === 'Directeur des Etudes') {
           return (
             <div>
               {dashboardBanner}
-              <DEDashboard users={users} attendance={attendance} financialEvents={financialEvents} setActivePage={setActivePage} />
+              <DEDashboard users={users} attendance={attendance} classes={classes} subjects={subjects} financialEvents={financialEvents} setActivePage={setActivePage} />
             </div>
           );
         }

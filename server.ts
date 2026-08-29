@@ -4227,7 +4227,19 @@ async function startServer() {
           if (sbPayments) {
             sbPayments.forEach(p => {
               if (!allPayments.some(x => x.id === p.id)) {
-                allPayments.push({ id: p.id, schoolId: p.school_id || p.schoolId || 1, studentId: p.student_id || p.studentId, amount: p.amount, paymentDate: p.payment_date || p.paymentDate, type: p.type, reference: p.reference, status: p.status || 'completed' } as any);
+                const amount = Number(p.amount_paid ?? p.amountPaid ?? p.amount ?? 0) || 0;
+                allPayments.push({
+                  id: p.id,
+                  schoolId: p.school_id || p.schoolId || 1,
+                  studentId: p.student_id || p.studentId,
+                  amount,
+                  amountPaid: amount,
+                  totalFees: Number(p.total_fees ?? p.totalFees ?? p.expected_amount ?? p.expectedAmount ?? 0) || 0,
+                  paymentDate: p.payment_date || p.paymentDate,
+                  type: p.type,
+                  reference: p.reference,
+                  status: p.status || 'completed'
+                } as any);
               }
             });
           }
@@ -4235,7 +4247,13 @@ async function startServer() {
           if (sbTx) {
             sbTx.forEach(t => {
               if (!allTransactions.some(x => x.id === t.id)) {
-                allTransactions.push({ id: t.id, schoolId: t.school_id || t.schoolId || 1, amount: t.amount, type: t.type, date: t.date, category: t.category, description: t.description } as any);
+                const rawType = String(t.type || '').toLowerCase();
+                const type = /revenu|income|recette/.test(rawType)
+                  ? 'Revenu'
+                  : /dépense|depense|expense/.test(rawType)
+                    ? 'Dépense'
+                    : t.type;
+                allTransactions.push({ id: t.id, schoolId: t.school_id || t.schoolId || 1, amount: Number(t.amount || 0), type, date: t.date, category: t.category, description: t.description || '', status: t.status || 'Approuvé' } as any);
               }
             });
           }

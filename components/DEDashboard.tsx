@@ -28,7 +28,7 @@ const DEDashboard: React.FC<DEDashboardProps> = ({
     const today = new Date().toISOString().split('T')[0];
     const todayAttendance = attendance.filter(a => a.date === today);
     const presentToday = todayAttendance.filter(a => a.status === 'Présent' || a.status === 'present').length;
-    const attendanceRate = todayAttendance.length > 0 ? Math.round((presentToday / todayAttendance.length) * 100) : 96;
+    const attendanceRate = todayAttendance.length > 0 ? Math.round((presentToday / todayAttendance.length) * 100) : null;
 
     return { totalStudents, totalTeachers, attendanceRate };
   }, [users, attendance]);
@@ -76,7 +76,7 @@ const DEDashboard: React.FC<DEDashboardProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         <StatCard title="Total Élèves" value={stats.totalStudents.toString()} icon={<StudentsIcon />} color="blue" />
         <StatCard title="Total Enseignants" value={stats.totalTeachers.toString()} icon={<BriefcaseIcon />} color="teal" />
-        <StatCard title="Présence Aujourd'hui" value={`${stats.attendanceRate}%`} icon={<AttendanceIcon />} color="green" info="Calculé sur la journée d'aujourd'hui." />
+        <StatCard title="Présence Aujourd'hui" value={stats.attendanceRate === null ? '—' : `${stats.attendanceRate}%`} icon={<AttendanceIcon />} color="green" info={stats.attendanceRate === null ? "Aucune présence saisie aujourd’hui." : "Calculé sur la journée d'aujourd'hui."} />
       </div>
 
       {/* Requirement 6: Recharts Weekly Attendance Chart by Class for DE */}
@@ -143,14 +143,7 @@ const DEDashboard: React.FC<DEDashboardProps> = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {(financialEvents.length > 0 ? financialEvents.slice(0, 6) : [
-            { id: '1', title: 'Échéance 1ère Tranche Écolage', start: '2026-08-15' },
-            { id: '2', title: 'Virement Salaires - Août 2026', start: '2026-08-28' },
-            { id: '3', title: 'Rentrée Scolaire 2026-2027', start: '2026-09-01' },
-            { id: '4', title: 'Frais de Cantine & Transport T1', start: '2026-09-15' },
-            { id: '5', title: 'Clôture Paie Septembre', start: '2026-09-30' },
-            { id: '6', title: 'Échéance 2ème Tranche Écolage', start: '2026-10-15' },
-          ]).map((evt: any) => {
+          {financialEvents.length > 0 ? financialEvents.slice(0, 6).map((evt: any) => {
             const eventDate = new Date(evt.start);
             const formattedDate = isNaN(eventDate.getTime()) ? evt.start : eventDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
             return (
@@ -164,7 +157,11 @@ const DEDashboard: React.FC<DEDashboardProps> = ({
                 </span>
               </div>
             );
-          })}
+          }) : (
+            <p className="col-span-full rounded-lg border border-dashed border-gray-200 px-4 py-8 text-center text-sm text-gray-500">
+              Aucune échéance académique ou financière enregistrée.
+            </p>
+          )}
         </div>
       </div>
     </div>
