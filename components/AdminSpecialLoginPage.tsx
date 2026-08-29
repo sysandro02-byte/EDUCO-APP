@@ -6,7 +6,9 @@ import { getApiUrl } from '../src/lib/apiConfig';
 
 interface AdminSpecialLoginPageProps {
   onBack?: () => void;
-  onLogin?: (email: string, password: string, isAdminPortal?: boolean) => Promise<{ success: boolean; error?: string }>;
+  // The parent determines the active portal from its current page. The optional
+  // third argument of its login handler is reserved for biometric authentication.
+  onLogin?: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const AdminSpecialLoginPage: React.FC<AdminSpecialLoginPageProps> = ({ onBack, onLogin }) => {
@@ -25,6 +27,11 @@ const AdminSpecialLoginPage: React.FC<AdminSpecialLoginPageProps> = ({ onBack, o
   const [success, setSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [resetStep, setResetStep] = useState<'request' | 'confirm'>('request');
+  const [resetChallenge, setResetChallenge] = useState('');
+  const [resetCode, setResetCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -43,7 +50,7 @@ const AdminSpecialLoginPage: React.FC<AdminSpecialLoginPageProps> = ({ onBack, o
     setIsLoading(true);
     try {
       if (onLogin) {
-        const res = await onLogin(formData.email.trim(), formData.password, true);
+        const res = await onLogin(formData.email.trim(), formData.password);
         if (!res.success) {
           setError(res.error || 'Identifiants administrateur incorrects.');
         }
@@ -120,7 +127,7 @@ const AdminSpecialLoginPage: React.FC<AdminSpecialLoginPageProps> = ({ onBack, o
       // Auto login or switch to login mode
       setTimeout(async () => {
         if (onLogin) {
-          await onLogin(formData.email.trim(), formData.password, true);
+          await onLogin(formData.email.trim(), formData.password);
         } else {
           setSuccess(false);
           setMode('login');
@@ -144,23 +151,62 @@ const AdminSpecialLoginPage: React.FC<AdminSpecialLoginPageProps> = ({ onBack, o
     }
 
     try {
-      const { url } = getStoredSupabaseConfig();
-      if (!isPlaceholderSupabaseUrl(url)) {
-        const supabase = getSupabaseClient();
-        const { error: resetErr } = await supabase.auth.resetPasswordForEmail(formData.email.trim())
-          .catch(err => ({ error: { message: err?.message || 'Failed to fetch' } }));
-        if (resetErr && !resetErr.message?.includes('fetch')) {
-          console.warn("Reset password warning:", resetErr.message);
+      setIsLoading(true);
+      const email = formData.email.trim().toLowerCase();
+
+      if (resetStep === 'request') {
+        const response = await fetch(getApiUrl('/api/email/send-reset-password'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, adminOnly: true }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'Impossible d’envoyer le code de réinitialisation.');
         }
+
+        setResetChallenge(data.resetChallenge || '');
+        setResetStep('confirm');
+        setSuccess(true);
+        setSuccessMessage('Un code de vérification a été envoyé à votre adresse e-mail.');
+        return;
       }
+
+      if (!resetCode.trim() || !newPassword || !confirmNewPassword) {
+        throw new Error('Saisissez le code reçu et votre nouveau mot de passe.');
+      }
+      if (newPassword.length < 6) {
+        throw new Error('Le nouveau mot de passe doit comporter au moins 6 caractères.');
+      }
+      if (newPassword !== confirmNewPassword) {
+        throw new Error('Les deux mots de passe ne correspondent pas.');
+      }
+
+      const response = await fetch(getApiUrl('/api/email/confirm-reset-password'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          otpCode: resetCode.trim(),
+          newPassword,
+          resetChallenge,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Impossible de réinitialiser le mot de passe.');
+      }
+
       setSuccess(true);
-      setSuccessMessage('Instructions envoyées par email.');
+      setSuccessMessage('Mot de passe réinitialisé. Vous pouvez maintenant vous connecter.');
       setTimeout(() => {
         setSuccess(false);
         setMode('login');
       }, 4000);
     } catch (err: any) {
-      setError('Erreur lors de la demande. Vérifiez votre email.');
+      setError(err?.message || 'Erreur lors de la demande. Vérifiez votre email.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -411,7 +457,9 @@ const AdminSpecialLoginPage: React.FC<AdminSpecialLoginPageProps> = ({ onBack, o
     <form className="mt-8 space-y-6" onSubmit={handleForgotSubmit}>
       <div className="text-center space-y-4">
         <p className="text-sm text-slate-500 leading-relaxed">
-          Entrez votre adresse e-mail d'administrateur. Nous vous transmettrons les instructions de réinitialisation sécurisée.
+          {resetStep === 'request'
+            ? "Entrez votre adresse e-mail d’administrateur. Nous vous enverrons un code de réinitialisation sécurisé."
+            : 'Saisissez le code reçu et choisissez votre nouveau mot de passe.'}
         </p>
         <div className="relative">
           <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
@@ -427,10 +475,47 @@ const AdminSpecialLoginPage: React.FC<AdminSpecialLoginPageProps> = ({ onBack, o
             placeholder="admin@educo-ecole.com"
           />
         </div>
+
+        {resetStep === 'confirm' && (
+          <div className="space-y-3 text-left">
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              required
+              maxLength={6}
+              value={resetCode}
+              onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              className="w-full px-4 py-3 border border-slate-300 rounded-2xl text-center tracking-[0.45em] font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1F4A59]"
+              placeholder="000000"
+              aria-label="Code de vérification reçu par e-mail"
+            />
+            <input
+              type={showPassword ? 'text' : 'password'}
+              autoComplete="new-password"
+              required
+              minLength={6}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="w-full px-4 py-3 border border-slate-300 rounded-2xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1F4A59]"
+              placeholder="Nouveau mot de passe"
+            />
+            <input
+              type={showPassword ? 'text' : 'password'}
+              autoComplete="new-password"
+              required
+              minLength={6}
+              value={confirmNewPassword}
+              onChange={(e) => setConfirmNewPassword(e.target.value)}
+              className="w-full px-4 py-3 border border-slate-300 rounded-2xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1F4A59]"
+              placeholder="Confirmer le nouveau mot de passe"
+            />
+          </div>
+        )}
       </div>
       
-      <button type="submit" className="w-full py-4 text-sm font-extrabold rounded-2xl text-white bg-[#1F4A59] hover:bg-[#153540] transition-all cursor-pointer">
-        Envoyer le lien de récupération
+      <button type="submit" disabled={isLoading} className="w-full py-4 text-sm font-extrabold rounded-2xl text-white bg-[#1F4A59] hover:bg-[#153540] transition-all cursor-pointer disabled:opacity-50">
+        {isLoading ? 'Traitement en cours...' : resetStep === 'request' ? 'Recevoir le code de récupération' : 'Réinitialiser mon mot de passe'}
       </button>
       
       <div className="text-center">
@@ -438,6 +523,11 @@ const AdminSpecialLoginPage: React.FC<AdminSpecialLoginPageProps> = ({ onBack, o
           type="button" 
           onClick={() => {
             setError('');
+            setSuccess(false);
+            setResetStep('request');
+            setResetCode('');
+            setNewPassword('');
+            setConfirmNewPassword('');
             setMode('login');
           }} 
           className="text-xs font-bold text-[#1F4A59] hover:underline flex items-center justify-center gap-2 mx-auto cursor-pointer"

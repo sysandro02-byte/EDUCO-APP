@@ -4817,7 +4817,23 @@ async function startServer() {
         let authUser = null;
         if (registeredAccountsStore.has(targetIdentifier)) {
           authUser = registeredAccountsStore.get(targetIdentifier)!.user;
-        } else if (isDbConfigured()) {
+        } else {
+          // Production accounts are stored in Supabase. Looking only in the
+          // local fallback database made valid admin accounts appear unknown.
+          const supabaseDb = getSupabaseAdmin(req);
+          if (supabaseDb) {
+            try {
+              const { data: sbUser } = await supabaseDb
+                .from('users')
+                .select('*')
+                .eq('email', targetIdentifier)
+                .maybeSingle();
+              authUser = mapSupabaseUser(sbUser);
+            } catch (e) {}
+          }
+        }
+
+        if (!authUser && isDbConfigured()) {
           try {
             const found = await db.select().from(users).where(eq(users.email, targetIdentifier)).limit(1);
             if (found.length > 0) authUser = found[0];
@@ -5258,11 +5274,31 @@ async function startServer() {
   // 4. Send Password Reset OTP Email
   app.post('/api/email/send-reset-password', async (req, res) => {
     try {
-      const { email, templateId, customApiKey } = req.body;
+      const { email, templateId, customApiKey, adminOnly } = req.body;
       if (!email || !email.includes('@')) {
         return res.status(400).json({ error: "Adresse email valide requise." });
       }
       const cleanEmail = String(email).toLowerCase().trim();
+
+      if (adminOnly) {
+        let account: any = null;
+        const supabaseAdmin = getSupabaseAdmin(req);
+        if (supabaseAdmin) {
+          const { data, error } = await supabaseAdmin
+            .from('users')
+            .select('id,role')
+            .eq('email', cleanEmail)
+            .maybeSingle();
+          if (error) throw error;
+          account = data;
+        } else if (isDbConfigured()) {
+          const found = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
+          account = found[0] || null;
+        }
+        if (!account || !adminRoles.has(account.role)) {
+          return res.status(404).json({ error: 'Aucun compte administrateur habilité ne correspond à cette adresse e-mail.' });
+        }
+      }
 
       // Generate a 6-digit reset OTP
       const resetCode = otpManager.generateOtp(cleanEmail, 'password_reset');
