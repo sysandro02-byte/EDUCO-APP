@@ -69,6 +69,19 @@ const formatTimeAgo = (timestamp: string) => {
   return `il y a ${Math.floor(interval)} min`;
 };
 
+/** Existing notifications created before links were stored still need an action. */
+const getNotificationDestination = (notification: NotificationItem): string => {
+  if (notification.link?.trim()) return notification.link.trim();
+  const content = `${notification.type || ''} ${notification.title || ''} ${notification.message || ''}`.toLowerCase();
+
+  if (/message|messagerie|discussion|chat|annonce/.test(content)) return 'Messagerie';
+  if (/licence|abonnement|subscription/.test(content)) return 'Abonnement & Licence';
+  if (/paiement|reçu|recu|caisse|revenu|dépense|depense|transaction|finance|budget/.test(content)) return 'Comptabilité';
+  if (/note|bulletin|pédagog|pedagog|présence|presence|absence/.test(content)) return 'Notes';
+  if (/établissement|etablissement|inscription/.test(content)) return 'Inscriptions & Élèves';
+  return 'Tableau de bord';
+};
+
 const NotificationBell: React.FC<NotificationBellProps> = ({ 
   notifications, 
   currentUserRole, 
@@ -135,12 +148,7 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
     }
     setIsOpen(false);
 
-    if (notification.link) {
-      onNotificationClick(notification.link, notification.id);
-    } else {
-      setActiveNotification(notification);
-      setIsSideDrawerOpen(true);
-    }
+    onNotificationClick(getNotificationDestination(notification), notification.id);
   };
 
   const handleOpenPreviewDrawer = (notif: NotificationItem, e?: React.MouseEvent) => {
@@ -546,4 +554,3 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
 };
 
 export default NotificationBell;
-

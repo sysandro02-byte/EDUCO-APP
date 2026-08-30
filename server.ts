@@ -1258,6 +1258,7 @@ async function startServer() {
             title: `Nouvelle Inscription : ${schoolName}`,
             message: notificationMessage,
             type: 'Alerte',
+            link: 'Établissements Inscrits',
           });
         }
 
@@ -1267,6 +1268,7 @@ async function startServer() {
           title: `Bienvenue sur EDUCO !`,
           message: `Votre établissement "${schoolName}" (${schoolIdentifier}) est enregistré en mode Inscription. Activez votre licence pour déverrouiller tous les modules.`,
           type: 'Information',
+          link: 'Abonnement & Licence',
         });
 
         // Brevo email dispatches:
@@ -2757,7 +2759,8 @@ async function startServer() {
         title: req.body.title || `Message de ${dbUser.name || 'EDUCO'}`,
         message: text,
         type: Number(targetSchoolId) === Number(dbUser.schoolId) ? 'Messagerie interne' : 'Messagerie inter-école',
-        is_read: false
+        is_read: false,
+        link: 'Messagerie',
       }));
 
       if (rows.length === 0) {
@@ -2789,6 +2792,65 @@ async function startServer() {
     } catch (error: any) {
       console.error('Notifications fetch error:', error);
       res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Create individual notifications for the requested establishment roles.
+  // Platform administrators and establishment teams deliberately use separate
+  // audiences, so a school operation cannot leak into the platform inbox.
+  app.post('/api/notifications/dispatch', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getUserByUid(req.user!.uid);
+      const userRole = req.user?.role || dbUser?.role || '';
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
+
+      const message = String(req.body.message || '').trim();
+      const title = String(req.body.title || req.body.type || 'Notification').trim();
+      const type = String(req.body.type || 'Information').trim();
+      const link = String(req.body.link || '').trim() || null;
+      const requestedRoles = Array.isArray(req.body.roles)
+        ? [...new Set(req.body.roles.map((role: unknown) => String(role || '').trim()).filter(Boolean))]
+        : [];
+      if (!message || requestedRoles.length === 0) {
+        return res.status(400).json({ success: false, error: 'Le message et les destinataires sont obligatoires.' });
+      }
+
+      const platformRoles = new Set(['Admin', 'Co-admin']);
+      const schoolRoles = requestedRoles.filter(role => !platformRoles.has(role));
+      const recipientRoles = schoolRoles.length > 0 ? schoolRoles : requestedRoles;
+      const isPlatformAudience = schoolRoles.length === 0 && recipientRoles.some(role => platformRoles.has(role));
+
+      if (isPlatformAudience && !platformRoles.has(userRole)) {
+        return res.status(403).json({ success: false, error: 'Seul un administrateur de la plateforme peut contacter cette audience.' });
+      }
+      if (!isPlatformAudience && !dbUser?.schoolId) {
+        return res.status(403).json({ success: false, error: 'Aucun établissement associé au compte émetteur.' });
+      }
+
+      let recipientsQuery = supabaseAdmin.from('users').select('id').in('role', recipientRoles);
+      if (!isPlatformAudience) {
+        recipientsQuery = recipientsQuery.eq('school_id', Number(dbUser.schoolId));
+      }
+      const { data: recipients, error: recipientsError } = await recipientsQuery;
+      if (recipientsError) throw recipientsError;
+
+      const rows = (recipients || []).map((recipient: any) => ({
+        user_id: recipient.id,
+        title,
+        message,
+        type,
+        is_read: false,
+        link,
+      }));
+      if (rows.length === 0) return res.json({ success: true, sent: 0 });
+
+      const { data, error } = await supabaseAdmin.from('notifications').insert(rows).select('*');
+      if (error) throw error;
+      res.json({ success: true, sent: data?.length || 0 });
+    } catch (error: any) {
+      console.error('Notification dispatch error:', error);
+      res.status(500).json({ success: false, error: error.message || 'Erreur lors de l’envoi de la notification.' });
     }
   });
 
@@ -2890,7 +2952,7 @@ async function startServer() {
       const targetAudience = req.body.targetAudience || 'all_schools';
       const selectedSchoolId = req.body.schoolId || req.body.selectedSchoolId;
       const roleMap: Record<string, string[]> = {
-        promoters: ['Promoteur', 'Admin', 'Co-admin'],
+        promoters: ['Promoteur'],
         directors: ['Directeur Général', 'Directeur', 'Directeur des Etudes', 'DE'],
         raf: ['Responsable des finances', 'RAF'],
       };
@@ -2906,12 +2968,19 @@ async function startServer() {
       const { data: recipients, error: recipientsError } = await usersQuery;
       if (recipientsError) throw recipientsError;
 
-      const rows = (recipients || []).map((u: any) => ({
+      // A platform broadcast is for establishment accounts only. Super-admin
+      // accounts are a separate audience and must never inherit these notices.
+      const establishmentRecipients = (recipients || []).filter((user: any) =>
+        targetAudience !== 'all_schools' || !['Admin', 'Co-admin'].includes(String(user.role || ''))
+      );
+
+      const rows = establishmentRecipients.map((u: any) => ({
         user_id: u.id,
         title,
         message,
         type: 'Message Admin',
         is_read: false,
+        link: String(req.body.link || 'Tableau de bord'),
       }));
 
       if (rows.length === 0) {
@@ -3198,7 +3267,8 @@ async function startServer() {
           title: 'Licence Activée avec Succès !',
           message: `Votre abonnement ${updatedSub.planType === 'ai_premium' ? 'IA Premium' : 'Standard'} est activé pour ${updatedSub.months} mois jusqu'au ${newEndDate.toLocaleDateString('fr-FR')}.`,
           type: 'subscription',
-          is_read: false
+          is_read: false,
+          link: 'Abonnement & Licence',
         }]).throwOnError();
       } else {
         await db.insert(notifications).values({
@@ -3206,6 +3276,7 @@ async function startServer() {
           title: 'Licence Activée avec Succès !',
           message: `Votre abonnement ${updatedSub.planType === 'ai_premium' ? 'IA Premium' : 'Standard'} est activé pour ${updatedSub.months} mois jusqu'au ${newEndDate.toLocaleDateString('fr-FR')}.`,
           type: 'subscription',
+          link: 'Abonnement & Licence',
         });
       }
 

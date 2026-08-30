@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Fingerprint, Scan, Loader2, ShieldCheck, AlertCircle, Sparkles } from 'lucide-react';
-import { isWebAuthnSupported, isPlatformAuthenticatorAvailable } from '../../src/services/webauthnService';
+import { getWebAuthnAvailability, isPlatformAuthenticatorAvailable } from '../../src/services/webauthnService';
 
 interface BiometricLoginButtonProps {
   onBiometricClick: () => void;
@@ -13,14 +13,14 @@ export const BiometricLoginButton: React.FC<BiometricLoginButtonProps> = ({
   isLoading = false,
   userEmail
 }) => {
-  const [isSupported, setIsSupported] = useState<boolean | null>(null);
+  const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
   const [hasPlatformAuth, setHasPlatformAuth] = useState<boolean | null>(null);
 
   useEffect(() => {
     const checkAvailability = async () => {
-      const supported = isWebAuthnSupported();
-      setIsSupported(supported);
-      if (supported) {
+      const availability = getWebAuthnAvailability();
+      setUnavailableReason(availability.supported ? null : availability.reason || null);
+      if (availability.supported) {
         const platformAuth = await isPlatformAuthenticatorAvailable();
         setHasPlatformAuth(platformAuth);
       } else {
@@ -30,12 +30,12 @@ export const BiometricLoginButton: React.FC<BiometricLoginButtonProps> = ({
     checkAvailability();
   }, []);
 
-  if (isSupported === false) {
+  if (unavailableReason) {
     return (
       <div className="p-3.5 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2.5">
         <AlertCircle className="w-4 h-4 text-slate-400 shrink-0" />
         <span>
-          La connexion biométrique (Passkeys) n'est pas prise en charge par ce navigateur. Utilisez votre mot de passe ci-dessous.
+          {unavailableReason} Utilisez votre mot de passe ci-dessous.
         </span>
       </div>
     );

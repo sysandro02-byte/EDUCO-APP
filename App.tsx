@@ -84,7 +84,7 @@ import { compressBase64Image } from './utils/imageCompressor';
 import { getSupabaseClient, getStoredSupabaseConfig } from './src/lib/supabase';
 import { purgeSupabaseDirectly, purgeSchoolSupabaseDirectly, deleteUserFromSupabaseDirectly, saveActivityLogToSupabaseDirectly, fetchActivityLogsFromSupabaseDirectly } from './src/lib/supabaseSeeder';
 import { getApiUrl } from './src/lib/apiConfig';
-import { getCurrentUser, findUserByEmail, getSchoolSettings, saveUserToDb, deleteUserFromDb, deleteSchoolFromDb, saveActivityLogToDb, fetchActivityLogsFromDb, checkDbConnection, syncInitialData, fetchCurrentSubscription, SchoolSubscriptionInfo, fetchAdminExportData, fetchAdminRegisteredSchools, saveTransactionToDb, savePaymentToDb, updateTransactionStatusInDb, savePersonnelToDb, saveClassToDb, saveFeeToDb, saveGradeToDb, sendMessageToDb, checkInterSchoolStudentDebt, fetchNotificationsFromDb, markNotificationAsReadInDb, markAllNotificationsAsReadInDb, deleteNotificationFromDb, clearNotificationsInDb } from './src/services/api';
+import { getCurrentUser, findUserByEmail, getSchoolSettings, saveUserToDb, deleteUserFromDb, deleteSchoolFromDb, saveActivityLogToDb, fetchActivityLogsFromDb, checkDbConnection, syncInitialData, fetchCurrentSubscription, SchoolSubscriptionInfo, fetchAdminExportData, fetchAdminRegisteredSchools, saveTransactionToDb, savePaymentToDb, updateTransactionStatusInDb, savePersonnelToDb, saveClassToDb, saveFeeToDb, saveGradeToDb, sendMessageToDb, checkInterSchoolStudentDebt, fetchNotificationsFromDb, dispatchNotificationToRoles, markNotificationAsReadInDb, markAllNotificationsAsReadInDb, deleteNotificationFromDb, clearNotificationsInDb } from './src/services/api';
 import { DbStatus } from './src/services/api';
 import { Database, CheckCircle2, User as UserIcon, Camera, Settings, LogOut, Shield, ChevronDown, Lock, Zap, Sparkles, Key, ShieldCheck, X, AlertCircle, AlertTriangle } from 'lucide-react';
 import LockedFeatureGuard from './components/LockedFeatureGuard';
@@ -944,7 +944,8 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Central real-time database synchronization for every authenticated account with stable equality checks to eliminate flickering
+  // Refresh business data without replacing a populated screen with an empty
+  // partial response. Notifications have their own per-user endpoint below.
   useEffect(() => {
     const areRecordsEqual = (a: any[], b: any[]) => {
       if (a === b) return true;
@@ -954,7 +955,13 @@ const App: React.FC = () => {
 
     const replaceIfArray = <T,>(setter: React.Dispatch<React.SetStateAction<T[]>>, value: unknown) => {
       if (!Array.isArray(value)) return;
-      setter(prev => areRecordsEqual(prev, value) ? prev : value as T[]);
+      setter(prev => {
+        // An empty remote collection during a transient auth/database response
+        // must never erase records already visible to the user. Local deletes
+        // update the state optimistically, so this does not block normal use.
+        if (prev.length > 0 && value.length === 0) return prev;
+        return areRecordsEqual(prev, value) ? prev : value as T[];
+      });
     };
 
     const syncCentralAdminData = async () => {
@@ -972,7 +979,8 @@ const App: React.FC = () => {
           replaceIfArray<Fee>(setFees, exportRes.fees);
           replaceIfArray<Grade>(setGrades, exportRes.grades);
           replaceIfArray<any>(setAttendance, exportRes.attendance);
-          replaceIfArray<any>(setNotifications, exportRes.notifications);
+          // Do not use the consolidated export for notifications: it contains
+          // school/global records and can expose another account's messages.
         }
       } catch (e) {
         console.warn('Central account sync warning:', e);
@@ -980,7 +988,7 @@ const App: React.FC = () => {
     };
 
     syncCentralAdminData();
-    const syncInterval = setInterval(syncCentralAdminData, 15000); // 15s stable poll
+    const syncInterval = setInterval(syncCentralAdminData, 60000);
     const onFocus = () => syncCentralAdminData();
     window.addEventListener('focus', onFocus);
     return () => {
@@ -1081,19 +1089,40 @@ const App: React.FC = () => {
     reportCardComments, financialEvents, loading
   ]);
 
-  // FIX: Moved addNotification before its usage in useEffect and wrapped in useCallback to fix hoisting issue.
+  // School operations never target the platform administrators. A notification
+  // is persisted once per recipient, rather than living in a shared browser
+  // array that could be shown to another role after a refresh.
   const addNotification = useCallback((message: string, type: string, roles: string[], link?: string) => {
+    const requestedRoles = [...new Set((roles || []).filter(Boolean))];
+    const platformRoles = new Set(['Admin', 'Co-admin']);
+    const schoolRoles = requestedRoles.filter(role => !platformRoles.has(role));
+    const recipientRoles = schoolRoles.length > 0 ? schoolRoles : requestedRoles;
+
+    if (recipientRoles.length === 0) return;
+
     const newNotification = {
       id: `notif_${Date.now()}_${Math.random()}`,
+      title: type || 'Notification',
       message,
       type,
-      roles,
+      roles: recipientRoles,
       timestamp: new Date().toISOString(),
       read: false,
       link,
     };
-    setNotifications(prev => [newNotification, ...prev]);
-  }, []);
+
+    if (loggedInRole && recipientRoles.includes(loggedInRole)) {
+      setNotifications(prev => [newNotification, ...prev]);
+    }
+
+    void dispatchNotificationToRoles({
+      title: newNotification.title,
+      message,
+      type,
+      roles: recipientRoles,
+      link,
+    });
+  }, [loggedInRole]);
 
   const addActivityLog = useCallback(async (action: string, details?: string, currentPageName?: string) => {
     if (!loggedInRole) return;

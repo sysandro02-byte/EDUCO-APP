@@ -11,6 +11,32 @@ export interface WebAuthnDevice {
   lastUsedAt?: string;
 }
 
+export interface WebAuthnAvailability {
+  supported: boolean;
+  reason?: string;
+}
+
+/**
+ * WebAuthn is a powerful browser feature and is deliberately unavailable on
+ * regular HTTP origins. `PublicKeyCredential` can still exist in that case,
+ * so checking its presence alone makes the login button look available and
+ * only fails after the user has clicked it.
+ */
+export function getWebAuthnAvailability(): WebAuthnAvailability {
+  if (typeof window === 'undefined' || !window.PublicKeyCredential || typeof window.PublicKeyCredential !== 'function') {
+    return { supported: false, reason: 'Votre navigateur ne prend pas en charge la connexion biométrique (WebAuthn).' };
+  }
+
+  if (!window.isSecureContext) {
+    return {
+      supported: false,
+      reason: 'La biométrie doit être ouverte depuis une adresse HTTPS. En développement, utilisez http://localhost plutôt qu’une adresse IP locale.'
+    };
+  }
+
+  return { supported: true };
+}
+
 /**
  * Reads an API response defensively. When the frontend is served without the
  * API route (for example by a standalone Vite server), it returns index.html.
@@ -42,9 +68,7 @@ export async function readApiJson(response: Response): Promise<any> {
  * Detects if the current environment supports WebAuthn / Passkeys
  */
 export function isWebAuthnSupported(): boolean {
-  return typeof window !== 'undefined' &&
-    !!window.PublicKeyCredential &&
-    typeof window.PublicKeyCredential === 'function';
+  return getWebAuthnAvailability().supported;
 }
 
 /**
@@ -115,7 +139,7 @@ export function mapWebAuthnError(err: any): string {
     return 'Votre navigateur ou cet appareil ne prend pas en charge la biométrie (Passkeys).';
   }
   if (name === 'SecurityError' || message.includes('SecurityError')) {
-    return 'L\'authentification biométrique requiert une connexion sécurisée (HTTPS ou localhost).';
+    return 'La biométrie doit être ouverte depuis une adresse HTTPS. En développement, utilisez http://localhost plutôt qu’une adresse IP locale.';
   }
   if (message.includes('No biometric credential') || message.includes('Aucune clé')) {
     return 'Aucune clé biométrique enregistrée ne correspond à cet appareil pour ce compte.';
@@ -134,8 +158,9 @@ export async function registerWebAuthnCredential(
   customDeviceName?: string
 ): Promise<{ success: boolean; message: string; error?: string }> {
   try {
-    if (!isWebAuthnSupported()) {
-      return { success: false, message: '', error: 'Votre navigateur ne prend pas en charge la connexion biométrique (WebAuthn).' };
+    const availability = getWebAuthnAvailability();
+    if (!availability.supported) {
+      return { success: false, message: '', error: availability.reason };
     }
 
     const deviceName = customDeviceName || detectDeviceName();
@@ -193,8 +218,9 @@ export async function loginWithWebAuthn(
   email?: string
 ): Promise<{ success: boolean; userEmail?: string; userId?: string; message?: string; error?: string }> {
   try {
-    if (!isWebAuthnSupported()) {
-      return { success: false, error: 'La connexion biométrique n\'est pas disponible sur ce navigateur.' };
+    const availability = getWebAuthnAvailability();
+    if (!availability.supported) {
+      return { success: false, error: availability.reason };
     }
 
     // 1. Fetch authentication options from server

@@ -85,7 +85,7 @@ export const AdminBroadcastMessagingPage: React.FC<AdminBroadcastMessagingPagePr
       
       // 2. Filter by targeted role
       if (targetAudience === 'promoters') {
-        return u.role === 'Promoteur' || u.role === 'Admin' || u.role === 'Co-admin';
+        return u.role === 'Promoteur';
       }
       if (targetAudience === 'directors') {
         return ['Directeur Général', 'Directeur', 'Directeur des Etudes', 'DE'].includes(u.role);
@@ -94,8 +94,8 @@ export const AdminBroadcastMessagingPage: React.FC<AdminBroadcastMessagingPagePr
         return ['Responsable des finances', 'RAF'].includes(u.role);
       }
       
-      // 'all_schools' includes everyone
-      return true;
+      // The platform team is not an establishment audience.
+      return !['Admin', 'Co-admin'].includes(u.role);
     });
   }, [usersList, targetAudience, selectedSchoolId]);
 

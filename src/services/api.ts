@@ -318,6 +318,28 @@ export async function fetchNotificationsFromDb() {
   }
 }
 
+/** Sends one in-app notification to each eligible account in the current school. */
+export async function dispatchNotificationToRoles(payload: {
+  title?: string;
+  message: string;
+  type: string;
+  roles: string[];
+  link?: string;
+}) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl('/api/notifications/dispatch'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    return await safeJson(res, { success: false, sent: 0 });
+  } catch (error: any) {
+    console.warn('Error dispatching notifications:', error?.message || error);
+    return { success: false, sent: 0, error: error?.message || 'Erreur d’envoi de notification' };
+  }
+}
+
 export async function markNotificationAsReadInDb(id: string | number) {
   try {
     const headers = await getAuthHeaders();
