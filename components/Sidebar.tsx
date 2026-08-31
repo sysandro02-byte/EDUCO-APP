@@ -16,26 +16,32 @@ const NavItem: React.FC<{
   onClick: () => void;
   isLogout?: boolean;
 }> = ({ icon, label, active, onClick, isLogout }) => {
+  const itemClassName = `group flex w-full items-center justify-between px-3.5 py-3 lg:py-2.5 my-1 rounded-xl cursor-pointer transition-all duration-200 relative text-xs sm:text-xs tracking-tight font-bold touch-target text-left ${
+    isLogout
+      ? 'text-rose-300 hover:bg-rose-500/20 hover:text-white mt-4 border border-rose-500/20'
+      : active
+      ? 'bg-white/15 text-white font-extrabold shadow-sm border-l-4 border-emerald-400 pl-3'
+      : 'text-slate-300/80 hover:bg-white/10 hover:text-white active:bg-white/15'
+  }`;
+
   return (
-    <li
-      className={`group flex items-center justify-between px-3.5 py-3 lg:py-2.5 my-1 rounded-xl cursor-pointer transition-all duration-200 relative text-xs sm:text-xs tracking-tight font-bold touch-target ${
-        isLogout
-          ? 'text-rose-300 hover:bg-rose-500/20 hover:text-white mt-4 border border-rose-500/20'
-          : active
-          ? 'bg-white/15 text-white font-extrabold shadow-sm border-l-4 border-emerald-400 pl-3'
-          : 'text-slate-300/80 hover:bg-white/10 hover:text-white active:bg-white/15'
-      }`}
-      onClick={onClick}
-    >
-      <div className="flex items-center gap-3 min-w-0">
-        <span className={`transition-transform duration-200 shrink-0 ${active ? 'text-emerald-400 scale-105' : 'text-slate-300 group-hover:text-white group-hover:scale-105'}`}>
-          {icon}
+    <li>
+      <button
+        type="button"
+        className={itemClassName}
+        onClick={onClick}
+        aria-current={active ? 'page' : undefined}
+      >
+        <span className="flex items-center gap-3 min-w-0">
+          <span className={`transition-transform duration-200 shrink-0 ${active ? 'text-emerald-400 scale-105' : 'text-slate-300 group-hover:text-white group-hover:scale-105'}`}>
+            {icon}
+          </span>
+          <span className="truncate">{label}</span>
         </span>
-        <span className="truncate">{label}</span>
-      </div>
-      {active && (
-        <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 shadow-xs shadow-emerald-400"></span>
-      )}
+        {active && (
+          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 shadow-xs shadow-emerald-400"></span>
+        )}
+      </button>
     </li>
   );
 };
