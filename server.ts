@@ -999,13 +999,47 @@ async function startServer() {
       } = req.body;
       const firebaseUser = req.user;
 
-      // Generate a unique institutional identifier (e.g., EDUCO-SCH-8492)
-      const randomSuffix = Math.floor(1000 + Math.random() * 9000).toString();
-      const schoolIdentifier = `EDUCO-SCH-${randomSuffix}`;
       const resolvedEmail = promoterEmail || firebaseUser?.email || `promoter@example.com`;
       const rawAdminPassword = adminPassword || password;
       const supabaseAdmin = getSupabaseAdmin(req);
       let resolvedUid = uid || firebaseUser?.uid || null;
+
+      // A registration retry must reuse the existing dossier instead of creating
+      // a second school with a new identifier.  Previously a retry could leave
+      // two rows for the same promoter, while the account pointed at only one
+      // of them; this is why the identifier shown in the subscription modal
+      // could differ from the identifier shown in the admin directory.
+      if (supabaseAdmin && resolvedEmail && resolvedEmail !== 'promoter@example.com') {
+        const normalizedEmail = resolvedEmail.trim().toLowerCase();
+        const normalizedSchoolName = String(schoolName || '').trim().toLocaleLowerCase();
+        const [{ data: account }, { data: schoolsByEmail }, { data: schoolsByPromoterEmail }] = await Promise.all([
+          supabaseAdmin.from('users').select('school_id').eq('email', normalizedEmail).limit(1).maybeSingle(),
+          supabaseAdmin.from('schools').select('id, name, identifier').eq('email', normalizedEmail),
+          supabaseAdmin.from('schools').select('id, name, identifier').eq('promoter_email', normalizedEmail),
+        ]);
+        const existingSchools = [...(schoolsByEmail || []), ...(schoolsByPromoterEmail || [])];
+        const matchingSchool = existingSchools.find((school: any) =>
+          String(school.name || '').trim().toLocaleLowerCase() === normalizedSchoolName
+        );
+
+        if (matchingSchool) {
+          return res.status(409).json({
+            error: 'Un dossier existe déjà pour cet établissement et cette adresse e-mail.',
+            schoolId: matchingSchool.id,
+            schoolIdentifier: matchingSchool.identifier,
+          });
+        }
+        if (account?.school_id) {
+          return res.status(409).json({
+            error: 'Cette adresse e-mail est déjà rattachée à un établissement. Utilisez le compte existant ou contactez l’administration EDUCO.',
+            schoolId: account.school_id,
+          });
+        }
+      }
+
+      // Generate a unique institutional identifier (e.g., EDUCO-SCH-8492)
+      const randomSuffix = Math.floor(1000 + Math.random() * 9000).toString();
+      const schoolIdentifier = `EDUCO-SCH-${randomSuffix}`;
 
       ensureSchemaColumns().catch(err => {
         console.warn('School registration schema sync notice:', err?.message || err);
