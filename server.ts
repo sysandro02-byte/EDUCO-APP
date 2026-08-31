@@ -2809,8 +2809,10 @@ async function startServer() {
       const title = String(req.body.title || req.body.type || 'Notification').trim();
       const type = String(req.body.type || 'Information').trim();
       const link = String(req.body.link || '').trim() || null;
-      const requestedRoles = Array.isArray(req.body.roles)
-        ? [...new Set(req.body.roles.map((role: unknown) => String(role || '').trim()).filter(Boolean))]
+      const requestedRoles: string[] = Array.isArray(req.body.roles)
+        ? Array.from(new Set<string>((req.body.roles as unknown[])
+          .map((role) => String(role || '').trim())
+          .filter(Boolean)))
         : [];
       if (!message || requestedRoles.length === 0) {
         return res.status(400).json({ success: false, error: 'Le message et les destinataires sont obligatoires.' });
@@ -3078,7 +3080,11 @@ async function startServer() {
   // Get Current School Subscription Status
   app.get('/api/subscriptions/current', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      // requireAuth has already resolved the profile using the active Supabase
+      // connection supplied by the client. Re-querying it here could use a
+      // different server configuration and lose schoolId, which made the UI
+      // show "Non renseigné" for a valid school account.
+      const dbUser = req.user?.schoolId ? req.user : await getUserByUid(req.user!.uid);
       if (!dbUser?.schoolId) {
         return res.json({
           isActive: false,
@@ -3181,7 +3187,7 @@ async function startServer() {
       }
 
       const cleanCode = code.trim().toUpperCase();
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = req.user?.schoolId ? req.user : await getUserByUid(req.user!.uid);
       if (!dbUser?.schoolId) {
         return res.status(403).json({ error: 'Aucun établissement associé à votre compte.' });
       }
@@ -3308,7 +3314,7 @@ async function startServer() {
   app.post('/api/subscriptions/request-renewal', requireAuth, async (req: AuthRequest, res) => {
     try {
       const { requestedPlan, requestedMonths, notes } = req.body;
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = req.user?.schoolId ? req.user : await getUserByUid(req.user!.uid);
       if (!dbUser?.schoolId) {
         return res.status(403).json({ error: 'Aucun établissement associé.' });
       }
