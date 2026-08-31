@@ -11,6 +11,7 @@ import { brevoEmailService } from '../src/services/brevoEmailService';
 import { compressBase64Image } from '../utils/imageCompressor';
 import UserAvatar from './UserAvatar';
 import { BiometricDevicesSettingsCard } from './auth/BiometricDevicesSettingsCard';
+import { getApiUrl } from '../src/lib/apiConfig';
 
 type SchoolSettings = typeof initialSchoolSettings;
 type MessageTemplate = typeof initialMessageTemplates[0];
@@ -2012,6 +2013,102 @@ const MyProfileCard: React.FC<{
     );
 };
 
+const PasswordChangeCard: React.FC<{ email: string }> = ({ email }) => {
+    const [step, setStep] = useState<'request' | 'confirm'>('request');
+    const [challenge, setChallenge] = useState('');
+    const [otpCode, setOtpCode] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmation, setConfirmation] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [feedback, setFeedback] = useState<{ text: string; error: boolean } | null>(null);
+
+    const requestCode = async () => {
+        setBusy(true);
+        setFeedback(null);
+        try {
+            const response = await fetch(getApiUrl('/api/email/send-reset-password'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.success) throw new Error(data.error || "Impossible d'envoyer le code OTP.");
+            setChallenge(data.resetChallenge || '');
+            setStep('confirm');
+            setFeedback({ text: 'Un code OTP a été envoyé à votre adresse e-mail.', error: false });
+        } catch (error: any) {
+            setFeedback({ text: error?.message || "Impossible d'envoyer le code OTP.", error: true });
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const changePassword = async (event: React.FormEvent) => {
+        event.preventDefault();
+        setFeedback(null);
+        if (otpCode.length !== 6) {
+            setFeedback({ text: 'Saisissez le code OTP à 6 chiffres reçu par e-mail.', error: true });
+            return;
+        }
+        if (newPassword.length < 6) {
+            setFeedback({ text: 'Le nouveau mot de passe doit comporter au moins 6 caractères.', error: true });
+            return;
+        }
+        if (newPassword !== confirmation) {
+            setFeedback({ text: 'Les deux mots de passe ne correspondent pas.', error: true });
+            return;
+        }
+        setBusy(true);
+        try {
+            const response = await fetch(getApiUrl('/api/email/confirm-reset-password'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, otpCode, newPassword, resetChallenge: challenge }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.success) throw new Error(data.error || 'Impossible de modifier le mot de passe.');
+            setOtpCode('');
+            setNewPassword('');
+            setConfirmation('');
+            setChallenge('');
+            setStep('request');
+            setFeedback({ text: 'Mot de passe modifié avec succès.', error: false });
+        } catch (error: any) {
+            setFeedback({ text: error?.message || 'Impossible de modifier le mot de passe.', error: true });
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <section className="mb-6 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xs">
+            <div className="flex items-start gap-3 mb-4">
+                <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center shrink-0"><Lock className="w-4 h-4" /></div>
+                <div>
+                    <h3 className="text-sm font-black text-slate-900 dark:text-white">Sécurité du compte</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Modifiez votre mot de passe après confirmation par code OTP envoyé à votre e-mail.</p>
+                </div>
+            </div>
+            {feedback && <div className={`mb-4 p-3 rounded-xl text-xs font-semibold border ${feedback.error ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>{feedback.text}</div>}
+            {step === 'request' ? (
+                <button type="button" onClick={requestCode} disabled={busy} className="btn-primary disabled:opacity-50">
+                    {busy ? 'Envoi en cours...' : 'Recevoir un code OTP'}
+                </button>
+            ) : (
+                <form onSubmit={changePassword} className="space-y-3">
+                    <input value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" placeholder="Code OTP à 6 chiffres" className="input-style font-mono tracking-widest" required />
+                    <input value={newPassword} onChange={(e) => setNewPassword(e.target.value)} type="password" autoComplete="new-password" placeholder="Nouveau mot de passe" className="input-style" required minLength={6} />
+                    <input value={confirmation} onChange={(e) => setConfirmation(e.target.value)} type="password" autoComplete="new-password" placeholder="Confirmer le nouveau mot de passe" className="input-style" required minLength={6} />
+                    <div className="flex gap-3">
+                        <button type="submit" disabled={busy} className="btn-primary disabled:opacity-50">{busy ? 'Validation...' : 'Modifier le mot de passe'}</button>
+                        <button type="button" onClick={() => { setStep('request'); setFeedback(null); }} className="btn-secondary">Annuler</button>
+                    </div>
+                </form>
+            )}
+        </section>
+    );
+};
+
 const InactivityTimeoutCard: React.FC<{
   inactivityTimeoutMinutes?: number;
   onUpdateInactivityTimeout?: (minutes: number) => void;
@@ -2344,6 +2441,7 @@ const SettingsPage: React.FC<SettingsPageProps> = (props) => {
                     />
                 </div>
             )}
+            {props.currentUser?.email && <PasswordChangeCard email={props.currentUser.email} />}
             <AppInstallationAndUpdatesCard />
             {content}
             
