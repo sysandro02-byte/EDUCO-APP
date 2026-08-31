@@ -35,7 +35,7 @@ import * as schema from './src/db/schema.ts';
 import { eq, desc, and, asc } from 'drizzle-orm';
 import { GoogleGenAI } from '@google/genai';
 import Groq from 'groq-sdk';
-import { requireAuth, AuthRequest } from './src/middleware/auth.ts';
+import { requireAuth, AuthRequest, createLocalSessionToken } from './src/middleware/auth.ts';
 import { getOrCreateUser, getUserByUid } from './src/db/users.ts';
 import { createClient } from '@supabase/supabase-js';
 
@@ -5077,7 +5077,7 @@ async function startServer() {
           success: true,
           message: 'Authentification biométrique validée.',
           user: authUser,
-          token: authUser.uid || authUser.email,
+          token: createLocalSessionToken(authUser) || authUser.uid || authUser.email,
         });
       }
 
@@ -5108,7 +5108,7 @@ async function startServer() {
             success: true,
             message: 'Connexion réussie.',
             user: authUser,
-            token: authUser.uid || authUser.email,
+            token: createLocalSessionToken(authUser) || authUser.uid || authUser.email,
           });
         }
       }
@@ -5201,7 +5201,7 @@ async function startServer() {
           success: true,
           message: 'Connexion réussie.',
           user: dbUser,
-          token: loginToken,
+          token: createLocalSessionToken(dbUser) || loginToken,
         });
       }
 

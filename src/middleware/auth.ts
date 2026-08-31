@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { db, isDbConfigured } from '../db/index.ts';
 import { users } from '../db/schema.ts';
 import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
 
 export interface AuthRequest extends Request {
   user?: any;
@@ -13,6 +14,47 @@ const decodeJwtPayload = (token?: string | null): any | null => {
     let payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
     while (payload.length % 4) payload += '=';
     return JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
+  } catch {
+    return null;
+  }
+};
+
+const getSessionSecret = () => (
+  process.env.AUTH_SESSION_SECRET
+  || process.env.OTP_SIGNING_SECRET
+  || process.env.SUPABASE_SERVICE_ROLE_KEY
+  || process.env.SUPABASE_KEY
+  || process.env.DATABASE_URL
+  || null
+);
+
+export const createLocalSessionToken = (user: any): string | null => {
+  const secret = getSessionSecret();
+  if (!secret || !user?.email) return null;
+  const payload = Buffer.from(JSON.stringify({
+    typ: 'educo-session',
+    uid: user.uid || user.id,
+    email: String(user.email).toLowerCase(),
+    role: user.role,
+    schoolId: user.schoolId ?? user.school_id ?? null,
+    exp: Date.now() + 8 * 60 * 60 * 1000,
+  })).toString('base64url');
+  const signature = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
+  return `${payload}.${signature}`;
+};
+
+const verifyLocalSessionToken = (token: string): any | null => {
+  const secret = getSessionSecret();
+  if (!secret || !token.includes('.')) return null;
+  const [payload, signature] = token.split('.');
+  if (!payload || !signature) return null;
+  const expected = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
+  const givenBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (givenBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(givenBuffer, expectedBuffer)) return null;
+  try {
+    const session = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    return session.typ === 'educo-session' && Number(session.exp) > Date.now() ? session : null;
   } catch {
     return null;
   }
@@ -66,13 +108,13 @@ export const requireAuth = async (
 
   try {
     let jwtPayload = decodeJwtPayload(token);
-    let matched: any = null;
+    let matched: any = verifyLocalSessionToken(token);
 
     // Keep the verifier aligned with the API client. In particular, this lets
     // a configured frontend validate its real Supabase session even when a
     // Render environment variable has not yet been populated.
     const supabase = getSupabaseAuthClient(req);
-    if (supabase && jwtPayload) {
+    if (!matched && supabase && jwtPayload) {
       const { data: verified, error: verificationError } = await supabase.auth.getUser(token);
       if (verificationError || !verified.user) {
         return res.status(401).json({ error: 'Accès non autorisé : session invalide ou expirée.' });
@@ -84,8 +126,8 @@ export const requireAuth = async (
         user_metadata: verified.user.user_metadata,
       };
     }
-    const lookupEmail = jwtPayload?.email || (!supabase && token.includes('@') ? token : '');
-    if (supabase && lookupEmail) {
+    const lookupEmail = matched?.email || jwtPayload?.email || token.includes('@') ? (matched?.email || jwtPayload?.email || token) : '';
+    if (!matched && supabase && lookupEmail) {
       const { data: sbUser } = await supabase
         .from('users')
         .select('*')
