@@ -387,9 +387,17 @@ const App: React.FC = () => {
 
       // 1. Try unified Backend Login API (/api/auth/login)
       try {
+        const supabaseConfig = getStoredSupabaseConfig();
+        const loginHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (supabaseConfig.url && !supabaseConfig.url.includes('your-project.supabase.co')) {
+          loginHeaders['x-supabase-url'] = supabaseConfig.url;
+        }
+        if (supabaseConfig.key && !supabaseConfig.key.includes('placeholder')) {
+          loginHeaders['x-supabase-key'] = supabaseConfig.key;
+        }
         const loginRes = await fetch(getApiUrl('/api/auth/login'), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: loginHeaders,
           body: JSON.stringify({
             email: trimmedEmail,
             password: password,

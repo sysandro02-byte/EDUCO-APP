@@ -18,9 +18,15 @@ const decodeJwtPayload = (token?: string | null): any | null => {
   }
 };
 
-const getSupabaseAuthClient = () => {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-  let url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const getSupabaseAuthClient = (req?: Request) => {
+  const requestKey = typeof req?.headers['x-supabase-key'] === 'string'
+    ? req.headers['x-supabase-key']
+    : undefined;
+  const requestUrl = typeof req?.headers['x-supabase-url'] === 'string'
+    ? req.headers['x-supabase-url']
+    : undefined;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || requestKey;
+  let url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || requestUrl;
   if (!url && key) {
     const ref = decodeJwtPayload(key)?.ref;
     if (ref) url = `https://${ref}.supabase.co`;
@@ -62,7 +68,10 @@ export const requireAuth = async (
     let jwtPayload = decodeJwtPayload(token);
     let matched: any = null;
 
-    const supabase = getSupabaseAuthClient();
+    // Keep the verifier aligned with the API client. In particular, this lets
+    // a configured frontend validate its real Supabase session even when a
+    // Render environment variable has not yet been populated.
+    const supabase = getSupabaseAuthClient(req);
     if (supabase && jwtPayload) {
       const { data: verified, error: verificationError } = await supabase.auth.getUser(token);
       if (verificationError || !verified.user) {
