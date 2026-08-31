@@ -1,4 +1,7 @@
 import { getSupabaseAdminClient, getSupabaseUserByUid, mapSupabaseUser } from './supabaseOnly.ts';
+import { db, isDbConfigured } from './index.ts';
+import { users } from './schema.ts';
+import { eq } from 'drizzle-orm';
 
 export async function getOrCreateUser(uid: string, email: string, name: string, role: string, schoolId?: number) {
   const supabase = getSupabaseAdminClient();
@@ -35,5 +38,9 @@ export async function getOrCreateUser(uid: string, email: string, name: string, 
 export async function getUserByUid(uid: string) {
   const supabaseUser = await getSupabaseUserByUid(uid);
   if (supabaseUser) return supabaseUser;
+  if (isDbConfigured()) {
+    const [databaseUser] = await db.select().from(users).where(eq(users.uid, uid)).limit(1).catch(() => []);
+    if (databaseUser) return databaseUser;
+  }
   return null;
 }
