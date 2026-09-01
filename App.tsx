@@ -3162,7 +3162,16 @@ const App: React.FC = () => {
       if (loggedInRole === 'Admin') {
         return <AdminSubscriptionHub />;
       }
-      return renderLockedGuard('Gestion & Activation de la Licence');
+      return (
+        <SubscriptionModal
+          isOpen={true}
+          onClose={() => setActivePage('Tableau de bord')}
+          subscriptionInfo={subscriptionInfo}
+          isLoading={isSubscriptionLoading}
+          onSubscriptionUpdated={loadSubscription}
+          userRole={loggedInRole || undefined}
+        />
+      );
     }
 
     // Subscription Gating for Restricted Pages
@@ -3364,6 +3373,7 @@ const App: React.FC = () => {
         );
       case 'Inscriptions & Élèves':
       case 'Utilisateurs':
+      case 'Utilisateurs & Comptes':
         return <UserManagementPage 
                   users={users} 
                   onSaveUser={handleSaveUser} 
@@ -3424,6 +3434,7 @@ const App: React.FC = () => {
                   addNotification={addNotification}
                 />;
       case 'Opérations à valider':
+      case 'Validation Opérations':
         return <OperationsValidationPage transactions={transactions} onUpdateStatus={handleUpdateTransactionStatus} currentUserRole={loggedInRole} schoolSettings={schoolSettings} />;
       case 'Transactions':
       case 'Comptabilité':
@@ -3445,6 +3456,7 @@ const App: React.FC = () => {
                   currentUserRole={loggedInRole}
                 />;
       case 'Présences':
+      case 'Mes Classes':
         return <TeacherClassesPage
                   classes={classes}
                   students={users.filter(u => u.role === 'Élève')}
@@ -3453,6 +3465,7 @@ const App: React.FC = () => {
                 />;
       case 'Notes':
       case 'Gestion des Notes':
+      case 'Saisie des Notes':
         return <GradesManagementPage
                   currentUserRole={loggedInRole}
                   currentUserId={currentUserId}

@@ -123,7 +123,7 @@ const offlineFixture = {
 async function installE2EState(page: Page) {
   await page.addInitScript(({ fixture, user }) => {
     sessionStorage.setItem('otpVerified', 'true');
-    localStorage.setItem('EDUCO_SESSION_ACTIVE', 'true');
+    sessionStorage.setItem('EDUCO_SESSION_ACTIVE', 'true');
     localStorage.setItem('EDUCO_CURRENT_USER', JSON.stringify(user));
     localStorage.setItem('EDUCO_USER_TOKEN', user.uid);
     localStorage.setItem('educo_offline_app_data_v1', JSON.stringify(fixture));
@@ -157,6 +157,13 @@ async function installE2EState(page: Page) {
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({ connected: true, message: 'Base de données Supabase connectée' }),
+    });
+  });
+
+  await page.route('**/api/db/init-seed', async route => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, message: 'Seed ignored for isolated E2E fixture.' }),
     });
   });
 
@@ -205,7 +212,14 @@ test('imprime un reçu et un bulletin depuis les vrais écrans EDUCO', async ({ 
   await installE2EState(page);
   await page.goto('/');
 
-  await expect(page.getByRole('heading', { name: /tableau de bord/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Tableau de bord', exact: true })).toBeVisible();
+
+  await page.getByText('Abonnement & Licence', { exact: true }).first().click();
+  await expect(page.getByRole('heading', { name: /gestion de l'abonnement & licence/i })).toBeVisible();
+  await expect(page.getByText('EDUCO-SCH-E2E')).toBeVisible();
+  await expect(page.getByRole('button', { name: /demander un renouvellement/i })).toBeEnabled();
+  await page.getByRole('button', { name: /^fermer$/i }).click();
+  await expect(page.getByRole('heading', { name: 'Tableau de bord', exact: true })).toBeVisible();
 
   await page.getByText('Paiements', { exact: true }).first().click();
   await expect(page.getByRole('heading', { name: /gestion des paiements/i })).toBeVisible();
