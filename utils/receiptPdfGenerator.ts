@@ -14,177 +14,142 @@ export const generateReceiptPdf = (
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
-    format: 'a4',
+    format: [80, 210],
   });
 
-  const currency = schoolSettings?.currency || '€';
+  const currency = schoolSettings?.currency || 'FCFA';
   const now = new Date(transaction.date || Date.now());
   const receiptId = transaction.id ? transaction.id.split('_')[0] : `REC-${Date.now().toString().slice(-6)}`;
-  const totalAmount = transaction.amount || 0;
-  const description = (transaction.description || 'Paiement Frais de scolarité').replace('Frais de scolarité - ', '');
-  const receiptSummary = (transaction as any)?.receiptSummary || null;
-
-  const drawReceiptSection = (startY: number, copyTitle: string) => {
-    const pageWidth = 210;
-    const margin = 18;
-    const contentWidth = pageWidth - margin * 2;
-
-    // Header bar
-    doc.setFillColor(31, 74, 89); // #1F4A59
-    doc.roundedRect(margin, startY, contentWidth, 7.5, 1.5, 1.5, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(255, 255, 255);
-    doc.text(copyTitle, pageWidth / 2, startY + 5.2, { align: 'center' });
-
-    // School Name & Contact
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(13);
-    doc.setTextColor(31, 74, 89);
-    doc.text(schoolSettings?.name || 'ÉTABLISSEMENT SCOLAIRE', pageWidth / 2, startY + 15, { align: 'center' });
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(90, 90, 90);
-    doc.text(schoolSettings?.address || 'Adresse de l\'établissement', pageWidth / 2, startY + 19.5, { align: 'center' });
-    doc.text(`TÉL : ${schoolSettings?.contact || 'N/A'}`, pageWidth / 2, startY + 23.5, { align: 'center' });
-
-    // Dashed divider
-    doc.setDrawColor(190, 190, 190);
-    doc.setLineDashPattern([2, 2], 0);
-    doc.line(margin, startY + 26.5, margin + contentWidth, startY + 26.5);
-    doc.setLineDashPattern([], 0);
-
-    // Meta box
-    const metaY = startY + 32;
-    doc.setFontSize(8.5);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(50, 50, 50);
-    doc.text('REÇU N° :', margin + 4, metaY);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(20, 20, 20);
-    doc.text(receiptId, margin + 22, metaY);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(50, 50, 50);
-    doc.text('Date & Heure :', margin + 60, metaY);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(20, 20, 20);
-    doc.text(`${now.toLocaleDateString('fr-FR')} ${now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`, margin + 83, metaY);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(50, 50, 50);
-    doc.text('Mode :', margin + 128, metaY);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(20, 20, 20);
-    doc.text(transaction.paymentMethod || 'Espèces / Caisse', margin + 141, metaY);
-
-    // Table Header
-    const tableY = startY + 39;
-    doc.setFillColor(243, 246, 248);
-    doc.rect(margin, tableY, contentWidth, 7, 'F');
-    doc.setDrawColor(210, 220, 225);
-    doc.setLineWidth(0.2);
-    doc.rect(margin, tableY, contentWidth, 7, 'D');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(31, 74, 89);
-    doc.text('DÉSIGNATION / DÉTAILS DU PAIEMENT', margin + 4, tableY + 4.8);
-    doc.text('MONTANT ENCAISSÉ', margin + contentWidth - 4, tableY + 4.8, { align: 'right' });
-
-    // Table Row
-    const rowY = tableY + 12;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(30, 30, 30);
-    doc.text(description, margin + 4, rowY);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${totalAmount.toLocaleString('fr-FR')} ${currency}`, margin + contentWidth - 4, rowY, { align: 'right' });
-
-    // Total Amount Box
-    const totalY = rowY + 6;
-    doc.setFillColor(232, 242, 246);
-    doc.rect(margin, totalY, contentWidth, 8.5, 'F');
-    doc.setDrawColor(31, 74, 89);
-    doc.setLineWidth(0.3);
-    doc.rect(margin, totalY, contentWidth, 8.5, 'D');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(31, 74, 89);
-    doc.text('MONTANT TOTAL PAYÉ', margin + 4, totalY + 5.8);
-    doc.setFontSize(10.5);
-    doc.text(`${totalAmount.toLocaleString('fr-FR')} ${currency}`, margin + contentWidth - 4, totalY + 5.8, { align: 'right' });
-
-    // Optional financial summary for parent copies and detailed receipts
-    let footerY = totalY + 14;
-    if (receiptSummary) {
-      const summaryY = totalY + 13;
-      const paidTotal = Number(receiptSummary.totalPaidByStudent ?? totalAmount);
-      const remaining = Number(receiptSummary.remainingBalance ?? receiptSummary.debt ?? 0);
-      const debt = Number(receiptSummary.debt ?? remaining);
-
-      doc.setFillColor(250, 252, 253);
-      doc.roundedRect(margin, summaryY, contentWidth, 17, 1.5, 1.5, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
-      doc.setTextColor(31, 74, 89);
-      doc.text(`Élève : ${receiptSummary.studentName || 'N/A'}`, margin + 4, summaryY + 5);
-      doc.text(`Classe : ${receiptSummary.studentClass || 'N/A'}`, margin + 88, summaryY + 5);
-      doc.setTextColor(40, 40, 40);
-      doc.text(`Montant encaissé : ${totalAmount.toLocaleString('fr-FR')} ${currency}`, margin + 4, summaryY + 11);
-      doc.text(`Total payé élève : ${paidTotal.toLocaleString('fr-FR')} ${currency}`, margin + 70, summaryY + 11);
-      doc.text(`Reste : ${remaining.toLocaleString('fr-FR')} ${currency}`, margin + 4, summaryY + 15);
-      doc.text(`Dette : ${debt.toLocaleString('fr-FR')} ${currency}`, margin + 70, summaryY + 15);
-      footerY = summaryY + 22;
-    }
-
-    // Footer & Signature
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(8);
-    doc.setTextColor(90, 90, 90);
-    doc.text('! Merci pour votre paiement ! Conservez ce reçu comme preuve de règlement.', pageWidth / 2, footerY, { align: 'center' });
-
-    // Signature stamp area
-    const sigY = footerY + 4;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(110, 110, 110);
-    doc.text('Cachet et Signature autorisée', margin + contentWidth - 28, sigY, { align: 'center' });
-
-    if (isSigned) {
-      doc.setDrawColor(37, 99, 235);
-      doc.setFillColor(239, 246, 255);
-      doc.roundedRect(margin + contentWidth - 52, sigY + 2, 50, 11, 1, 1, 'FD');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
-      doc.setTextColor(37, 99, 235);
-      doc.text('✓ SIGNÉ NUMÉRIQUEMENT', margin + contentWidth - 27, sigY + 6.5, { align: 'center' });
-      doc.setFontSize(6.5);
-      doc.setFont('helvetica', 'normal');
-      doc.text(new Date().toLocaleString('fr-FR'), margin + contentWidth - 27, sigY + 10.5, { align: 'center' });
-    }
+  const summary = (transaction as any)?.receiptSummary || {};
+  const totalAmount = Number(transaction.amount || 0);
+  const schoolName = schoolSettings?.name || 'ÉTABLISSEMENT SCOLAIRE';
+  const studentName = summary.studentName || (transaction.description || 'Paiement').replace(/^Frais de scolarité \/ mensuels - /i, '').replace(/^Frais de scolarité - /i, '').replace(/\s*\([^)]*\)\s*$/, '') || 'N/A';
+  const paymentLabel = (() => {
+    const desc = transaction.description || '';
+    if (/réinscription|reinscription/i.test(desc)) return 'Réinscription';
+    if (/inscription/i.test(desc)) return 'Inscription';
+    if (/dossier d'?examen/i.test(desc)) return "Frais de dossier d'examen";
+    if (/scolarité|scolarite|mensuels/i.test(desc)) return "Frais d'école";
+    return transaction.category || 'Encaissement';
+  })();
+  const money = (value: number) => `${Number(value || 0).toLocaleString('fr-FR')} ${currency}`;
+  const drawTextRow = (label: string, value: string, y: number, bold = false) => {
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(7.2);
+    doc.setTextColor(95, 105, 115);
+    doc.text(label, 5, y);
+    doc.setFont('courier', bold ? 'bold' : 'normal');
+    doc.setTextColor(15, 23, 42);
+    doc.text(value || 'N/A', 75, y, { align: 'right', maxWidth: 43 });
   };
 
-  // Render Top Section
-  drawReceiptSection(12, '** COPIE ÉTABLISSEMENT **');
+  doc.setFillColor(255, 255, 255);
+  doc.rect(0, 0, 80, 210, 'F');
+  doc.setDrawColor(31, 74, 89);
+  doc.setLineWidth(0.5);
+  doc.circle(40, 10, 5, 'S');
+  doc.setFont('courier', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(31, 74, 89);
+  doc.text('E', 40, 12.2, { align: 'center' });
+  doc.setFontSize(6.5);
+  doc.text('EDUCO CAISSE', 40, 20, { align: 'center' });
+  doc.setFontSize(9.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(schoolName.toUpperCase(), 40, 26, { align: 'center', maxWidth: 70 });
+  doc.setFont('courier', 'normal');
+  doc.setFontSize(6.3);
+  doc.text(schoolSettings?.address || 'Adresse non renseignée', 40, 32, { align: 'center', maxWidth: 70 });
+  doc.text(`TEL: ${schoolSettings?.contact || 'N/A'}`, 40, 36, { align: 'center' });
 
-  // Cut line
-  doc.setDrawColor(180, 180, 180);
-  doc.setLineDashPattern([3, 3], 0);
-  doc.line(12, 146, 198, 146);
-  doc.setFontSize(7);
-  doc.setTextColor(140, 140, 140);
-  doc.text('✂  - - - - - - - - - - - - - - - - - - - - - DÉCOUPER ICI - - - - - - - - - - - - - - - - - - - - -  ✂', 105, 148, { align: 'center' });
+  doc.setLineDashPattern([1, 1], 0);
+  doc.line(5, 40, 75, 40);
   doc.setLineDashPattern([], 0);
+  doc.setFont('courier', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(31, 74, 89);
+  doc.text("REÇU OFFICIEL D'ENCAISSEMENT", 40, 46, { align: 'center' });
 
-  // Render Bottom Section
-  drawReceiptSection(154, '** COPIE CLIENT / ÉLÈVE **');
+  drawTextRow('Ticket N°', receiptId, 54, true);
+  drawTextRow('Date', `${now.toLocaleDateString('fr-FR')} ${now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`, 60, true);
+  drawTextRow('Caissier(e)', summary.cashierName || transaction.approvedBy || 'Caisse Educo', 66, true);
+  drawTextRow('Élève', studentName, 74, true);
+  if (summary.studentClass) drawTextRow('Classe', summary.studentClass, 80, true);
+  if (summary.parentName) drawTextRow('Parent/Tuteur', summary.parentName, 86, true);
+  drawTextRow('Motif', paymentLabel, 94, true);
+  drawTextRow('Mode paiement', transaction.paymentMethod || 'Espèces', 100, true);
+  if (transaction.mobileMoneyNumber) drawTextRow('Réf. mobile', transaction.mobileMoneyNumber, 106, true);
 
-  // Download
-  const filename = `Recu_${receiptId}_${now.toISOString().slice(0, 10)}.pdf`;
-  doc.save(filename);
+  doc.setLineDashPattern([1, 1], 0);
+  doc.line(5, 112, 75, 112);
+  doc.setLineDashPattern([], 0);
+  doc.setFont('courier', 'bold');
+  doc.setFontSize(7.2);
+  doc.setTextColor(15, 23, 42);
+  doc.text('DÉSIGNATION', 5, 119);
+  doc.text('MONTANT', 75, 119, { align: 'right' });
+  doc.setFont('courier', 'normal');
+  doc.text(paymentLabel, 5, 126, { maxWidth: 42 });
+  doc.setFont('courier', 'bold');
+  doc.text(money(totalAmount), 75, 126, { align: 'right' });
+
+  let y = 136;
+  if (transaction.notes) {
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(6.5);
+    doc.text(`Note: ${transaction.notes}`, 5, y, { maxWidth: 70 });
+    y += 10;
+  }
+
+  doc.setLineDashPattern([1, 1], 0);
+  doc.line(5, y, 75, y);
+  doc.setLineDashPattern([], 0);
+  y += 8;
+  doc.setFont('courier', 'bold');
+  doc.setFontSize(8);
+  doc.text('NET ENCAISSÉ', 5, y);
+  doc.setFontSize(10.5);
+  doc.setTextColor(31, 74, 89);
+  doc.text(money(totalAmount), 75, y, { align: 'right' });
+
+  if (summary.totalPaidByStudent !== undefined) {
+    y += 8;
+    drawTextRow('Total payé élève', money(Number(summary.totalPaidByStudent)), y, true);
+  }
+  if (summary.remainingBalance !== undefined) {
+    y += 6;
+    drawTextRow('Solde restant', money(Number(summary.remainingBalance)), y, true);
+  }
+
+  y += 14;
+  doc.setDrawColor(15, 23, 42);
+  doc.rect(28, y, 24, 24, 'S');
+  doc.setFont('courier', 'bold');
+  doc.setFontSize(6);
+  doc.setTextColor(15, 23, 42);
+  doc.text('QR EDUCO', 40, y + 13, { align: 'center' });
+  y += 31;
+  doc.text(`QR de vérification - ${receiptId}`, 40, y, { align: 'center' });
+  y += 7;
+  doc.text('Merci pour votre paiement.', 40, y, { align: 'center' });
+  y += 6;
+  doc.setFont('courier', 'normal');
+  doc.setFontSize(6.2);
+  doc.text('Ticket à conserver comme justificatif.', 40, y, { align: 'center' });
+  y += 13;
+  doc.line(24, y, 56, y);
+  doc.text('Cachet / Signature', 40, y + 4, { align: 'center' });
+  if (isSigned) {
+    y += 11;
+    doc.setTextColor(37, 99, 235);
+    doc.setFont('courier', 'bold');
+    doc.text('SIGNÉ NUMÉRIQUEMENT', 40, y, { align: 'center' });
+  }
+  doc.setTextColor(100, 116, 139);
+  doc.setFont('courier', 'italic');
+  doc.text('Logiciel conçu par Loukatech.com', 40, 204, { align: 'center' });
+
+  doc.save(`Ticket_Educo_${receiptId}_${now.toISOString().slice(0, 10)}.pdf`);
 };
 
 export const createReceiptPdfBlob = (

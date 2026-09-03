@@ -1863,6 +1863,12 @@ const App: React.FC = () => {
       }
 
       const existingPaymentRecord = payments.find(p => p.id === targetStudentId);
+      const existingStudentUser = users.find(u => u.id === targetStudentId);
+      const studentMatriculeForReceipt = paymentData.newStudentData?.matricule
+        || paymentData.matricule
+        || existingPaymentRecord?.studentId
+        || existingStudentUser?.studentId
+        || '';
       const totalFeesForReceipt = existingPaymentRecord?.totalFees || fees.find(f => f.class === studentClass && f.type === 'Scolarité')?.amount || 0;
       const paidBeforeReceipt = existingPaymentRecord?.amountPaid || 0;
       const totalPaidByStudent = paidBeforeReceipt + paymentData.amount;
@@ -1870,16 +1876,16 @@ const App: React.FC = () => {
       const normalizeContact = (value?: string) => String(value || '').replace(/\D/g, '');
       const parentRecipientPhone = paymentData.parentReceiptPhone
         || paymentData.newStudentData?.contact
-        || users.find(u => u.id === targetStudentId)?.parentPhone
-        || users.find(u => u.id === targetStudentId)?.guardianPhone
-        || users.find(u => u.id === targetStudentId)?.phone
-        || users.find(u => u.id === targetStudentId)?.contact
+        || existingStudentUser?.parentPhone
+        || existingStudentUser?.guardianPhone
+        || existingStudentUser?.phone
+        || existingStudentUser?.contact
         || '';
       const parentRecipientName = paymentData.parentReceiptName
         || paymentData.newStudentData?.parentTuteur
         || paymentData.parentTuteur
-        || users.find(u => u.id === targetStudentId)?.parentName
-        || users.find(u => u.id === targetStudentId)?.guardian
+        || existingStudentUser?.parentName
+        || existingStudentUser?.guardian
         || 'Parent/Tuteur';
       const parentAccount = users.find(u => {
         if (u.role !== 'Parent') return false;
@@ -1904,6 +1910,7 @@ const App: React.FC = () => {
           receiptSummary: {
             studentName,
             studentClass,
+            studentMatricule: studentMatriculeForReceipt,
             parentName: parentRecipientName,
             parentPhone: parentRecipientPhone,
             parentEmail: parentRecipientEmail,

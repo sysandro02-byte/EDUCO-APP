@@ -225,15 +225,38 @@ test('imprime un reçu et un bulletin depuis les vrais écrans EDUCO', async ({ 
   await expect(page.getByRole('heading', { name: /gestion des paiements/i })).toBeVisible();
   await expect(page.getByText(e2eStudent.name).first()).toBeVisible();
 
-  await page.getByRole('button', { name: /aperçu.*reçu/i }).first().click();
-  await expect(page.getByText(/REÇU No:/i).first()).toBeVisible();
+  await page.getByRole('button', { name: /enregistrer un paiement/i }).click();
+  await page.getByRole('button', { name: /inscription/i }).click();
+  await page.getByPlaceholder('Ex: Kouamé K. Emmanuel').fill('Nouvel Élève Ticket E2E');
+  await page.locator('label:has-text("Classe d\'Affectation")').locator('..').locator('select').selectOption('CM2 A');
+  await page.getByPlaceholder('+242 06 XXX XX XX').fill('+242 06 222 3333');
+  await page.getByPlaceholder('Ex: M. & Mme Kouassi').fill('Parent Ticket E2E');
+  await page.getByPlaceholder("Montant d'inscription...").fill('15000');
+  await page.getByPlaceholder('Mentions particulières sur le reçu...').fill('Test inscription et impression ticket');
+  await page.getByRole('button', { name: /aperçu du reçu avant impression/i }).click();
+  await expect(page.getByText(/Nouvel Élève Ticket E2E/).first()).toBeVisible();
+  await page.getByRole('button', { name: /valider.*imprimer le reçu officiel/i }).click();
+  await expect(page.getByText(/ticket n°/i).first()).toBeVisible();
   await page.getByRole('button', { name: /imprimer directement/i }).click();
 
   await expect
     .poll(async () => page.evaluate(() => (window as any).__educoPrintCalls?.length || 0))
     .toBeGreaterThan(0);
+  const inscriptionPrintHtml = await page.evaluate(() => (window as any).__educoPrintCalls.at(-1)?.html || '');
+  expect(inscriptionPrintHtml).toContain('Ticket N°');
+  expect(inscriptionPrintHtml).toContain('Nouvel Élève Ticket E2E');
+  expect(inscriptionPrintHtml).toContain('Inscription');
+
+  await page.getByRole('button', { name: /^fermer$/i }).click();
+  await page.getByRole('button', { name: /aperçu.*reçu|reçu/i }).first().click();
+  await expect(page.getByText(/ticket n°/i).first()).toBeVisible();
+  await page.getByRole('button', { name: /imprimer directement/i }).click();
+
+  await expect
+    .poll(async () => page.evaluate(() => (window as any).__educoPrintCalls?.length || 0))
+    .toBeGreaterThan(1);
   const receiptPrintHtml = await page.evaluate(() => (window as any).__educoPrintCalls.at(-1)?.html || '');
-  expect(receiptPrintHtml).toContain('REÇU No:');
+  expect(receiptPrintHtml).toContain('Ticket N°');
   expect(receiptPrintHtml).toContain('Élève Reçu Bulletin E2E');
 
   await page.getByRole('button', { name: /^fermer$/i }).click();
