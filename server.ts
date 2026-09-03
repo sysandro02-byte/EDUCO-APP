@@ -38,6 +38,15 @@ import Groq from 'groq-sdk';
 import { requireAuth, AuthRequest, createLocalSessionToken } from './src/middleware/auth.ts';
 import { getOrCreateUser, getUserByUid } from './src/db/users.ts';
 import { createClient } from '@supabase/supabase-js';
+import {
+  buildIssuedSubscriptionStatus,
+  calculateSubscriptionEndDate,
+  ensureActivationBelongsToSchool,
+  getSubscriptionMonthlyRate,
+  normalizeSchoolIdentifier,
+  normalizeSubscriptionPlan,
+  pickCurrentActiveSubscription,
+} from './src/services/subscriptionWorkflow.ts';
 
 const base64UrlEncode = (value: Buffer) => value.toString('base64url');
 const base64UrlDecode = (value: string) => Buffer.from(value, 'base64url');
@@ -341,6 +350,19 @@ const orderByCreatedDesc = (items: any[]) => [...items].sort((a, b) => {
   const bt = new Date(b.createdAt || b.created_at || 0).getTime();
   return bt - at;
 });
+
+const getRequestUser = async (req: AuthRequest) => (
+  req.user?.role || req.user?.schoolId ? req.user : await getUserByUid(req.user!.uid)
+);
+
+const requirePlatformAdmin = async (req: AuthRequest, res: any) => {
+  const dbUser = await getRequestUser(req);
+  if (dbUser?.role !== 'Admin') {
+    res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
+    return null;
+  }
+  return dbUser;
+};
 
 const getSupabaseRows = async (client: any, table: string, columns = '*') => {
   // PostgREST returns at most 1,000 rows by default.  The administration
@@ -3118,7 +3140,7 @@ async function startServer() {
       // connection supplied by the client. Re-querying it here could use a
       // different server configuration and lose schoolId, which made the UI
       // show "Non renseigné" for a valid school account.
-      const dbUser = req.user?.schoolId ? req.user : await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) {
         return res.json({
           isActive: false,
@@ -3162,7 +3184,7 @@ async function startServer() {
           .orderBy(desc(subscriptions.endDate));
       }
 
-      const activeSub = subList[0];
+      const activeSub = pickCurrentActiveSubscription(subList);
       const now = new Date();
 
       if (!activeSub) {
@@ -3181,15 +3203,14 @@ async function startServer() {
       }
 
       const endDate = new Date(activeSub.endDate);
-      const isExpired = endDate.getTime() < now.getTime() || activeSub.status === 'expired' || activeSub.status === 'revoked';
-      const daysRemaining = isExpired ? 0 : Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+      const daysRemaining = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
 
       res.json({
-        isActive: !isExpired && activeSub.status === 'active',
-        isPreSubscription: isExpired || activeSub.status !== 'active',
+        isActive: true,
+        isPreSubscription: false,
         planType: activeSub.planType, // 'standard' | 'ai_premium'
         planName: activeSub.planType === 'ai_premium' ? 'Abonnement IA Premium (20.000 FCFA/mois)' : 'Abonnement Standard (10.000 FCFA/mois)',
-        isAiEnabled: !isExpired && activeSub.planType === 'ai_premium',
+        isAiEnabled: activeSub.planType === 'ai_premium',
         daysRemaining,
         endDate: activeSub.endDate,
         startDate: activeSub.startDate,
@@ -3221,7 +3242,7 @@ async function startServer() {
       }
 
       const cleanCode = code.trim().toUpperCase();
-      const dbUser = req.user?.schoolId ? req.user : await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) {
         return res.status(403).json({ error: 'Aucun établissement associé à votre compte.' });
       }
@@ -3235,6 +3256,7 @@ async function startServer() {
         const schoolResult = await db.select().from(schools).where(eq(schools.id, dbUser.schoolId)).limit(1);
         school = schoolResult[0];
       }
+      const schoolIdentifier = school?.identifier || `EDUCO-SCH-${dbUser.schoolId}`;
 
       // Find subscription in DB
       let sub: any = null;
@@ -3256,16 +3278,12 @@ async function startServer() {
       }
 
       // Check if it belongs to another school
-      const sameSchoolId = Number(sub.schoolId) === Number(dbUser.schoolId);
-      const sameSchoolIdentifier = String(sub.schoolIdentifier || '').trim().toUpperCase() === String(school?.identifier || '').trim().toUpperCase();
-      if (!sameSchoolId || !sameSchoolIdentifier) {
+      if (!ensureActivationBelongsToSchool(sub, { id: dbUser.schoolId, identifier: schoolIdentifier })) {
         return res.status(403).json({ error: 'Cette clé a été émise pour un autre établissement et ne peut pas être utilisée ici.' });
       }
 
       const now = new Date();
-      // Calculate end date based on duration
-      const durationDays = (sub.months || 1) * 30;
-      const newEndDate = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
+      const newEndDate = calculateSubscriptionEndDate(now, sub.months);
 
       let updatedSub: any;
       if (supabaseAdmin) {
@@ -3274,7 +3292,7 @@ async function startServer() {
           .update({
             school_id: dbUser.schoolId,
             school_name: school?.name || sub.schoolName,
-            school_identifier: school?.identifier || sub.schoolIdentifier,
+            school_identifier: schoolIdentifier,
             status: 'active',
             start_date: now.toISOString(),
             end_date: newEndDate.toISOString(),
@@ -3290,7 +3308,7 @@ async function startServer() {
           .set({
             schoolId: dbUser.schoolId,
             schoolName: school?.name || sub.schoolName,
-            schoolIdentifier: school?.identifier || sub.schoolIdentifier,
+            schoolIdentifier,
             status: 'active',
             startDate: now,
             endDate: newEndDate,
@@ -3348,7 +3366,7 @@ async function startServer() {
   app.post('/api/subscriptions/request-renewal', requireAuth, async (req: AuthRequest, res) => {
     try {
       const { requestedPlan, requestedMonths, notes } = req.body;
-      const dbUser = req.user?.schoolId ? req.user : await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) {
         return res.status(403).json({ error: 'Aucun établissement associé.' });
       }
@@ -3405,10 +3423,8 @@ async function startServer() {
   // Admin: Get All Subscriptions & Requests
   app.get('/api/admin/subscriptions', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
-      if (dbUser?.role !== 'Admin') {
-        return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
-      }
+      const dbUser = await requirePlatformAdmin(req, res);
+      if (!dbUser) return;
 
       const supabaseAdmin = getSupabaseAdmin(req);
       let allSubs = supabaseAdmin ? [] : await db.select().from(subscriptions).orderBy(desc(subscriptions.createdAt)).catch(() => []);
@@ -3473,10 +3489,8 @@ async function startServer() {
   // Admin: Generate a Unique Subscription Code
   app.post('/api/admin/subscriptions/generate', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
-      if (dbUser?.role !== 'Admin') {
-        return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
-      }
+      const dbUser = await requirePlatformAdmin(req, res);
+      if (!dbUser) return;
 
       const {
         schoolName,
@@ -3491,8 +3505,9 @@ async function startServer() {
       } = req.body;
 
       const numMonths = Math.max(1, Number(months) || 1);
-      const isAI = planType === 'ai_premium';
-      const monthlyRate = isAI ? 20000 : 10000;
+      const normalizedPlanType = normalizeSubscriptionPlan(planType);
+      const isAI = normalizedPlanType === 'ai_premium';
+      const monthlyRate = getSubscriptionMonthlyRate(normalizedPlanType);
       const computedAmount = Number(amountPaid) || (monthlyRate * numMonths);
 
       // Generate Unique Code format: EDUCO-STD-2026-X8F9-Q2M1 or EDUCO-AI-2026-Y4K8-V7B3
@@ -3503,7 +3518,7 @@ async function startServer() {
       const code = `EDUCO-${planPrefix}-${year}-${part1}-${part2}`;
 
       const now = new Date();
-      const endDate = new Date(now.getTime() + numMonths * 30 * 24 * 60 * 60 * 1000);
+      const endDate = calculateSubscriptionEndDate(now, numMonths);
 
       // A licence must always be bound to one existing school at issuance time.
       let matchedSchoolId: number | null = null;
@@ -3522,7 +3537,8 @@ async function startServer() {
         return res.status(400).json({ error: 'Sélectionnez un établissement enregistré avant de générer la licence.' });
       }
 
-      const fallbackIdentifier = schoolIdentifier.trim().toUpperCase();
+      const fallbackIdentifier = normalizeSchoolIdentifier(schoolIdentifier);
+      const issuedStatus = buildIssuedSubscriptionStatus();
       let newSub: any;
       if (supabaseAdmin) {
         const { data, error } = await supabaseAdmin.from('subscriptions').insert([{
@@ -3532,10 +3548,10 @@ async function startServer() {
           school_identifier: fallbackIdentifier,
           promoter_name: promoterName || 'Promoteur',
           promoter_contact: promoterContact || '',
-          plan_type: isAI ? 'ai_premium' : 'standard',
+          plan_type: normalizedPlanType,
           amount_paid: computedAmount,
           months: numMonths,
-          status: 'active',
+          status: issuedStatus,
           start_date: now.toISOString(),
           end_date: endDate.toISOString(),
           auto_renew: Boolean(autoRenew),
@@ -3551,10 +3567,10 @@ async function startServer() {
           schoolIdentifier: fallbackIdentifier,
           promoterName: promoterName || 'Promoteur',
           promoterContact: promoterContact || '',
-          planType: isAI ? 'ai_premium' : 'standard',
+          planType: normalizedPlanType,
           amountPaid: computedAmount,
           months: numMonths,
-          status: 'active',
+          status: issuedStatus,
           startDate: now,
           endDate,
           autoRenew: Boolean(autoRenew),
@@ -3576,10 +3592,8 @@ async function startServer() {
   // Admin: Extend Subscription (+1, +2, +3 months)
   app.post('/api/admin/subscriptions/extend', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
-      if (dbUser?.role !== 'Admin') {
-        return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
-      }
+      const dbUser = await requirePlatformAdmin(req, res);
+      if (!dbUser) return;
 
       const { subscriptionId, additionalMonths } = req.body;
       const addMonths = Number(additionalMonths) || 1;
@@ -3602,7 +3616,7 @@ async function startServer() {
       const currentEnd = new Date(sub.endDate);
       const baseDate = currentEnd.getTime() > Date.now() ? currentEnd : new Date();
       const newEndDate = new Date(baseDate.getTime() + addMonths * 30 * 24 * 60 * 60 * 1000);
-      const monthlyRate = sub.planType === 'ai_premium' ? 20000 : 10000;
+      const monthlyRate = getSubscriptionMonthlyRate(sub.planType);
       const newAmount = (sub.amountPaid || 0) + (monthlyRate * addMonths);
       const totalMonths = (sub.months || 1) + addMonths;
 
@@ -3648,10 +3662,8 @@ async function startServer() {
   // Admin: Toggle Auto-Renew
   app.post('/api/admin/subscriptions/toggle-auto-renew', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
-      if (dbUser?.role !== 'Admin') {
-        return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
-      }
+      const dbUser = await requirePlatformAdmin(req, res);
+      if (!dbUser) return;
 
       const { subscriptionId, autoRenew, autoRenewFrequency } = req.body;
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -3693,10 +3705,8 @@ async function startServer() {
   // Admin: Fulfill Renewal Request
   app.post('/api/admin/subscriptions/fulfill-request', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
-      if (dbUser?.role !== 'Admin') {
-        return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
-      }
+      const dbUser = await requirePlatformAdmin(req, res);
+      if (!dbUser) return;
 
       const { requestId, autoRenew, autoRenewFrequency } = req.body;
       let request: any = null;
@@ -3714,9 +3724,10 @@ async function startServer() {
         return res.status(404).json({ error: 'Demande introuvable.' });
       }
 
-      const isAI = request.requestedPlan === 'ai_premium';
+      const requestPlanType = normalizeSubscriptionPlan(request.requestedPlan);
+      const isAI = requestPlanType === 'ai_premium';
       const numMonths = request.requestedMonths || 1;
-      const amountPaid = (isAI ? 20000 : 10000) * numMonths;
+      const amountPaid = getSubscriptionMonthlyRate(requestPlanType) * numMonths;
 
       // Generate Code
       const planPrefix = isAI ? 'AI' : 'STD';
@@ -3726,7 +3737,8 @@ async function startServer() {
       const code = `EDUCO-${planPrefix}-${year}-${part1}-${part2}`;
 
       const now = new Date();
-      const endDate = new Date(now.getTime() + numMonths * 30 * 24 * 60 * 60 * 1000);
+      const endDate = calculateSubscriptionEndDate(now, numMonths);
+      const issuedStatus = buildIssuedSubscriptionStatus();
 
       let newSub: any;
       if (supabaseAdmin) {
@@ -3737,10 +3749,10 @@ async function startServer() {
           school_identifier: request.schoolIdentifier,
           promoter_name: request.promoterName,
           promoter_contact: request.promoterContact,
-          plan_type: request.requestedPlan,
+          plan_type: requestPlanType,
           amount_paid: amountPaid,
           months: numMonths,
-          status: 'active',
+          status: issuedStatus,
           start_date: now.toISOString(),
           end_date: endDate.toISOString(),
           auto_renew: Boolean(autoRenew),
@@ -3757,10 +3769,10 @@ async function startServer() {
           schoolIdentifier: request.schoolIdentifier,
           promoterName: request.promoterName,
           promoterContact: request.promoterContact,
-          planType: request.requestedPlan,
+          planType: requestPlanType,
           amountPaid,
           months: numMonths,
-          status: 'active',
+          status: issuedStatus,
           startDate: now,
           endDate,
           autoRenew: Boolean(autoRenew),
@@ -3775,7 +3787,7 @@ async function startServer() {
 
       res.json({
         success: true,
-        message: `Code ${code} généré et activé pour ${request.schoolName}.`,
+        message: `Code ${code} généré pour ${request.schoolName}. L'établissement doit l'activer depuis son portail.`,
         subscription: newSub,
       });
     } catch (error: any) {
