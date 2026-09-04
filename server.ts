@@ -47,6 +47,13 @@ import {
   normalizeSubscriptionPlan,
   pickCurrentActiveSubscription,
 } from './src/services/subscriptionWorkflow.ts';
+import {
+  buildDuplicateEmailMessage,
+  buildStaffMatricule,
+  getAccountCreationKind,
+  normalizeEmail,
+  normalizeRole,
+} from './src/services/userAccountWorkflow.ts';
 
 const base64UrlEncode = (value: Buffer) => value.toString('base64url');
 const base64UrlDecode = (value: string) => Buffer.from(value, 'base64url');
@@ -362,6 +369,57 @@ const requirePlatformAdmin = async (req: AuthRequest, res: any) => {
     return null;
   }
   return dbUser;
+};
+
+const ensureUniqueUserEmail = async (params: {
+  req: AuthRequest;
+  email?: string | null;
+  excludeUserId?: number | null;
+  excludeUid?: string | null;
+}) => {
+  const email = normalizeEmail(params.email);
+  if (!email) return null;
+
+  const supabaseAdmin = getSupabaseAdmin(params.req);
+  if (supabaseAdmin) {
+    const { data: existingProfile, error } = await supabaseAdmin
+      .from('users')
+      .select('id,uid,email')
+      .eq('email', email)
+      .maybeSingle();
+    if (error) throw error;
+    if (
+      existingProfile?.id
+      && Number(existingProfile.id) !== Number(params.excludeUserId || 0)
+      && (!params.excludeUid || existingProfile.uid !== params.excludeUid)
+    ) {
+      return existingProfile;
+    }
+
+    const authLookup = await supabaseAdmin.auth.admin.listUsers();
+    if (!authLookup.error) {
+      const existingAuthUser = authLookup.data.users.find((user: any) => normalizeEmail(user.email) === email);
+      if (
+        existingAuthUser
+        && (!params.excludeUid || existingAuthUser.id !== params.excludeUid)
+        && existingProfile?.uid !== existingAuthUser.id
+      ) {
+        return { id: existingAuthUser.id, uid: existingAuthUser.id, email };
+      }
+    }
+    return null;
+  }
+
+  if (isDbConfigured()) {
+    const allUsers = await db.select().from(users).catch(() => []);
+    return allUsers.find((user: any) =>
+      normalizeEmail(user.email) === email
+      && Number(user.id) !== Number(params.excludeUserId || 0)
+      && (!params.excludeUid || user.uid !== params.excludeUid)
+    ) || null;
+  }
+
+  return null;
 };
 
 const getSupabaseRows = async (client: any, table: string, columns = '*') => {
@@ -1694,6 +1752,9 @@ async function startServer() {
     try {
       const dbUser = (req.user?.role || req.user?.schoolId) ? req.user : await getUserByUid(req.user!.uid);
       const requestedRole = String(req.body.role || '');
+      const normalizedRequestedRole = normalizeRole(requestedRole);
+      const accountKind = getAccountCreationKind(requestedRole);
+      const requestEmail = normalizeEmail(req.body.email);
       if (requestedRole === 'Admin') {
         return res.status(403).json({ error: 'Le compte Admin unique ne peut pas être créé depuis la gestion des utilisateurs.' });
       }
@@ -1704,7 +1765,7 @@ async function startServer() {
       const isSelfUpdate = dbUser && (
         (req.body.id && Number(req.body.id) === dbUser.id) ||
         (req.body.uid && req.body.uid === dbUser.uid) ||
-        (req.body.email && req.body.email.toLowerCase() === dbUser.email.toLowerCase())
+        (requestEmail && requestEmail === normalizeEmail(dbUser.email))
       );
 
       const isCentralAdmin = dbUser?.role === 'Admin' || dbUser?.role === 'Co-admin';
@@ -1714,6 +1775,9 @@ async function startServer() {
         : (dbUser?.schoolId ? Number(dbUser.schoolId) : null);
       if (!targetSchoolId && requestedRole !== 'Co-admin') {
         return res.status(403).json({ error: 'Aucun établissement associé au créateur de ce compte.' });
+      }
+      if (!isCentralAdmin && Number(targetSchoolId) !== Number(dbUser?.schoolId)) {
+        return res.status(403).json({ error: 'Le promoteur ne peut créer des comptes que pour son établissement.' });
       }
 
       if (req.body.id && !isCentralAdmin) {
@@ -1728,6 +1792,12 @@ async function startServer() {
 
       if (req.body.id) {
         const supabaseAdmin = getSupabaseAdmin(req);
+        const existingWithEmail = requestEmail
+          ? await ensureUniqueUserEmail({ req, email: requestEmail, excludeUserId: Number(req.body.id), excludeUid: req.body.uid })
+          : null;
+        if (existingWithEmail) {
+          return res.status(409).json({ error: buildDuplicateEmailMessage(requestEmail) });
+        }
         if (supabaseAdmin) {
           const { data: updatedUser, error: updateError } = await supabaseAdmin
             .from('users')
@@ -1764,17 +1834,24 @@ async function startServer() {
       let resolvedUid = req.body.uid || `usr_${Date.now()}`;
       
       const adminClient = getSupabaseAdmin(req);
-      if (adminClient && req.body.email) {
+      if (requestEmail) {
+        const existingWithEmail = await ensureUniqueUserEmail({ req, email: requestEmail });
+        if (existingWithEmail) {
+          return res.status(409).json({ error: buildDuplicateEmailMessage(requestEmail) });
+        }
+      }
+
+      if (adminClient && requestEmail) {
         const tempPassword = req.body.tempPassword || req.body.password;
         if (!tempPassword || String(tempPassword).length < 6) {
           return res.status(400).json({ error: 'Un mot de passe initial d’au moins 6 caractères est obligatoire.' });
         }
         const { data: authUser, error: createError } = await adminClient.auth.admin.createUser({
-          email: req.body.email,
+          email: requestEmail,
           password: tempPassword,
           email_confirm: true,
           user_metadata: {
-            name: req.body.name || req.body.email.split('@')[0],
+            name: req.body.name || requestEmail.split('@')[0],
             role: req.body.role || 'Enseignant'
           }
         });
@@ -1782,33 +1859,28 @@ async function startServer() {
         if (authUser?.user?.id) {
           resolvedUid = authUser.user.id;
         } else if (createError) {
-          console.warn("Supabase Admin createUser notice:", createError.message);
+          const errorMessage = createError.message || '';
+          if (/already|exist|registered|duplicate/i.test(errorMessage)) {
+            return res.status(409).json({ error: buildDuplicateEmailMessage(requestEmail) });
+          }
+          throw createError;
         }
-
-        const { data: existingUser } = await adminClient
-          .from('users')
-          .select('*')
-          .eq('email', String(req.body.email || '').toLowerCase())
-          .limit(1)
-          .maybeSingle();
 
         const payload: Record<string, any> = {
           uid: resolvedUid,
           name: req.body.name,
-          email: req.body.email,
+          email: requestEmail,
           role: req.body.role,
           status: req.body.status === 'Inactif' ? 'inactive' : 'active',
           school_id: targetSchoolId,
           ...(req.body.avatar !== undefined && { avatar: req.body.avatar })
         };
 
-        const { data: sbUser, error: sbUserError } = existingUser?.id
-          ? await adminClient.from('users').update(payload).eq('id', existingUser.id).select('*').single()
-          : await adminClient.from('users').insert([payload]).select('*').single();
+        const { data: sbUser, error: sbUserError } = await adminClient.from('users').insert([payload]).select('*').single();
 
         if (sbUserError || !sbUser) throw sbUserError || new Error('Impossible de synchroniser le compte utilisateur dans Supabase.');
 
-        if (String(req.body.role || '').toLowerCase().includes('élève') || String(req.body.role || '').toLowerCase().includes('eleve')) {
+        if (accountKind === 'student') {
           const studentPayload = {
             user_id: sbUser.id,
             school_id: targetSchoolId,
@@ -1835,12 +1907,11 @@ async function startServer() {
           }
         }
 
-        const normalizedRole = String(req.body.role || '').toLowerCase();
-        if (!normalizedRole.includes('élève') && !normalizedRole.includes('eleve') && normalizedRole !== 'parent' && normalizedRole !== 'co-admin') {
+        if (accountKind !== 'student' && normalizedRequestedRole !== 'parent' && normalizedRequestedRole !== 'co-admin') {
           const { data: schoolRow } = await adminClient.from('schools').select('name').eq('id', targetSchoolId).maybeSingle();
           const words = String(schoolRow?.name || 'EDUCO').normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[A-Za-z0-9]+/g) || [];
           const acronym = (words.length > 1 ? words.map((word: string) => word[0]).join('') : (words[0] || 'EDUCO').slice(0, 5)).toUpperCase().slice(0, 6);
-          const matricule = req.body.matricule || `${acronym}-EMP-${new Date().getFullYear()}-${String(sbUser.id).padStart(5, '0')}`;
+          const matricule = req.body.matricule || req.body.studentId || buildStaffMatricule({ schoolAcronym: acronym, role: req.body.role, idOrSeed: sbUser.id });
           const { data: existingPersonnel } = await adminClient.from('personnel').select('id').eq('user_id', sbUser.id).eq('school_id', targetSchoolId).maybeSingle();
           const personnelPayload = { user_id: sbUser.id, school_id: targetSchoolId, matricule, role: req.body.role };
           const { error: personnelError } = existingPersonnel?.id
@@ -1855,7 +1926,7 @@ async function startServer() {
           ? await adminClient.from('schools').select('name,identifier').eq('id', targetSchoolId).maybeSingle()
           : { data: null };
         sendWelcomeEmail({
-          email: req.body.email,
+          email: requestEmail,
           name: req.body.name,
           role: req.body.role || 'Personnel',
           schoolName: welcomeSchool?.name || 'Administration Centrale EDUCO',
@@ -1867,6 +1938,12 @@ async function startServer() {
         return res.json(mapSupabaseUser(sbUser));
       }
 
+      if (requestEmail) {
+        const existingWithEmail = await ensureUniqueUserEmail({ req, email: requestEmail });
+        if (existingWithEmail) {
+          return res.status(409).json({ error: buildDuplicateEmailMessage(requestEmail) });
+        }
+      }
       const newUser = await db.insert(users).values({
         ...req.body,
         uid: resolvedUid,
@@ -1887,7 +1964,7 @@ async function startServer() {
       if (isNaN(targetUserId)) return res.status(400).json({ error: 'ID utilisateur invalide' });
 
       const { name, email, role, status, avatar, phone, schoolId } = req.body;
-      const actor = (req.user?.role ? req.user : await getUserByUid(req.user!.uid));
+      const actor = await getRequestUser(req);
       if (role === 'Admin') {
         return res.status(403).json({ error: 'Il ne peut exister qu’un seul compte Admin et ce rôle ne peut pas être attribué.' });
       }
@@ -1896,6 +1973,13 @@ async function startServer() {
       }
       const isCentralAdmin = actor?.role === 'Admin' || actor?.role === 'Co-admin';
       const supabaseAdmin = getSupabaseAdmin(req);
+      const normalizedEmail = normalizeEmail(email);
+      if (normalizedEmail) {
+        const existingWithEmail = await ensureUniqueUserEmail({ req, email: normalizedEmail, excludeUserId: targetUserId });
+        if (existingWithEmail) {
+          return res.status(409).json({ error: buildDuplicateEmailMessage(normalizedEmail) });
+        }
+      }
       if (supabaseAdmin) {
         const { data: target } = await supabaseAdmin.from('users').select('school_id').eq('id', targetUserId).maybeSingle();
         if (!target || (!isCentralAdmin && Number(target.school_id) !== Number(actor?.schoolId))) {
@@ -1903,7 +1987,7 @@ async function startServer() {
         }
         const payload = {
           ...(name !== undefined && { name }),
-          ...(email !== undefined && { email }),
+          ...(email !== undefined && { email: normalizedEmail || email }),
           ...(role !== undefined && { role }),
           ...(status !== undefined && { status: status === 'Inactif' ? 'inactive' : 'active' }),
           ...(avatar !== undefined && { avatar }),
@@ -1928,7 +2012,7 @@ async function startServer() {
       const [updatedUser] = await db.update(users)
         .set({
           ...(name !== undefined && { name }),
-          ...(email !== undefined && { email }),
+          ...(email !== undefined && { email: normalizedEmail || email }),
           ...(role !== undefined && { role }),
           ...(status !== undefined && { status }),
           ...(avatar !== undefined && { avatar }),
@@ -1949,7 +2033,7 @@ async function startServer() {
       const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
       const targetUserId = parseInt(rawId, 10);
       if (isNaN(targetUserId)) return res.status(400).json({ error: 'ID utilisateur invalide' });
-      const actor = await getUserByUid(req.user!.uid);
+      const actor = await getRequestUser(req);
       const isCentralAdmin = actor?.role === 'Admin' || actor?.role === 'Co-admin';
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2006,7 +2090,7 @@ async function startServer() {
       const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
       const targetUserId = parseInt(rawId, 10);
       if (isNaN(targetUserId)) return res.status(400).json({ error: 'ID utilisateur invalide' });
-      const actor = await getUserByUid(req.user!.uid);
+      const actor = await getRequestUser(req);
       const isCentralAdmin = actor?.role === 'Admin' || actor?.role === 'Co-admin';
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2051,7 +2135,7 @@ async function startServer() {
   // DELETE /api/users/:id - Delete a user account and log to DB & Supabase
   app.delete('/api/users/:id', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!['Admin', 'Co-admin', 'Promoteur'].includes(dbUser?.role || '')) {
         return res.status(403).json({ error: 'Permission refusée. Seuls les administrateurs peuvent supprimer des comptes.' });
       }
@@ -3698,6 +3782,144 @@ async function startServer() {
       });
     } catch (error: any) {
       console.error('Toggle Auto Renew Error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Admin: Update an issued/active subscription
+  app.put('/api/admin/subscriptions/:id', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await requirePlatformAdmin(req, res);
+      if (!dbUser) return;
+
+      const subscriptionId = Number(req.params.id);
+      if (!Number.isInteger(subscriptionId) || subscriptionId <= 0) {
+        return res.status(400).json({ error: 'Licence invalide.' });
+      }
+
+      const normalizedPlanType = normalizeSubscriptionPlan(req.body.planType);
+      const months = Math.max(1, Number(req.body.months) || 1);
+      const amountPaid = Number(req.body.amountPaid) || getSubscriptionMonthlyRate(normalizedPlanType) * months;
+      const startDate = req.body.startDate ? new Date(req.body.startDate) : new Date();
+      const endDate = req.body.endDate ? new Date(req.body.endDate) : calculateSubscriptionEndDate(startDate, months);
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        return res.status(400).json({ error: 'Dates de licence invalides.' });
+      }
+
+      const payload = {
+        school_name: req.body.schoolName || 'Établissement',
+        school_identifier: normalizeSchoolIdentifier(req.body.schoolIdentifier),
+        promoter_name: req.body.promoterName || 'Promoteur',
+        promoter_contact: req.body.promoterContact || '',
+        plan_type: normalizedPlanType,
+        amount_paid: amountPaid,
+        months,
+        status: req.body.status === 'revoked' ? 'revoked' : req.body.status === 'active' ? 'active' : 'pending',
+        start_date: startDate.toISOString(),
+        end_date: endDate.toISOString(),
+        auto_renew: Boolean(req.body.autoRenew),
+        auto_renew_frequency: req.body.autoRenewFrequency || 'before_expiry',
+        updated_at: new Date().toISOString(),
+      };
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      let updatedSub: any;
+      if (supabaseAdmin) {
+        const { data, error } = await supabaseAdmin
+          .from('subscriptions')
+          .update(payload)
+          .eq('id', subscriptionId)
+          .select('*')
+          .single();
+        if (error) throw error;
+        updatedSub = mapSupabaseSubscription(data);
+      } else {
+        [updatedSub] = await db.update(subscriptions)
+          .set({
+            schoolName: payload.school_name,
+            schoolIdentifier: payload.school_identifier,
+            promoterName: payload.promoter_name,
+            promoterContact: payload.promoter_contact,
+            planType: payload.plan_type,
+            amountPaid: payload.amount_paid,
+            months: payload.months,
+            status: payload.status,
+            startDate,
+            endDate,
+            autoRenew: payload.auto_renew,
+            autoRenewFrequency: payload.auto_renew_frequency,
+            updatedAt: new Date(),
+          })
+          .where(eq(subscriptions.id, subscriptionId))
+          .returning();
+      }
+
+      res.json({ success: true, message: 'Licence mise à jour avec succès.', subscription: updatedSub });
+    } catch (error: any) {
+      console.error('Update Subscription Error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Admin: Revoke a subscription without deleting its audit history
+  app.post('/api/admin/subscriptions/:id/revoke', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await requirePlatformAdmin(req, res);
+      if (!dbUser) return;
+
+      const subscriptionId = Number(req.params.id);
+      if (!Number.isInteger(subscriptionId) || subscriptionId <= 0) {
+        return res.status(400).json({ error: 'Licence invalide.' });
+      }
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      let updatedSub: any;
+      const now = new Date();
+      if (supabaseAdmin) {
+        const { data, error } = await supabaseAdmin
+          .from('subscriptions')
+          .update({ status: 'revoked', auto_renew: false, updated_at: now.toISOString() })
+          .eq('id', subscriptionId)
+          .select('*')
+          .single();
+        if (error) throw error;
+        updatedSub = mapSupabaseSubscription(data);
+      } else {
+        [updatedSub] = await db.update(subscriptions)
+          .set({ status: 'revoked', autoRenew: false, updatedAt: now })
+          .where(eq(subscriptions.id, subscriptionId))
+          .returning();
+      }
+
+      res.json({ success: true, message: 'Licence révoquée. L’établissement perd l’accès aux modules sous licence.', subscription: updatedSub });
+    } catch (error: any) {
+      console.error('Revoke Subscription Error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Admin: Delete a subscription permanently
+  app.delete('/api/admin/subscriptions/:id', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await requirePlatformAdmin(req, res);
+      if (!dbUser) return;
+
+      const subscriptionId = Number(req.params.id);
+      if (!Number.isInteger(subscriptionId) || subscriptionId <= 0) {
+        return res.status(400).json({ error: 'Licence invalide.' });
+      }
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (supabaseAdmin) {
+        const { error } = await supabaseAdmin.from('subscriptions').delete().eq('id', subscriptionId);
+        if (error) throw error;
+      } else {
+        await db.delete(subscriptions).where(eq(subscriptions.id, subscriptionId));
+      }
+
+      res.json({ success: true, message: 'Licence supprimée définitivement.' });
+    } catch (error: any) {
+      console.error('Delete Subscription Error:', error);
       res.status(500).json({ error: error.message });
     }
   });

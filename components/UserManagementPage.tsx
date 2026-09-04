@@ -44,7 +44,7 @@ import { showAppFeedback } from '../src/utils/appFeedback';
 
 interface UserManagementPageProps {
   users: User[];
-  onSaveUser: (user: User) => void;
+  onSaveUser: (user: User) => void | Promise<void>;
   onDeleteUser: (userId: number) => void;
   currentUserRole: string;
   currentUser?: User | null;
@@ -73,6 +73,7 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [defaultCreationRole, setDefaultCreationRole] = useState<string>('Élève');
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Actif' | 'Inactif'>('All');
@@ -96,8 +97,9 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const handleAddUser = () => {
+  const handleAddUser = (role = 'Élève') => {
     setEditingUser(null);
+    setDefaultCreationRole(role);
     setIsModalOpen(true);
   };
 
@@ -120,10 +122,14 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
     setUserToDelete(null);
   };
 
-  const handleSaveUser = (userToSave: User) => {
-    onSaveUser(userToSave);
-    setIsModalOpen(false);
-    showToast(`Compte de ${userToSave.name} enregistré avec succès.`);
+  const handleSaveUser = async (userToSave: User) => {
+    try {
+      await onSaveUser(userToSave);
+      setIsModalOpen(false);
+      showToast(`Compte de ${userToSave.name} enregistré avec succès.`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Impossible d’enregistrer ce compte.');
+    }
   };
   
   const handleShowBadge = (user: User) => {
@@ -332,13 +338,27 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
           </div>
 
           {canManageUsers && (
-            <div className="flex items-center gap-3 shrink-0">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 shrink-0 w-full md:w-auto">
               <button 
-                onClick={handleAddUser}
-                className="px-5 py-3 bg-gradient-to-r from-[#1F4A59] to-[#275d70] hover:from-[#183944] hover:to-[#1F4A59] text-white text-xs font-black rounded-2xl shadow-sm hover:shadow transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+                onClick={() => handleAddUser('Élève')}
+                className="px-4 py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black rounded-2xl shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
               >
-                <UserPlus className="w-4 h-4" />
-                <span>Nouveau Compte Utilisateur</span>
+                <GraduationCap className="w-4 h-4" />
+                <span>Compte Élève</span>
+              </button>
+              <button 
+                onClick={() => handleAddUser('Enseignant')}
+                className="px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-2xl shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+              >
+                <UserCheck className="w-4 h-4" />
+                <span>Compte Enseignant</span>
+              </button>
+              <button 
+                onClick={() => handleAddUser('Caissière')}
+                className="px-4 py-3 bg-[#1F4A59] hover:bg-[#183944] text-white text-xs font-black rounded-2xl shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+              >
+                <Briefcase className="w-4 h-4" />
+                <span>Compte Personnel</span>
               </button>
             </div>
           )}
@@ -691,13 +711,14 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
       <Modal 
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
-        title={editingUser ? `Modifier le dossier : ${editingUser.name}` : "Création d'un Nouveau Compte Utilisateur"}
+        title={editingUser ? `Modifier le dossier : ${editingUser.name}` : `Création d'un ${defaultCreationRole === 'Élève' ? 'compte élève' : defaultCreationRole === 'Enseignant' ? 'compte enseignant' : 'compte personnel'}`}
         size="2xl"
       >
         <UserForm 
           user={editingUser}
           onSave={handleSaveUser}
           onCancel={() => setIsModalOpen(false)}
+          defaultRole={defaultCreationRole}
           currentUserRole={currentUserRole}
           isLicenseActive={isLicenseActive}
           onOpenSubscriptionModal={onOpenSubscriptionModal}

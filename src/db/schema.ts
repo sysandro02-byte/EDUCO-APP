@@ -27,7 +27,7 @@ export const users = pgTable('users', {
   uid: text('uid').notNull().unique(), // Supabase / User UID
   schoolId: integer('school_id').references(() => schools.id),
   name: text('name').notNull(),
-  email: text('email').notNull(),
+  email: text('email').notNull().unique(),
   role: text('role').notNull(), // Admin, Co-admin, Teacher, Cashier, Finance Manager, Promoter, Student, DE, Parent
   avatar: text('avatar'),
   status: text('status').default('active'),

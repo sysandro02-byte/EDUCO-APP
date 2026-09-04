@@ -1573,24 +1573,35 @@ const App: React.FC = () => {
     const isNewParent = userToSave.role === 'Parent' && !userToSave.id;
 
     try {
-      const result = await saveUserToDb(userToSave);
+      const userWithSchool = {
+        ...userToSave,
+        schoolId: (userToSave as any).schoolId || currentUser?.schoolId || (schoolSettings as any)?.id,
+        schoolName: (userToSave as any).schoolName || (currentUser as any)?.schoolName || schoolSettings?.name,
+      };
+      const result = await saveUserToDb(userWithSchool);
       if (result && result.id) {
+        const savedUser = {
+          ...userWithSchool,
+          ...result,
+          schoolId: (result as any).schoolId || (result as any).school_id || (userWithSchool as any).schoolId,
+          schoolName: (result as any).schoolName || (result as any).school_name || (userWithSchool as any).schoolName,
+        };
         if (userToSave.id) {
-          setUsers(users.map(user => (user.id === result.id ? result : user)));
+          setUsers(prevUsers => prevUsers.map(user => (user.id === savedUser.id ? savedUser : user)));
         } else {
-          setUsers([...users, result]);
+          setUsers(prevUsers => [...prevUsers, savedUser]);
         }
-        addActivityLog(userToSave.id ? 'Modification utilisateur' : 'Création utilisateur', `Nom: ${result.name}`);
+        addActivityLog(userToSave.id ? 'Modification utilisateur' : 'Création utilisateur', `Nom: ${savedUser.name}`);
         
         if (isNewParent) {
-          triggerParentCreationNotification(result);
+          triggerParentCreationNotification(savedUser);
         }
         return;
       }
     } catch (err) {
       console.error('DB save failed:', err);
       alert(err instanceof Error ? err.message : 'Impossible de créer ce compte. Veuillez réessayer.');
-      return;
+      throw err;
     }
   };
 

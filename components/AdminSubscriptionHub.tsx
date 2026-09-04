@@ -21,14 +21,22 @@ import {
   ToggleLeft, 
   ToggleRight,
   Filter,
-  Share2
+  Share2,
+  Pencil,
+  Trash2,
+  Ban,
+  Save,
+  X
 } from 'lucide-react';
 import { 
   fetchAdminSubscriptions, 
   adminGenerateSubscription, 
   adminExtendSubscription, 
   adminToggleAutoRenew, 
-  adminFulfillRequest 
+  adminFulfillRequest,
+  adminUpdateSubscription,
+  adminRevokeSubscription,
+  adminDeleteSubscription,
 } from '../src/services/api';
 
 interface AdminSubscriptionHubProps {
@@ -54,6 +62,8 @@ const AdminSubscriptionHub: React.FC<AdminSubscriptionHubProps> = ({ onSelectSch
   const [autoRenewFrequency, setAutoRenewFrequency] = useState<'monthly' | 'before_expiry'>('before_expiry');
   const [generating, setGenerating] = useState(false);
   const [generatedCodeResult, setGeneratedCodeResult] = useState<any | null>(null);
+  const [editingSubscription, setEditingSubscription] = useState<any | null>(null);
+  const [savingSubscription, setSavingSubscription] = useState(false);
 
   // Search & Filter
   const [searchTerm, setSearchTerm] = useState('');
@@ -143,6 +153,52 @@ const AdminSubscriptionHub: React.FC<AdminSubscriptionHubProps> = ({ onSelectSch
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const toDateInputValue = (value?: string) => {
+    if (!value) return '';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
+  };
+
+  const handleOpenEditSubscription = (sub: any) => {
+    setEditingSubscription({
+      ...sub,
+      startDate: toDateInputValue(sub.startDate),
+      endDate: toDateInputValue(sub.endDate),
+    });
+  };
+
+  const handleSaveSubscriptionEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSubscription?.id) return;
+    setSavingSubscription(true);
+    try {
+      const res = await adminUpdateSubscription(editingSubscription.id, editingSubscription);
+      if (res.error) alert(res.error);
+      else {
+        setEditingSubscription(null);
+        await loadData();
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Impossible de modifier la licence.');
+    } finally {
+      setSavingSubscription(false);
+    }
+  };
+
+  const handleRevokeSubscription = async (sub: any) => {
+    if (!window.confirm(`Révoquer la licence ${sub.code} de ${sub.schoolName} ?`)) return;
+    const res = await adminRevokeSubscription(sub.id);
+    if (res.error) alert(res.error);
+    else loadData();
+  };
+
+  const handleDeleteSubscription = async (sub: any) => {
+    if (!window.confirm(`Supprimer définitivement la licence ${sub.code} ? Cette action est irréversible.`)) return;
+    const res = await adminDeleteSubscription(sub.id);
+    if (res.error) alert(res.error);
+    else loadData();
   };
 
   const handleFulfillRequest = async (reqId: number) => {
@@ -674,6 +730,15 @@ const AdminSubscriptionHub: React.FC<AdminSubscriptionHubProps> = ({ onSelectSch
                               {copiedCode === sub.code ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                             </button>
                           </div>
+                          <span className={`inline-block mt-1 text-[10px] font-black px-2 py-0.5 rounded-md ${
+                            sub.status === 'revoked'
+                              ? 'bg-rose-100 text-rose-700'
+                              : sub.status === 'active'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {sub.status === 'revoked' ? 'Révoquée' : sub.status === 'active' ? 'Activée' : 'En attente activation'}
+                          </span>
                         </td>
 
                         {/* School & Promoter */}
@@ -754,6 +819,28 @@ const AdminSubscriptionHub: React.FC<AdminSubscriptionHubProps> = ({ onSelectSch
                             >
                               +3m
                             </button>
+                            <button
+                              onClick={() => handleOpenEditSubscription(sub)}
+                              title="Modifier la licence"
+                              className="p-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleRevokeSubscription(sub)}
+                              title="Révoquer la licence"
+                              disabled={sub.status === 'revoked'}
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              <Ban className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteSubscription(sub)}
+                              title="Supprimer la licence"
+                              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </td>
 
@@ -764,6 +851,47 @@ const AdminSubscriptionHub: React.FC<AdminSubscriptionHubProps> = ({ onSelectSch
               </tbody>
             </table>
           </div>
+
+          {editingSubscription && (
+            <form onSubmit={handleSaveSubscriptionEdit} className="p-4 rounded-2xl border border-indigo-200 bg-indigo-50/50 space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-black text-slate-900">Modifier la licence achetée</h3>
+                  <p className="text-xs text-slate-500 font-mono">{editingSubscription.code}</p>
+                </div>
+                <button type="button" onClick={() => setEditingSubscription(null)} className="p-2 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-slate-900">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <input className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold" value={editingSubscription.schoolName || ''} onChange={e => setEditingSubscription((prev: any) => ({ ...prev, schoolName: e.target.value }))} placeholder="Établissement" />
+                <input className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono font-bold" value={editingSubscription.schoolIdentifier || ''} onChange={e => setEditingSubscription((prev: any) => ({ ...prev, schoolIdentifier: e.target.value }))} placeholder="Identifiant école" />
+                <input className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold" value={editingSubscription.promoterName || ''} onChange={e => setEditingSubscription((prev: any) => ({ ...prev, promoterName: e.target.value }))} placeholder="Promoteur" />
+                <select className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold" value={editingSubscription.planType || 'standard'} onChange={e => setEditingSubscription((prev: any) => ({ ...prev, planType: e.target.value }))}>
+                  <option value="standard">Standard</option>
+                  <option value="ai_premium">IA Premium</option>
+                </select>
+                <select className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold" value={editingSubscription.status || 'pending'} onChange={e => setEditingSubscription((prev: any) => ({ ...prev, status: e.target.value }))}>
+                  <option value="pending">En attente activation</option>
+                  <option value="active">Activée</option>
+                  <option value="revoked">Révoquée</option>
+                </select>
+                <input type="number" min={1} className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold" value={editingSubscription.months || 1} onChange={e => setEditingSubscription((prev: any) => ({ ...prev, months: Number(e.target.value) }))} placeholder="Mois" />
+                <input type="number" min={0} className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold" value={editingSubscription.amountPaid || 0} onChange={e => setEditingSubscription((prev: any) => ({ ...prev, amountPaid: Number(e.target.value) }))} placeholder="Montant encaissé" />
+                <input type="date" className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold" value={editingSubscription.startDate || ''} onChange={e => setEditingSubscription((prev: any) => ({ ...prev, startDate: e.target.value }))} />
+                <input type="date" className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold" value={editingSubscription.endDate || ''} onChange={e => setEditingSubscription((prev: any) => ({ ...prev, endDate: e.target.value }))} />
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <button type="button" onClick={() => setEditingSubscription(null)} className="px-4 py-2 text-xs font-bold text-slate-600">Annuler</button>
+                <button type="submit" disabled={savingSubscription} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 disabled:opacity-60">
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{savingSubscription ? 'Enregistrement...' : 'Enregistrer les modifications'}</span>
+                </button>
+              </div>
+            </form>
+          )}
 
         </div>
       )}

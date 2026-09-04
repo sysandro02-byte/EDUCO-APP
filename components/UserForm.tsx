@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import StudentPhotoCaptureModal from './StudentPhotoCaptureModal';
 import { LoadingDots } from './LoadingDots';
+import { buildStaffMatricule, getAccountCreationKind, makeStudentTechnicalEmail } from '../src/services/userAccountWorkflow';
 
 // Enhanced type for the user object supporting comprehensive student & parent info
 export interface User {
@@ -244,7 +245,37 @@ const UserForm: React.FC<UserFormProps> = ({
     });
   };
 
-  const isStudent = formData.role === 'Élève';
+  const accountKind = getAccountCreationKind(formData.role);
+  const isStudent = accountKind === 'student';
+  const isTeacher = accountKind === 'teacher';
+
+  const accountTheme = isStudent
+    ? {
+        label: 'Création du compte élève',
+        description: 'Dossier scolaire, classe, responsables et accès élève.',
+        icon: GraduationCap,
+        shell: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800',
+        accent: 'bg-amber-500 text-slate-950',
+        text: 'text-amber-900 dark:text-amber-200',
+      }
+    : isTeacher
+    ? {
+        label: 'Création du compte enseignant',
+        description: 'Accès pédagogique, classes suivies, notes et présences.',
+        icon: UserCheck,
+        shell: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800',
+        accent: 'bg-emerald-600 text-white',
+        text: 'text-emerald-900 dark:text-emerald-200',
+      }
+    : {
+        label: 'Création du compte personnel',
+        description: 'Accès administratif ou financier rattaché à l’établissement.',
+        icon: Building,
+        shell: 'bg-sky-50 dark:bg-sky-950/30 border-sky-200 dark:border-sky-800',
+        accent: 'bg-[#1F4A59] text-white',
+        text: 'text-[#1F4A59] dark:text-sky-200',
+      };
+  const AccountIcon = accountTheme.icon;
 
   const getSchoolAcronym = () => {
     const words = String(schoolSettings?.name || 'EDUCO').normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[A-Za-z0-9]+/g) || [];
@@ -394,13 +425,16 @@ const UserForm: React.FC<UserFormProps> = ({
       // Auto-generate email if missing for students
       const finalData = { ...formData };
       if (!isStudent && !finalData.id && !finalData.matricule) {
-        finalData.matricule = `${getSchoolAcronym()}-EMP-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
+        finalData.matricule = buildStaffMatricule({ schoolAcronym: getSchoolAcronym(), role: finalData.role });
       }
       if (!finalData.email && finalData.studentId) {
-        const cleanName = finalData.name.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
-        finalData.email = `${cleanName || 'eleve'}@ecole-educo.cg`;
+        finalData.email = makeStudentTechnicalEmail({
+          name: finalData.name,
+          studentId: finalData.studentId,
+          schoolId: schoolSettings?.id || finalData.schoolId,
+        });
       } else if (!finalData.email) {
-        finalData.email = `user.${Date.now()}@ecole-educo.cg`;
+        finalData.email = `user.${Date.now()}@educo.local`;
       }
       try {
         await onSave(finalData);
@@ -493,6 +527,20 @@ const UserForm: React.FC<UserFormProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-6">
 
+          <div className={`p-4 rounded-2xl border ${accountTheme.shell} flex items-start gap-3`}>
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${accountTheme.accent}`}>
+              <AccountIcon className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <h4 className={`text-sm font-black ${accountTheme.text}`}>
+                {accountTheme.label}
+              </h4>
+              <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
+                {accountTheme.description}
+              </p>
+            </div>
+          </div>
+
           {/* Banner Mode Licence Non Activée pour le Promoteur */}
           {currentUserRole === 'Promoteur' && !isLicenseActive && (
             <div className="p-4 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-300 dark:border-amber-700 flex items-start gap-3 text-xs">
@@ -528,7 +576,7 @@ const UserForm: React.FC<UserFormProps> = ({
             <div className="space-y-5 animate-fadeIn">
               
               {/* Photo & Identity Section */}
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col sm:flex-row items-center gap-4">
+              <div className={`p-4 border rounded-2xl flex flex-col sm:flex-row items-center gap-4 ${accountTheme.shell}`}>
                 <div className="relative w-24 h-28 rounded-2xl overflow-hidden bg-slate-200 dark:bg-slate-700 border-2 border-slate-300 dark:border-slate-600 flex items-center justify-center shrink-0 shadow-inner group">
                   {formData.avatar ? (
                     <img src={formData.avatar} alt="Photo élève" className="w-full h-full object-cover" />
@@ -740,7 +788,7 @@ const UserForm: React.FC<UserFormProps> = ({
 
                 <div>
                   <label htmlFor="email" className={labelClass}>
-                    {isStudent ? "Email élève / compte (optionnel)" : "Email professionnel *"}
+                      {isStudent ? "Email élève / compte (optionnel)" : isTeacher ? "Email enseignant *" : "Email professionnel *"}
                   </label>
                   <input
                     type="email"
@@ -748,7 +796,7 @@ const UserForm: React.FC<UserFormProps> = ({
                     name="email"
                     value={formData.email}
                     onChange={handleChange}
-                    placeholder={isStudent ? "jean.mboungou@ecole.cg" : "enseignant@ecole.cg"}
+                    placeholder={isStudent ? "Auto si vide : email technique unique" : isTeacher ? "enseignant@ecole.cg" : "personnel@ecole.cg"}
                     className={`${formFieldClass} ${formErrors.email ? 'border-rose-500' : ''}`}
                     required={!isStudent}
                   />
@@ -757,7 +805,7 @@ const UserForm: React.FC<UserFormProps> = ({
               </div>
 
               {/* Attribution du Mot de passe par le Promoteur/Admin */}
-              <div className="p-4 bg-sky-50/70 dark:bg-slate-800/80 border border-sky-200 dark:border-slate-700 rounded-2xl space-y-3">
+              <div className={`p-4 border rounded-2xl space-y-3 ${isTeacher ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800' : 'bg-sky-50/70 dark:bg-slate-800/80 border-sky-200 dark:border-slate-700'}`}>
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <div className="w-7 h-7 rounded-lg bg-[#1F4A59] text-white flex items-center justify-center text-xs font-black shadow-xs">
@@ -765,10 +813,10 @@ const UserForm: React.FC<UserFormProps> = ({
                     </div>
                     <div>
                       <h4 className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">
-                        Attribution du Mot de Passe de Connexion
+                        {isStudent ? 'Accès du Compte Élève' : isTeacher ? 'Accès du Compte Enseignant' : 'Accès du Compte Personnel'}
                       </h4>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Définissez le mot de passe initial de connexion pour ce compte.
+                        Définissez le mot de passe initial. Un email ne peut appartenir qu'à un seul compte.
                       </p>
                     </div>
                   </div>
@@ -1001,13 +1049,13 @@ const UserForm: React.FC<UserFormProps> = ({
           {currentStep === 2 && !isStudent && (
             <div className="space-y-5 animate-fadeIn">
               <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4">
-                <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                  Affectation & Informations Professionnelles
+                <h4 className={`text-xs font-black uppercase tracking-wider ${isTeacher ? 'text-emerald-900 dark:text-emerald-200' : 'text-slate-800 dark:text-slate-200'}`}>
+                  {isTeacher ? 'Affectation pédagogique de l’enseignant' : 'Affectation & Informations Professionnelles'}
                 </h4>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="class" className={labelClass}>Classe / Section assignée (si applicable)</label>
+                    <label htmlFor="class" className={labelClass}>{isTeacher ? 'Classe principale assignée' : 'Service / Section assignée (si applicable)'}</label>
                     <select
                       id="class"
                       name="class"
@@ -1023,14 +1071,14 @@ const UserForm: React.FC<UserFormProps> = ({
                   </div>
 
                   <div>
-                    <label htmlFor="studentId" className={labelClass}>Matricule Employé / Code Enseignant</label>
+                    <label htmlFor="studentId" className={labelClass}>{isTeacher ? 'Code Enseignant' : 'Matricule Personnel'}</label>
                     <input
                       type="text"
                       id="studentId"
                       name="studentId"
                       value={formData.studentId}
                       onChange={handleChange}
-                      placeholder="ENS-2026-008"
+                      placeholder={isTeacher ? 'ENS-2026-008' : 'PER-2026-008'}
                       className={formFieldClass}
                     />
                   </div>

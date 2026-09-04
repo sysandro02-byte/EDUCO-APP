@@ -602,6 +602,62 @@ export async function adminToggleAutoRenew(subscriptionId: number, autoRenew: bo
   }
 }
 
+export async function adminUpdateSubscription(subscriptionId: number, data: {
+  schoolName?: string;
+  schoolIdentifier?: string;
+  promoterName?: string;
+  promoterContact?: string;
+  planType?: 'standard' | 'ai_premium';
+  months?: number;
+  amountPaid?: number;
+  status?: 'pending' | 'active' | 'revoked';
+  startDate?: string;
+  endDate?: string;
+  autoRenew?: boolean;
+  autoRenewFrequency?: string;
+}) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl(`/api/admin/subscriptions/${subscriptionId}`), {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(data),
+    });
+    return await res.json();
+  } catch (error: any) {
+    console.error('Error updating subscription:', error);
+    return { error: error.message || 'Erreur lors de la modification de la licence' };
+  }
+}
+
+export async function adminRevokeSubscription(subscriptionId: number) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl(`/api/admin/subscriptions/${subscriptionId}/revoke`), {
+      method: 'POST',
+      headers,
+    });
+    return await res.json();
+  } catch (error: any) {
+    console.error('Error revoking subscription:', error);
+    return { error: error.message || 'Erreur lors de la révocation de la licence' };
+  }
+}
+
+export async function adminDeleteSubscription(subscriptionId: number) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl(`/api/admin/subscriptions/${subscriptionId}`), {
+      method: 'DELETE',
+      headers,
+    });
+    return await res.json();
+  } catch (error: any) {
+    console.error('Error deleting subscription:', error);
+    return { error: error.message || 'Erreur lors de la suppression de la licence' };
+  }
+}
+
 export async function adminFulfillRequest(requestId: number, autoRenew?: boolean, autoRenewFrequency?: string) {
   try {
     const headers = await getAuthHeaders();
