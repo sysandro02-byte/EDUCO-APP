@@ -486,8 +486,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
             try {
                 // Perform the transaction and await completion
                 await new Promise(resolve => setTimeout(resolve, 600));
-                await Promise.resolve(onSave(pendingPaymentData));
                 setShowPreviewModal(false);
+                await Promise.resolve(onSave(pendingPaymentData));
             } catch (error) {
                 console.error("Erreur lors de la validation du paiement vers Supabase:", error);
             } finally {

@@ -8,7 +8,7 @@ import Receipt from './Receipt';
 import SalaryPaymentForm, { SalaryPaymentData } from './SalaryPaymentForm';
 import Payslip from './Payslip';
 import { SalaryAnalytics } from './SalaryAnalytics';
-import { studentPaymentsData } from '../constants';
+import { clearCashierReportsFromDb, fetchCashierReportsFromDb, saveCashierReportToDb } from '../src/services/api';
 import { Class } from './ClassForm';
 import { Fee } from './FeeForm';
 import { Transaction, Personnel, RafSettings, SchoolSettings, SinglePaymentData, SalaryPaymentData as AppSalaryPaymentData } from '../App';
@@ -21,12 +21,21 @@ import {
   User as UserIcon, ArrowRightLeft, ShieldAlert, Plus, RefreshCw, Send, Save, Share2, Camera
 } from 'lucide-react';
 
-type Payment = typeof studentPaymentsData[0];
+type Payment = {
+  id: number;
+  studentId: string;
+  name: string;
+  class: string;
+  totalFees: number;
+  amountPaid: number;
+  amount?: number;
+  familyId?: number;
+};
 
 interface CashierDashboardProps {
   setActivePage: (page: string) => void;
   handleSaveSinglePayment: (paymentData: SinglePaymentData) => Transaction | null;
-  handleSaveUser: (user: User) => void;
+  handleSaveUser: (user: User) => void | Promise<void>;
   handlePaySalary: (personnelId: number, paymentData: AppSalaryPaymentData) => Transaction | null;
   transactions: Transaction[];
   payments: Payment[];
@@ -38,6 +47,7 @@ interface CashierDashboardProps {
   financialEvents?: any[];
   rafSettings: RafSettings;
   schoolSettings: SchoolSettings;
+  currentUser?: User | null;
   isCaisseOpen: boolean;
   currentUserRole?: string;
   onEditTransaction?: (transactionId: string, updatedData: Partial<Transaction>) => void;
@@ -65,7 +75,7 @@ interface CashierReport {
 const CashierDashboard: React.FC<CashierDashboardProps> = ({ 
     setActivePage, handleSaveSinglePayment, handleSaveUser, handlePaySalary,
     transactions, payments, users, classes, fees, personnel, attendance = [], financialEvents = [],
-    rafSettings, schoolSettings, isCaisseOpen, currentUserRole, onEditTransaction,
+    rafSettings, schoolSettings, currentUser, isCaisseOpen, currentUserRole, onEditTransaction,
     cashierSettings
 }) => {
   const paymentAmount = (payment: any) => Number(payment.amountPaid ?? payment.amount_paid ?? payment.amount ?? 0) || 0;
@@ -118,16 +128,19 @@ const CashierDashboard: React.FC<CashierDashboardProps> = ({
   // Saved Session Reports
   const [savedReports, setSavedReports] = useState<CashierReport[]>([]);
 
-  // Load Saved Reports from localStorage on mount
+  // Load persisted session reports from the school backend.
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem('cashier_session_reports');
-      if (stored) {
-        setSavedReports(JSON.parse(stored));
+    let isMounted = true;
+    const loadReports = async () => {
+      const res = await fetchCashierReportsFromDb();
+      if (isMounted && res?.success && Array.isArray(res.reports)) {
+        setSavedReports(res.reports);
       }
-    } catch (e) {
-      console.error("Failed to load cashier reports", e);
-    }
+    };
+    loadReports();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const physicalCashCounted = useMemo(() => {
@@ -274,15 +287,15 @@ const CashierDashboard: React.FC<CashierDashboardProps> = ({
     const newTransaction = handleSaveSinglePayment(paymentData);
     if (newTransaction) {
         setTransactionForReceipt(newTransaction);
-        setPaymentModalState('receipt');
+        window.setTimeout(() => setPaymentModalState('receipt'), 0);
     } else {
         setPaymentModalState('closed');
         alert("Erreur: L'élève sélectionné n'a pas été trouvé.");
     }
   };
 
-  const onSaveRegistration = (userToSave: User) => {
-    handleSaveUser(userToSave);
+  const onSaveRegistration = async (userToSave: User) => {
+    await handleSaveUser(userToSave);
     setIsRegistrationModalOpen(false);
   };
   
@@ -384,13 +397,13 @@ const CashierDashboard: React.FC<CashierDashboardProps> = ({
   }, [transactions, openingCash, physicalCashCounted]);
 
   // Save/Export official session closure report
-  const handleSaveClosureReport = () => {
+  const handleSaveClosureReport = async () => {
     if (confirm("Confirmez-vous la clôture de votre caisse et la génération du bordereau officiel de fin de session ?")) {
       const newReport: CashierReport = {
         id: `CLS-${Date.now()}`,
         date: new Date().toISOString().split('T')[0],
         time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-        cashierName: currentUserRole === 'Caissière' ? "Caisse Centrale" : "Superviseur Finance",
+        cashierName: currentUser?.name || (currentUserRole === 'Caissière' ? "Caisse Centrale" : "Superviseur Finance"),
         openingCash: openingCash,
         totalCashRevenue: sessionStats.cashIn,
         totalMobileMoneyRevenue: sessionStats.mobileIn,
@@ -402,10 +415,13 @@ const CashierDashboard: React.FC<CashierDashboardProps> = ({
         notes: notes || 'Clôture de session quotidienne standard.'
       };
 
-      const updated = [newReport, ...savedReports];
-      setSavedReports(updated);
-      localStorage.setItem('cashier_session_reports', JSON.stringify(updated));
-      alert("Bordereau de Clôture enregistré avec succès dans l'historique ! Vous pouvez maintenant l'imprimer.");
+      const res = await saveCashierReportToDb({ ...newReport, schoolName: schoolSettings.name });
+      if (!res?.success) {
+        alert(res?.error || "Impossible d'enregistrer le bordereau de caisse.");
+        return;
+      }
+      setSavedReports(prev => [res.report || newReport, ...prev]);
+      alert("Bordereau de Clôture enregistré avec succès dans l'historique partagé de l'établissement.");
       setNotes('');
       resetBillCounter();
     }
@@ -546,9 +562,13 @@ const CashierDashboard: React.FC<CashierDashboardProps> = ({
     }
   };
 
-  const handleClearReportHistory = () => {
-    if (confirm("Voulez-vous vraiment vider tout l'historique des clôtures de caisse enregistrées localement ?")) {
-      localStorage.removeItem('cashier_session_reports');
+  const handleClearReportHistory = async () => {
+    if (confirm("Voulez-vous vraiment vider tout l'historique des clôtures de caisse de cet établissement ?")) {
+      const res = await clearCashierReportsFromDb();
+      if (!res?.success) {
+        alert(res?.error || "Impossible de supprimer l'historique des clôtures.");
+        return;
+      }
       setSavedReports([]);
     }
   };

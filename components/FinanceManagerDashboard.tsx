@@ -11,15 +11,13 @@ import PaymentForm from './PaymentForm';
 import Receipt from './Receipt';
 import SalaryPaymentForm, { SalaryPaymentData as SalaryPaymentModalData } from './SalaryPaymentForm';
 import Payslip from './Payslip';
-import { Transaction, SchoolSettings, RafSettings, SalaryPaymentData, SinglePaymentData } from '../App';
-import { personnelData } from '../constants';
+import { Transaction, Personnel, SchoolSettings, RafSettings, SalaryPaymentData, SinglePaymentData } from '../App';
 import { Class } from './ClassForm';
 import { Fee } from './FeeForm';
 import ClassFinancialOverview from './ClassFinancialOverview';
 import { AlertCircle, CheckCircle2, TrendingDown, UserX, GraduationCap, Clock, TrendingUp } from 'lucide-react';
 
 
-type Personnel = typeof personnelData[0];
 type Payment = { id: number; studentId: string; name: string; class: string; totalFees: number; amountPaid: number; familyId?: number };
 type FilterType = 'day' | 'week' | 'month' | 'year';
 
@@ -36,7 +34,7 @@ interface FinanceManagerDashboardProps {
     handlePaySalary: (personnelId: number, paymentData: SalaryPaymentData) => Transaction | null;
     handleSaveExpense: (description: string, amount: number, category: string, justification?: File) => void;
     setActivePage: (page: string) => void;
-    handleSaveUser: (user: User) => void;
+    handleSaveUser: (user: User) => void | Promise<void>;
     handleSaveSinglePayment: (paymentData: SinglePaymentData) => Transaction | null;
     fees: Fee[];
     schoolSettings: SchoolSettings;
@@ -125,8 +123,8 @@ const FinanceManagerDashboard: React.FC<FinanceManagerDashboardProps> = ({
         setIsExpenseModalOpen(false);
     };
     
-    const onSaveRegistration = (userToSave: User) => {
-        handleSaveUser(userToSave);
+    const onSaveRegistration = async (userToSave: User) => {
+        await handleSaveUser(userToSave);
         setIsRegistrationModalOpen(false);
     };
 
@@ -134,7 +132,7 @@ const FinanceManagerDashboard: React.FC<FinanceManagerDashboardProps> = ({
         const newTransaction = handleSaveSinglePayment(paymentData);
         if (newTransaction) {
             setTransactionForReceipt(newTransaction);
-            setPaymentModalState('receipt');
+            window.setTimeout(() => setPaymentModalState('receipt'), 0);
         } else {
             setPaymentModalState('closed');
             alert("Erreur lors de l'enregistrement du paiement.");
@@ -304,7 +302,18 @@ const FinanceManagerDashboard: React.FC<FinanceManagerDashboardProps> = ({
                 <UserForm user={null} onSave={onSaveRegistration} onCancel={() => setIsRegistrationModalOpen(false)} defaultRole="Élève" classes={classes} fees={fees} />
             </Modal>
             <Modal isOpen={paymentModalState !== 'closed'} onClose={() => setPaymentModalState('closed')} title={paymentModalState === 'form' ? "Enregistrer un nouveau paiement" : "Aperçu du Reçu"} size={paymentModalState === 'form' ? 'lg' : '4xl'}>
-                {paymentModalState === 'form' && <PaymentForm users={users} payments={payments} onSave={handleSaveAndShowReceipt} onCancel={() => setPaymentModalState('closed')} currency={currency} classes={classes}/>}
+                {paymentModalState === 'form' && (
+                    <PaymentForm
+                        users={users}
+                        payments={payments}
+                        onSave={handleSaveAndShowReceipt}
+                        onCancel={() => setPaymentModalState('closed')}
+                        currency={currency}
+                        classes={classes}
+                        fees={fees}
+                        currentUserRole={currentUserRole}
+                    />
+                )}
                 {paymentModalState === 'receipt' && transactionForReceipt && <Receipt transaction={transactionForReceipt} onClose={() => setPaymentModalState('closed')} schoolSettings={schoolSettings} />}
             </Modal>
             <Modal isOpen={isSalaryPaymentModalOpen} onClose={() => setIsSalaryPaymentModalOpen(false)} title="Payer un Salaire" size="lg">

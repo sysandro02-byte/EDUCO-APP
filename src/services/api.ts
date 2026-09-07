@@ -292,6 +292,56 @@ export async function saveGradeToDb(grade: any) {
   }
 }
 
+async function fetchAuthedJson(path: string, fallback: any = []) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl(path), { headers });
+    return await safeJson(res, fallback);
+  } catch (error) {
+    console.warn(`Error fetching ${path}:`, error);
+    return fallback;
+  }
+}
+
+const unwrapCollection = (value: any, key: string, fallback: any[] = []) => {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.[key])) return value[key];
+  return fallback;
+};
+
+export async function fetchSchoolOperationalData() {
+  const [
+    users,
+    payments,
+    transactions,
+    personnel,
+    classes,
+    fees,
+    grades,
+    budget,
+  ] = await Promise.all([
+    fetchAuthedJson('/api/users', []),
+    fetchAuthedJson('/api/payments', []),
+    fetchAuthedJson('/api/transactions', []),
+    fetchAuthedJson('/api/personnel', []),
+    fetchAuthedJson('/api/classes', []),
+    fetchAuthedJson('/api/fees', []),
+    fetchAuthedJson('/api/grades', []),
+    fetchAuthedJson('/api/budget', { total: 0, income: 0, expense: 0 }),
+  ]);
+
+  return {
+    users: unwrapCollection(users, 'users'),
+    payments: unwrapCollection(payments, 'payments'),
+    transactions: unwrapCollection(transactions, 'transactions'),
+    personnel: unwrapCollection(personnel, 'personnel'),
+    classes: unwrapCollection(classes, 'classes'),
+    fees: unwrapCollection(fees, 'fees'),
+    grades: unwrapCollection(grades, 'grades'),
+    budget,
+  };
+}
+
 export async function sendMessageToDb(message: any) {
   try {
     const headers = await getAuthHeaders();
@@ -923,6 +973,46 @@ export async function saveActivityLogToDb(logEntry: {
   } catch (error) {
     console.warn('Error saving activity log to DB:', error);
     return null;
+  }
+}
+
+export async function fetchCashierReportsFromDb() {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl('/api/cashier-reports'), { headers });
+    return await safeJson(res, { success: false, reports: [] });
+  } catch (error: any) {
+    console.warn('Error fetching cashier reports:', error?.message || error);
+    return { success: false, reports: [], error: error?.message || 'Erreur bordereaux caisse' };
+  }
+}
+
+export async function saveCashierReportToDb(report: any) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl('/api/cashier-reports'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(report),
+    });
+    return await safeJson(res, { success: false });
+  } catch (error: any) {
+    console.warn('Error saving cashier report:', error?.message || error);
+    return { success: false, error: error?.message || 'Erreur enregistrement bordereau' };
+  }
+}
+
+export async function clearCashierReportsFromDb() {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl('/api/cashier-reports'), {
+      method: 'DELETE',
+      headers,
+    });
+    return await safeJson(res, { success: false });
+  } catch (error: any) {
+    console.warn('Error clearing cashier reports:', error?.message || error);
+    return { success: false, error: error?.message || 'Erreur suppression bordereaux' };
   }
 }
 

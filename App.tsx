@@ -84,7 +84,7 @@ import { compressBase64Image } from './utils/imageCompressor';
 import { getSupabaseClient, getStoredSupabaseConfig } from './src/lib/supabase';
 import { purgeSupabaseDirectly, purgeSchoolSupabaseDirectly, deleteUserFromSupabaseDirectly, saveActivityLogToSupabaseDirectly, fetchActivityLogsFromSupabaseDirectly } from './src/lib/supabaseSeeder';
 import { getApiUrl } from './src/lib/apiConfig';
-import { getCurrentUser, findUserByEmail, getSchoolSettings, saveUserToDb, deleteUserFromDb, deleteSchoolFromDb, saveActivityLogToDb, fetchActivityLogsFromDb, checkDbConnection, syncInitialData, fetchCurrentSubscription, SchoolSubscriptionInfo, fetchAdminExportData, fetchAdminRegisteredSchools, saveTransactionToDb, savePaymentToDb, updateTransactionStatusInDb, savePersonnelToDb, saveClassToDb, saveFeeToDb, saveGradeToDb, sendMessageToDb, checkInterSchoolStudentDebt, fetchNotificationsFromDb, dispatchNotificationToRoles, markNotificationAsReadInDb, markAllNotificationsAsReadInDb, deleteNotificationFromDb, clearNotificationsInDb } from './src/services/api';
+import { getCurrentUser, findUserByEmail, getSchoolSettings, saveUserToDb, deleteUserFromDb, deleteSchoolFromDb, saveActivityLogToDb, fetchActivityLogsFromDb, checkDbConnection, syncInitialData, fetchCurrentSubscription, SchoolSubscriptionInfo, fetchAdminExportData, fetchAdminRegisteredSchools, fetchSchoolOperationalData, saveTransactionToDb, savePaymentToDb, updateTransactionStatusInDb, savePersonnelToDb, saveClassToDb, saveFeeToDb, saveGradeToDb, sendMessageToDb, checkInterSchoolStudentDebt, fetchNotificationsFromDb, dispatchNotificationToRoles, markNotificationAsReadInDb, markAllNotificationsAsReadInDb, deleteNotificationFromDb, clearNotificationsInDb } from './src/services/api';
 import { DbStatus } from './src/services/api';
 import { Database, CheckCircle2, User as UserIcon, Camera, Settings, LogOut, Shield, ChevronDown, Lock, Zap, Sparkles, Key, ShieldCheck, X, AlertCircle, AlertTriangle } from 'lucide-react';
 import LockedFeatureGuard from './components/LockedFeatureGuard';
@@ -952,8 +952,8 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Refresh business data without replacing a populated screen with an empty
-  // partial response. Notifications have their own per-user endpoint below.
+  // Refresh business data from the backend. Notifications have their own
+  // per-user endpoint below.
   useEffect(() => {
     const areRecordsEqual = (a: any[], b: any[]) => {
       if (a === b) return true;
@@ -964,40 +964,51 @@ const App: React.FC = () => {
     const replaceIfArray = <T,>(setter: React.Dispatch<React.SetStateAction<T[]>>, value: unknown) => {
       if (!Array.isArray(value)) return;
       setter(prev => {
-        // An empty remote collection during a transient auth/database response
-        // must never erase records already visible to the user. Local deletes
-        // update the state optimistically, so this does not block normal use.
-        if (prev.length > 0 && value.length === 0) return prev;
         return areRecordsEqual(prev, value) ? prev : value as T[];
       });
     };
 
-    const syncCentralAdminData = async () => {
+    const syncBusinessData = async () => {
       try {
         const userRole = loggedInRole || currentUser?.role;
         if (!userRole && !currentUser) return;
 
-        const exportRes = await fetchAdminExportData();
-        if (exportRes && exportRes.success) {
-          replaceIfArray<User>(setUsers, exportRes.users);
-          replaceIfArray<any>(setPayments, exportRes.payments);
-          replaceIfArray<Transaction>(setTransactions, exportRes.transactions);
-          replaceIfArray<Personnel>(setPersonnel, exportRes.personnel);
-          replaceIfArray<Class>(setClasses, exportRes.classes);
-          replaceIfArray<Fee>(setFees, exportRes.fees);
-          replaceIfArray<Grade>(setGrades, exportRes.grades);
-          replaceIfArray<any>(setAttendance, exportRes.attendance);
-          // Do not use the consolidated export for notifications: it contains
-          // school/global records and can expose another account's messages.
+        if (userRole === 'Admin' || userRole === 'Co-admin') {
+          const exportRes = await fetchAdminExportData();
+          if (exportRes && exportRes.success) {
+            replaceIfArray<User>(setUsers, exportRes.users);
+            replaceIfArray<any>(setPayments, exportRes.payments);
+            replaceIfArray<Transaction>(setTransactions, exportRes.transactions);
+            replaceIfArray<Personnel>(setPersonnel, exportRes.personnel);
+            replaceIfArray<Class>(setClasses, exportRes.classes);
+            replaceIfArray<Fee>(setFees, exportRes.fees);
+            replaceIfArray<Grade>(setGrades, exportRes.grades);
+            replaceIfArray<any>(setAttendance, exportRes.attendance);
+            // Do not use the consolidated export for notifications: it contains
+            // school/global records and can expose another account's messages.
+          }
+          return;
+        }
+
+        const schoolData = await fetchSchoolOperationalData();
+        replaceIfArray<User>(setUsers, schoolData.users);
+        replaceIfArray<any>(setPayments, schoolData.payments);
+        replaceIfArray<Transaction>(setTransactions, schoolData.transactions);
+        replaceIfArray<Personnel>(setPersonnel, schoolData.personnel);
+        replaceIfArray<Class>(setClasses, schoolData.classes);
+        replaceIfArray<Fee>(setFees, schoolData.fees);
+        replaceIfArray<Grade>(setGrades, schoolData.grades);
+        if (schoolData.budget && typeof schoolData.budget === 'object') {
+          setBudget(prev => JSON.stringify(prev) === JSON.stringify(schoolData.budget) ? prev : schoolData.budget);
         }
       } catch (e) {
-        console.warn('Central account sync warning:', e);
+        console.warn('Business data sync warning:', e);
       }
     };
 
-    syncCentralAdminData();
-    const syncInterval = setInterval(syncCentralAdminData, 60000);
-    const onFocus = () => syncCentralAdminData();
+    syncBusinessData();
+    const syncInterval = setInterval(syncBusinessData, 60000);
+    const onFocus = () => syncBusinessData();
     window.addEventListener('focus', onFocus);
     return () => {
       clearInterval(syncInterval);
@@ -3274,6 +3285,7 @@ const App: React.FC = () => {
                 communicationSettings={communicationSettings || initialCommunicationSettings}
                 onSaveCommunicationSettings={handleSaveCommunicationSettings}
                 schoolSettings={schoolSettings}
+                currentUser={currentUser}
                 isCaisseOpen={isCaisseOpen}
                 currentUserRole={loggedInRole}
                 onEditTransaction={handleEditTransaction}

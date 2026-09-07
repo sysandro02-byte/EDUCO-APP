@@ -54,6 +54,7 @@ import {
   normalizeEmail,
   normalizeRole,
 } from './src/services/userAccountWorkflow.ts';
+import { buildStudentPaymentLedger } from './src/services/cashierWorkflow.ts';
 
 const base64UrlEncode = (value: Buffer) => value.toString('base64url');
 const base64UrlDecode = (value: string) => Buffer.from(value, 'base64url');
@@ -1013,7 +1014,7 @@ async function startServer() {
   // Admin Endpoint: Reset (DANGEROUS)
   app.post('/api/admin/reset-data', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (dbUser?.role !== 'Admin') return res.status(403).json({ error: 'Only admins can reset data' });
       
       const schoolId = dbUser.schoolId;
@@ -2237,7 +2238,7 @@ async function startServer() {
   // DELETE /api/schools/:id - Delete a school establishment and all its associated data
   app.delete('/api/schools/:id', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!['Admin', 'Co-admin', 'Promoteur'].includes(dbUser?.role || '')) {
         return res.status(403).json({ error: 'Permission refusée. Seuls les administrateurs peuvent supprimer un établissement.' });
       }
@@ -2339,6 +2340,126 @@ async function startServer() {
     }
   });
 
+  const CASHIER_REPORT_ACTION = 'Clôture caisse';
+  const mapCashierReportLog = (row: any) => {
+    let report: any = {};
+    try {
+      report = typeof row.details === 'string' ? JSON.parse(row.details) : (row.details || {});
+    } catch {
+      report = { notes: row.details || '' };
+    }
+    return {
+      ...report,
+      id: report.id || row.id,
+      createdAt: row.created_at || row.createdAt,
+      cashierName: report.cashierName || row.user_name || row.userName || 'Caisse',
+    };
+  };
+
+  app.get('/api/cashier-reports', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getRequestUser(req);
+      if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (supabaseAdmin) {
+        const { data, error } = await supabaseAdmin
+          .from('activity_logs')
+          .select('*')
+          .eq('school_id', dbUser.schoolId)
+          .eq('action', CASHIER_REPORT_ACTION)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        return res.json({ success: true, reports: (data || []).map(mapCashierReportLog) });
+      }
+
+      const logs = await db.select().from(activityLogs)
+        .where(and(eq(activityLogs.schoolId, dbUser.schoolId), eq(activityLogs.action, CASHIER_REPORT_ACTION)))
+        .orderBy(desc(activityLogs.createdAt))
+        .limit(200);
+      res.json({ success: true, reports: logs.map(mapCashierReportLog) });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message, reports: [] });
+    }
+  });
+
+  app.post('/api/cashier-reports', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getRequestUser(req);
+      if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
+
+      const report = {
+        ...req.body,
+        id: req.body.id || `CLS-${Date.now()}`,
+        date: req.body.date || new Date().toISOString().slice(0, 10),
+        time: req.body.time || new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+        cashierName: req.body.cashierName || dbUser.name || 'Caisse',
+      };
+      const details = JSON.stringify(report);
+      const now = new Date();
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (supabaseAdmin) {
+        const { data, error } = await supabaseAdmin
+          .from('activity_logs')
+          .insert([{
+            action: CASHIER_REPORT_ACTION,
+            details,
+            user_name: dbUser.name,
+            user_role: dbUser.role,
+            user_email: dbUser.email,
+            school_id: dbUser.schoolId,
+            school_name: req.body.schoolName || '',
+            page: 'Caisse',
+            created_at: now.toISOString(),
+          }])
+          .select('*')
+          .single();
+        if (error) throw error;
+        return res.json({ success: true, report: mapCashierReportLog(data) });
+      }
+
+      const [created] = await db.insert(activityLogs).values({
+        action: CASHIER_REPORT_ACTION,
+        details,
+        userName: dbUser.name,
+        userRole: dbUser.role,
+        userEmail: dbUser.email,
+        schoolId: dbUser.schoolId,
+        schoolName: req.body.schoolName || '',
+        page: 'Caisse',
+        createdAt: now,
+      }).returning();
+      res.json({ success: true, report: mapCashierReportLog(created) });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.delete('/api/cashier-reports', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getRequestUser(req);
+      if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (supabaseAdmin) {
+        const { error } = await supabaseAdmin
+          .from('activity_logs')
+          .delete()
+          .eq('school_id', dbUser.schoolId)
+          .eq('action', CASHIER_REPORT_ACTION);
+        if (error) throw error;
+      } else {
+        await db.delete(activityLogs)
+          .where(and(eq(activityLogs.schoolId, dbUser.schoolId), eq(activityLogs.action, CASHIER_REPORT_ACTION)));
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   // GET & POST /api/activity-logs
   app.get('/api/activity-logs', requireAuth, async (req: AuthRequest, res) => {
     try {
@@ -2370,7 +2491,7 @@ async function startServer() {
 
   app.post('/api/activity-logs', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       let { action, details, userName, userRole, userEmail, schoolName, schoolId, ipAddress, location, device, browser, page } = req.body;
 
       if (!ipAddress) {
@@ -2403,7 +2524,7 @@ async function startServer() {
   // Transactions Endpoints
   app.get('/api/transactions', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2422,7 +2543,7 @@ async function startServer() {
 
   app.post('/api/transactions', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2446,7 +2567,7 @@ async function startServer() {
 
   app.put('/api/transactions/:id/status', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2485,18 +2606,36 @@ async function startServer() {
   // Payments Endpoints
   app.get('/api/payments', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
-      const { data, error } = await supabaseAdmin
-        .from('payments')
-        .select('*')
-        .eq('school_id', dbUser.schoolId)
-        .order('payment_date', { ascending: false });
-      if (error) throw error;
-      res.json((data || []).map(mapSupabasePayment));
+      const [
+        { data: paymentRows, error: paymentError },
+        { data: studentRows, error: studentError },
+        { data: userRows, error: userError },
+        { data: classRows },
+        { data: feeRows },
+      ] = await Promise.all([
+        supabaseAdmin.from('payments').select('*').eq('school_id', dbUser.schoolId).order('payment_date', { ascending: false }),
+        supabaseAdmin.from('students').select('*').eq('school_id', dbUser.schoolId),
+        supabaseAdmin.from('users').select('*').eq('school_id', dbUser.schoolId),
+        supabaseAdmin.from('classes').select('*').eq('school_id', dbUser.schoolId),
+        supabaseAdmin.from('fees').select('*').eq('school_id', dbUser.schoolId),
+      ]);
+      if (paymentError) throw paymentError;
+      if (studentError) throw studentError;
+      if (userError) throw userError;
+
+      res.json(buildStudentPaymentLedger({
+        payments: paymentRows || [],
+        students: studentRows || [],
+        users: userRows || [],
+        classes: classRows || [],
+        fees: feeRows || [],
+        schoolId: dbUser.schoolId,
+      }));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -2504,14 +2643,33 @@ async function startServer() {
 
   app.post('/api/payments', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+      const requestedStudentId = Number(req.body.studentRecordId || req.body.studentId || req.body.student_id || 0);
+      let resolvedStudentId = Number.isFinite(requestedStudentId) ? requestedStudentId : 0;
+      if (resolvedStudentId) {
+        const { data: studentById } = await supabaseAdmin
+          .from('students')
+          .select('id')
+          .eq('school_id', dbUser.schoolId)
+          .eq('id', resolvedStudentId)
+          .maybeSingle();
+        if (!studentById?.id) {
+          const { data: studentByUser } = await supabaseAdmin
+            .from('students')
+            .select('id')
+            .eq('school_id', dbUser.schoolId)
+            .eq('user_id', resolvedStudentId)
+            .maybeSingle();
+          resolvedStudentId = Number(studentByUser?.id || resolvedStudentId);
+        }
+      }
       const payload = {
         school_id: dbUser.schoolId,
-        student_id: req.body.studentId || req.body.student_id || null,
+        student_id: resolvedStudentId || null,
         fee_id: req.body.feeId || req.body.fee_id || null,
         amount: Number(req.body.amount || 0),
         payment_date: req.body.paymentDate || req.body.payment_date || new Date().toISOString(),
@@ -2530,7 +2688,7 @@ async function startServer() {
   // School Settings Endpoints
   app.get('/api/school', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2545,7 +2703,7 @@ async function startServer() {
 
   app.put('/api/school', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2567,7 +2725,7 @@ async function startServer() {
   });
   app.get('/api/budget', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2586,7 +2744,7 @@ async function startServer() {
   // Classes Endpoints
   app.get('/api/classes', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2601,7 +2759,7 @@ async function startServer() {
 
   app.post('/api/classes', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2628,7 +2786,7 @@ async function startServer() {
   // Fees Endpoints
   app.get('/api/fees', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2643,7 +2801,7 @@ async function startServer() {
 
   app.post('/api/fees', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2670,7 +2828,7 @@ async function startServer() {
   // Personnel Endpoints
   app.get('/api/personnel', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2691,7 +2849,7 @@ async function startServer() {
 
   app.post('/api/personnel', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2763,7 +2921,7 @@ async function startServer() {
   // Grades Endpoints
   app.get('/api/grades', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2787,7 +2945,7 @@ async function startServer() {
 
   app.post('/api/grades', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2878,7 +3036,7 @@ async function startServer() {
   // Intra/inter-school messaging using the existing notifications table as durable delivery
   app.post('/api/messages', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -2916,7 +3074,7 @@ async function startServer() {
 
   app.get('/api/notifications', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
 
@@ -2940,7 +3098,7 @@ async function startServer() {
   // audiences, so a school operation cannot leak into the platform inbox.
   app.post('/api/notifications/dispatch', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       const userRole = req.user?.role || dbUser?.role || '';
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
@@ -2998,7 +3156,7 @@ async function startServer() {
 
   app.post('/api/notifications/:id/read', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
 
@@ -3020,7 +3178,7 @@ async function startServer() {
 
   app.post('/api/notifications/read-all', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
 
@@ -3039,7 +3197,7 @@ async function startServer() {
 
   app.delete('/api/notifications/:id', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
 
@@ -3059,7 +3217,7 @@ async function startServer() {
 
   app.delete('/api/notifications', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
 
@@ -3078,7 +3236,7 @@ async function startServer() {
 
   app.post('/api/admin/broadcast-notifications', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       const userRole = req.user?.role || dbUser?.role;
       if (userRole !== 'Admin' && userRole !== 'Co-admin') {
         return res.status(403).json({ success: false, error: 'Accès réservé aux administrateurs.' });
@@ -3146,7 +3304,7 @@ async function startServer() {
 
   app.post('/api/students/financial-check', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -4023,7 +4181,7 @@ async function startServer() {
   // ==========================================
   app.get('/api/admin/diagnostic', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (dbUser?.role !== 'Admin' && dbUser?.role !== 'Co-admin') {
         return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
       }
@@ -4161,7 +4319,7 @@ async function startServer() {
 
   app.get('/api/admin/consolidated-financials', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       const userRole = req.user?.role || dbUser?.role;
       if (userRole !== 'Admin' && userRole !== 'Co-admin') {
         return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
@@ -4270,7 +4428,7 @@ async function startServer() {
 
   app.get('/api/admin/registered-schools', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       const userRole = req.user?.role || dbUser?.role;
       if (userRole !== 'Admin' && userRole !== 'Co-admin') {
         return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
@@ -4880,7 +5038,7 @@ async function startServer() {
   // Admin: Delete School from DB permanently
   app.delete('/api/schools/:id', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       if (dbUser?.role !== 'Admin' && dbUser?.role !== 'Co-admin') {
         return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
       }
@@ -4941,7 +5099,7 @@ async function startServer() {
   // ==========================================
   app.get('/api/surveys', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       const schoolId = dbUser?.schoolId;
       const supabaseAdmin = getSupabaseAdmin(req);
 
@@ -4980,7 +5138,7 @@ async function startServer() {
 
   app.post('/api/surveys/create', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getUserByUid(req.user!.uid);
+      const dbUser = await getRequestUser(req);
       const { title, description, category, targetAudience, deadline, questions } = req.body;
 
       if (!title) {
