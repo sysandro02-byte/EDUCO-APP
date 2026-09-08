@@ -53,6 +53,7 @@ import {
   buildDuplicateEmailMessage,
   buildStaffMatricule,
   getAccountCreationKind,
+  normalizeAccountStatus,
   normalizeEmail,
   normalizeRole,
 } from './src/services/userAccountWorkflow.ts';
@@ -163,11 +164,17 @@ const mapSupabaseUser = (user: any) => user ? ({
   email: user.email,
   role: user.role,
   avatar: user.avatar,
-  status: user.status,
+  status: normalizeAccountStatus(user.status),
   personnelId: user.personnelId || user.personnel_id,
   studentId: user.student_id || user.studentId || user.matricule,
+  matricule: user.matricule || user.student_id || user.studentId,
+  classId: user.class_id || user.classId,
+  class: user.class || user.className,
   parentName: user.parent_name || user.parentName,
   parentEmail: user.parent_email || user.parentEmail,
+  parentPhone: user.parent_phone || user.parentPhone,
+  phone: user.phone || user.contact,
+  contact: user.contact || user.phone,
   createdAt: user.created_at || user.createdAt,
 }) : null;
 
@@ -252,7 +259,7 @@ const mapSupabasePersonnel = (p: any) => p ? ({
   name: p.name || `Personnel #${p.id}`,
   email: p.email || '',
   phone: p.phone || '',
-  status: p.status || 'Actif'
+  status: normalizeAccountStatus(p.status)
 }) : null;
 
 const mapSupabaseGrade = (g: any, subjectName?: string) => g ? ({
@@ -1730,35 +1737,58 @@ async function startServer() {
       let allUsersList: any[] = supabaseAdmin ? [] : await db.select().from(users).catch(() => []);
       if (supabaseAdmin) {
         try {
-          const { data: sbUsers } = await supabaseAdmin.from('users').select('*');
+          const [
+            { data: sbUsers },
+            { data: sbStudents },
+            { data: sbPersonnel },
+            { data: sbClasses }
+          ] = await Promise.all([
+            supabaseAdmin.from('users').select('*'),
+            supabaseAdmin.from('students').select('*'),
+            supabaseAdmin.from('personnel').select('*'),
+            supabaseAdmin.from('classes').select('*')
+          ]);
+          const classesById = new Map((sbClasses || []).map((c: any) => [String(c.id), c]));
+          const studentByUserId = new Map((sbStudents || []).map((student: any) => [String(student.user_id || student.userId), student]));
+          const personnelByUserId = new Map((sbPersonnel || []).map((person: any) => [String(person.user_id || person.userId), person]));
+          const enrichAccount = (user: any) => {
+            const student = studentByUserId.get(String(user.id));
+            const person = personnelByUserId.get(String(user.id));
+            const assignedClass = student ? classesById.get(String(student.class_id || student.classId || '')) : null;
+            return {
+              ...user,
+              personnelId: person?.id || user.personnelId || user.personnel_id,
+              matricule: student?.student_id || student?.matricule || person?.matricule || user.matricule,
+              student_id: student?.student_id || user.student_id || user.matricule,
+              class_id: student?.class_id || user.class_id,
+              class: assignedClass?.name || student?.class || user.class,
+              parent_name: student?.parent_name || user.parent_name,
+              parent_email: student?.parent_email || user.parent_email,
+              parent_phone: student?.parent_phone || user.parent_phone,
+              phone: user.phone || student?.parent_phone,
+              baseSalary: person?.base_salary ?? user.baseSalary,
+              salary: person?.base_salary ?? user.salary,
+              hireDate: person?.hire_date || user.hireDate,
+              bankAccount: person?.bank_account || user.bankAccount,
+              role: person?.role || user.role,
+              status: normalizeAccountStatus(user.status || student?.status)
+            };
+          };
           if (sbUsers && sbUsers.length > 0) {
             sbUsers.forEach(su => {
-              const existingIdx = allUsersList.findIndex(u => u.id === su.id || (su.email && u.email && u.email.toLowerCase() === su.email.toLowerCase()));
+              const enrichedUser = enrichAccount(su);
+              const existingIdx = allUsersList.findIndex(u => u.id === enrichedUser.id || (enrichedUser.email && u.email && u.email.toLowerCase() === enrichedUser.email.toLowerCase()));
               if (existingIdx >= 0) {
                 // Enrich existing user with any missing fields from Supabase
                 allUsersList[existingIdx] = {
                   ...allUsersList[existingIdx],
-                  avatar: allUsersList[existingIdx].avatar || su.avatar,
-                  phone: allUsersList[existingIdx].phone || su.phone,
-                  status: (allUsersList[existingIdx].status === 'Actif' || su.status === 'active' || su.status === 'Actif') ? 'Actif' : (allUsersList[existingIdx].status || 'Actif'),
-                  studentId: allUsersList[existingIdx].studentId || su.student_id || su.matricule,
-                  class: allUsersList[existingIdx].class || su.class,
+                  ...mapSupabaseUser(enrichedUser),
+                  avatar: allUsersList[existingIdx].avatar || enrichedUser.avatar,
+                  phone: allUsersList[existingIdx].phone || enrichedUser.phone,
+                  status: normalizeAccountStatus(allUsersList[existingIdx].status || enrichedUser.status),
                 };
               } else {
-                allUsersList.push({
-                  id: su.id,
-                  uid: su.uid || `usr_${su.id}`,
-                  email: su.email,
-                  name: su.name || su.email?.split('@')[0] || 'Utilisateur',
-                  role: su.role || 'Personnel',
-                  schoolId: su.school_id || su.schoolId || 1,
-                  status: (su.status === 'active' || su.status === 'Actif' || !su.status) ? 'Actif' : 'Inactif',
-                  avatar: su.avatar,
-                  phone: su.phone,
-                  matricule: su.matricule,
-                  studentId: su.student_id || su.matricule,
-                  class: su.class
-                });
+                allUsersList.push(mapSupabaseUser(enrichedUser));
               }
             });
           }
@@ -1939,7 +1969,7 @@ async function startServer() {
           }
         }
 
-        if (accountKind !== 'student' && normalizedRequestedRole !== 'parent' && normalizedRequestedRole !== 'co-admin') {
+        if (accountKind !== 'student' && accountKind !== 'parent' && normalizedRequestedRole !== 'co-admin') {
           const { data: schoolRow } = await adminClient.from('schools').select('name').eq('id', targetSchoolId).maybeSingle();
           const words = String(schoolRow?.name || 'EDUCO').normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[A-Za-z0-9]+/g) || [];
           const acronym = (words.length > 1 ? words.map((word: string) => word[0]).join('') : (words[0] || 'EDUCO').slice(0, 5)).toUpperCase().slice(0, 6);

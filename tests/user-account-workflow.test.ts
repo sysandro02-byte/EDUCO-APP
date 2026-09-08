@@ -4,6 +4,7 @@ import {
   buildDuplicateEmailMessage,
   buildStaffMatricule,
   getAccountCreationKind,
+  normalizeAccountStatus,
   makeStudentTechnicalEmail,
   normalizeEmail,
 } from '../src/services/userAccountWorkflow.ts';
@@ -18,6 +19,13 @@ test('account creation workflow separates roles and enforces a single normalized
   assert.equal(getAccountCreationKind('Élève'), 'student');
   assert.equal(getAccountCreationKind('Enseignant'), 'teacher');
   assert.equal(getAccountCreationKind('Caissière'), 'staff');
+  assert.equal(getAccountCreationKind('Parent'), 'parent');
+  assert.equal(getAccountCreationKind('Parent d’élève'), 'parent');
+
+  assert.equal(normalizeAccountStatus('active'), 'Actif');
+  assert.equal(normalizeAccountStatus('Actif'), 'Actif');
+  assert.equal(normalizeAccountStatus('inactive'), 'Inactif');
+  assert.equal(normalizeAccountStatus('suspended'), 'Suspendu');
 
   const studentEmail = makeStudentTechnicalEmail({
     name: 'Ada Lovelace',

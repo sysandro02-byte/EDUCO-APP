@@ -1,7 +1,8 @@
-export type AccountCreationKind = 'student' | 'teacher' | 'staff';
+export type AccountCreationKind = 'student' | 'teacher' | 'parent' | 'staff';
 
 const teacherRoles = new Set(['enseignant']);
 const studentRoles = new Set(['élève', 'eleve']);
+const parentRoles = new Set(['parent', 'parent d\'eleve', 'parent d’eleve']);
 
 export const normalizeEmail = (email?: string | null) => String(email || '').trim().toLowerCase();
 
@@ -12,10 +13,19 @@ export const normalizeRole = (role?: string | null) =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
 
+export const normalizeAccountStatus = (status?: string | null) => {
+  const normalized = String(status || '').trim().toLowerCase();
+  if (!normalized || normalized === 'active' || normalized === 'actif') return 'Actif';
+  if (normalized === 'inactive' || normalized === 'inactif') return 'Inactif';
+  if (normalized === 'suspended' || normalized === 'suspendu') return 'Suspendu';
+  return status || 'Actif';
+};
+
 export const getAccountCreationKind = (role?: string | null): AccountCreationKind => {
   const normalizedRole = normalizeRole(role);
   if (studentRoles.has(normalizedRole)) return 'student';
   if (teacherRoles.has(normalizedRole)) return 'teacher';
+  if (parentRoles.has(normalizedRole)) return 'parent';
   return 'staff';
 };
 

@@ -97,6 +97,14 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
     setTimeout(() => setToastMessage(null), 3500);
   };
 
+  const getDisplayStatus = (status?: string) => {
+    const normalized = String(status || '').trim().toLowerCase();
+    if (!normalized || normalized === 'active' || normalized === 'actif') return 'Actif';
+    if (normalized === 'inactive' || normalized === 'inactif') return 'Inactif';
+    if (normalized === 'suspended' || normalized === 'suspendu') return 'Suspendu';
+    return status || 'Actif';
+  };
+
   const handleAddUser = (role = 'Élève') => {
     setEditingUser(null);
     setDefaultCreationRole(role);
@@ -141,7 +149,7 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
   const handleToggleStatus = async (user: User) => {
     if (!user.id) return;
     setActionLoadingId(user.id);
-    const newStatus = user.status === 'Actif' ? 'Inactif' : 'Actif';
+    const newStatus = getDisplayStatus(user.status) === 'Actif' ? 'Inactif' : 'Actif';
 
     try {
       const token = localStorage.getItem('supabase_auth_token') || localStorage.getItem('auth_token');
@@ -261,7 +269,7 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
 
   // KPIs computed strictly on establishment users
   const totalUsersCount = establishmentUsers.length;
-  const activeUsersCount = establishmentUsers.filter(u => u.status === 'Actif').length;
+  const activeUsersCount = establishmentUsers.filter(u => getDisplayStatus(u.status) === 'Actif').length;
   const teachersCount = establishmentUsers.filter(u => u.role === 'Enseignant').length;
   const studentsCount = establishmentUsers.filter(u => u.role === 'Élève').length;
   const adminStaffCount = establishmentUsers.filter(u => 
@@ -272,7 +280,7 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
   const filteredUsers = useMemo(() => {
     return establishmentUsers
       .filter(user => roleFilter === 'All' || user.role === roleFilter)
-      .filter(user => statusFilter === 'All' || user.status === statusFilter)
+      .filter(user => statusFilter === 'All' || getDisplayStatus(user.status) === statusFilter)
       .filter(user => schoolFilter === 'All' || (user as any).schoolName === schoolFilter)
       .filter(user => 
         (user.name?.toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -594,7 +602,7 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
                         onClick={() => handleToggleStatus(user)}
                         disabled={actionLoadingId === user.id}
                         className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
-                          user.status === 'Actif'
+                          getDisplayStatus(user.status) === 'Actif'
                             ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100'
                             : 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800 hover:bg-rose-100'
                         }`}
@@ -602,12 +610,12 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
                       >
                         {actionLoadingId === user.id ? (
                           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        ) : user.status === 'Actif' ? (
+                        ) : getDisplayStatus(user.status) === 'Actif' ? (
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                         ) : (
                           <XCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
                         )}
-                        <span>{user.status || 'Actif'}</span>
+                        <span>{getDisplayStatus(user.status)}</span>
                       </button>
 
                       {canManageUsers && (
@@ -772,11 +780,11 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
                 <p className="text-xs text-slate-500 font-mono mt-0.5">{inspectingUser.email || 'Pas d\'adresse email'}</p>
                 <div className="flex items-center gap-2 mt-2">
                   <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                    inspectingUser.status === 'Actif'
+                    getDisplayStatus(inspectingUser.status) === 'Actif'
                       ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
                       : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
                   }`}>
-                    {inspectingUser.status || 'Actif'}
+                    {getDisplayStatus(inspectingUser.status)}
                   </span>
                   {(inspectingUser as any).schoolName && (
                     <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
@@ -820,16 +828,16 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
                 <button
                   onClick={() => {
                     handleToggleStatus(inspectingUser);
-                    setInspectingUser(prev => prev ? { ...prev, status: prev.status === 'Actif' ? 'Inactif' : 'Actif' } : null);
+                    setInspectingUser(prev => prev ? { ...prev, status: getDisplayStatus(prev.status) === 'Actif' ? 'Inactif' : 'Actif' } : null);
                   }}
                   className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
-                    inspectingUser.status === 'Actif'
+                    getDisplayStatus(inspectingUser.status) === 'Actif'
                       ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
                       : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                   }`}
                 >
                   <Power className="w-3.5 h-3.5" />
-                  <span>{inspectingUser.status === 'Actif' ? 'Désactiver le compte' : 'Activer le compte'}</span>
+                  <span>{getDisplayStatus(inspectingUser.status) === 'Actif' ? 'Désactiver le compte' : 'Activer le compte'}</span>
                 </button>
 
                 <button

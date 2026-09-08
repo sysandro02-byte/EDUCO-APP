@@ -86,6 +86,7 @@ import { getSupabaseClient, getStoredSupabaseConfig } from './src/lib/supabase';
 import { purgeSupabaseDirectly, purgeSchoolSupabaseDirectly, deleteUserFromSupabaseDirectly, saveActivityLogToSupabaseDirectly, fetchActivityLogsFromSupabaseDirectly } from './src/lib/supabaseSeeder';
 import { getApiUrl } from './src/lib/apiConfig';
 import { getCurrentUser, findUserByEmail, getSchoolSettings, saveUserToDb, deleteUserFromDb, deleteSchoolFromDb, saveActivityLogToDb, fetchActivityLogsFromDb, checkDbConnection, syncInitialData, fetchCurrentSubscription, SchoolSubscriptionInfo, fetchAdminExportData, fetchAdminRegisteredSchools, fetchSchoolOperationalData, saveTransactionToDb, savePaymentToDb, updateTransactionStatusInDb, savePersonnelToDb, saveClassToDb, saveFeeToDb, saveGradeToDb, sendMessageToDb, checkInterSchoolStudentDebt, fetchNotificationsFromDb, dispatchNotificationToRoles, markNotificationAsReadInDb, markAllNotificationsAsReadInDb, deleteNotificationFromDb, clearNotificationsInDb } from './src/services/api';
+import { getAccountCreationKind } from './src/services/userAccountWorkflow';
 import { DbStatus } from './src/services/api';
 import { Database, CheckCircle2, User as UserIcon, Camera, Settings, LogOut, Shield, ChevronDown, Lock, Zap, Sparkles, Key, ShieldCheck, X, AlertCircle, AlertTriangle } from 'lucide-react';
 import LockedFeatureGuard from './components/LockedFeatureGuard';
@@ -1629,7 +1630,8 @@ const App: React.FC = () => {
         } else {
           setUsers(prevUsers => [...prevUsers, savedUser]);
         }
-        if (!['Élève', 'Parent', 'Admin', 'Co-admin'].includes(savedUser.role)) {
+        const accountKind = getAccountCreationKind(savedUser.role);
+        if (accountKind !== 'student' && accountKind !== 'parent' && !['Admin', 'Co-admin'].includes(savedUser.role)) {
           const personnelRecord = {
             id: (savedUser as any).personnelId || savedUser.id,
             userId: savedUser.id,

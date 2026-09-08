@@ -248,6 +248,7 @@ const UserForm: React.FC<UserFormProps> = ({
   const accountKind = getAccountCreationKind(formData.role);
   const isStudent = accountKind === 'student';
   const isTeacher = accountKind === 'teacher';
+  const isParent = accountKind === 'parent';
 
   const accountTheme = isStudent
     ? {
@@ -268,7 +269,7 @@ const UserForm: React.FC<UserFormProps> = ({
         text: 'text-emerald-900 dark:text-emerald-200',
       }
     : {
-        label: 'Création du compte personnel',
+        label: isParent ? 'Création du compte parent' : 'Création du compte personnel',
         description: 'Accès administratif ou financier rattaché à l’établissement.',
         icon: Building,
         shell: 'bg-sky-50 dark:bg-sky-950/30 border-sky-200 dark:border-sky-800',
@@ -813,7 +814,7 @@ const UserForm: React.FC<UserFormProps> = ({
                     </div>
                     <div>
                       <h4 className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">
-                        {isStudent ? 'Accès du Compte Élève' : isTeacher ? 'Accès du Compte Enseignant' : 'Accès du Compte Personnel'}
+                        {isStudent ? 'Accès du Compte Élève' : isTeacher ? 'Accès du Compte Enseignant' : isParent ? 'Accès du Compte Parent' : 'Accès du Compte Personnel'}
                       </h4>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400">
                         Définissez le mot de passe initial. Un email ne peut appartenir qu'à un seul compte.
