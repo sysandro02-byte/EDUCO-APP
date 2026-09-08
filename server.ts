@@ -51,7 +51,9 @@ import {
 } from './src/services/subscriptionWorkflow.ts';
 import {
   buildDuplicateEmailMessage,
+  buildSchoolAcronym,
   buildStaffMatricule,
+  buildStudentMatricule,
   getAccountCreationKind,
   normalizeAccountStatus,
   normalizeEmail,
@@ -1942,12 +1944,33 @@ async function startServer() {
 
         if (sbUserError || !sbUser) throw sbUserError || new Error('Impossible de synchroniser le compte utilisateur dans Supabase.');
 
+        const { data: schoolRow } = targetSchoolId
+          ? await adminClient.from('schools').select('name,identifier').eq('id', targetSchoolId).maybeSingle()
+          : { data: null };
+        const schoolAcronym = buildSchoolAcronym(schoolRow?.name || schoolRow?.identifier || 'EDUCO');
+        const keepIfScoped = (value?: string | null) => {
+          const cleanValue = String(value || '').trim();
+          return cleanValue.toUpperCase().startsWith(`${schoolAcronym}-`) ? cleanValue : '';
+        };
+
         if (accountKind === 'student') {
+          const requestedStudentMatricule = keepIfScoped(req.body.studentId || req.body.matricule);
+          let classId = req.body.classId || req.body.class_id || null;
+          if (!classId && req.body.class) {
+            const { data: classRow } = await adminClient
+              .from('classes')
+              .select('id')
+              .eq('school_id', targetSchoolId)
+              .ilike('name', String(req.body.class).trim())
+              .limit(1)
+              .maybeSingle();
+            classId = classRow?.id || null;
+          }
           const studentPayload = {
             user_id: sbUser.id,
             school_id: targetSchoolId,
-            student_id: req.body.studentId || req.body.matricule || `MAT-${sbUser.id}`,
-            class_id: req.body.classId || null,
+            student_id: requestedStudentMatricule || buildStudentMatricule({ schoolAcronym, idOrSeed: sbUser.id }),
+            class_id: classId,
             parent_name: req.body.parentName || req.body.guardian || req.body.parentTuteur || '',
             parent_phone: req.body.parentPhone || req.body.guardianPhone || req.body.phone || req.body.contact || '',
             address: req.body.address || '',
@@ -1967,13 +1990,15 @@ async function startServer() {
           } else {
             await adminClient.from('students').insert([studentPayload]);
           }
+          sbUser.matricule = studentPayload.student_id;
+          sbUser.student_id = studentPayload.student_id;
+          sbUser.class_id = studentPayload.class_id;
+          sbUser.class = req.body.class || '';
         }
 
         if (accountKind !== 'student' && accountKind !== 'parent' && normalizedRequestedRole !== 'co-admin') {
-          const { data: schoolRow } = await adminClient.from('schools').select('name').eq('id', targetSchoolId).maybeSingle();
-          const words = String(schoolRow?.name || 'EDUCO').normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[A-Za-z0-9]+/g) || [];
-          const acronym = (words.length > 1 ? words.map((word: string) => word[0]).join('') : (words[0] || 'EDUCO').slice(0, 5)).toUpperCase().slice(0, 6);
-          const matricule = req.body.matricule || req.body.studentId || buildStaffMatricule({ schoolAcronym: acronym, role: req.body.role, idOrSeed: sbUser.id });
+          const requestedStaffMatricule = keepIfScoped(req.body.matricule || req.body.studentId);
+          const matricule = requestedStaffMatricule || buildStaffMatricule({ schoolAcronym, role: req.body.role, idOrSeed: sbUser.id });
           const { data: existingPersonnel } = await adminClient.from('personnel').select('id').eq('user_id', sbUser.id).eq('school_id', targetSchoolId).maybeSingle();
           const personnelPayload = {
             user_id: sbUser.id,
@@ -1991,15 +2016,12 @@ async function startServer() {
         }
 
 
-        const { data: welcomeSchool } = targetSchoolId
-          ? await adminClient.from('schools').select('name,identifier').eq('id', targetSchoolId).maybeSingle()
-          : { data: null };
         sendWelcomeEmail({
           email: requestEmail,
           name: req.body.name,
           role: req.body.role || 'Personnel',
-          schoolName: welcomeSchool?.name || 'Administration Centrale EDUCO',
-          schoolIdentifier: welcomeSchool?.identifier || 'EDUCO-CENTRAL',
+          schoolName: schoolRow?.name || 'Administration Centrale EDUCO',
+          schoolIdentifier: schoolRow?.identifier || 'EDUCO-CENTRAL',
           tempPassword,
           loginUrl: `${getPublicAppUrl(req)}/?login=1`,
         }).catch(err => console.warn('User welcome email warning:', err));
@@ -2976,7 +2998,17 @@ async function startServer() {
 
       let userId = req.body.userId || req.body.user_id || null;
       const personName = req.body.name || req.body.fullName || 'Membre du personnel';
-      const personEmail = req.body.email || `${String(req.body.matricule || `personnel-${Date.now()}`).toLowerCase().replace(/[^a-z0-9._-]/g, '-') }@personnel.educo.local`;
+      const { data: schoolRow } = await supabaseAdmin
+        .from('schools')
+        .select('name,identifier')
+        .eq('id', dbUser.schoolId)
+        .maybeSingle();
+      const schoolAcronym = buildSchoolAcronym(schoolRow?.name || schoolRow?.identifier || 'EDUCO');
+      const requestedMatricule = String(req.body.matricule || req.body.studentId || '').trim();
+      const scopedMatricule = requestedMatricule.toUpperCase().startsWith(`${schoolAcronym}-`)
+        ? requestedMatricule
+        : buildStaffMatricule({ schoolAcronym, role: req.body.role || 'Personnel', idOrSeed: userId || Date.now() });
+      const personEmail = req.body.email || `${scopedMatricule.toLowerCase().replace(/[^a-z0-9._-]/g, '-') }@personnel.educo.local`;
 
       if (!userId) {
         const { data: existingUser } = await supabaseAdmin
@@ -3020,7 +3052,7 @@ async function startServer() {
       const payload = {
         user_id: Number(userId),
         school_id: dbUser.schoolId,
-        matricule: req.body.matricule || null,
+        matricule: scopedMatricule,
         role: req.body.role || null,
         base_salary: Number(req.body.baseSalary || req.body.salary || 0),
         hire_date: req.body.hireDate || req.body.hire_date || null,

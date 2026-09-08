@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import StudentPhotoCaptureModal from './StudentPhotoCaptureModal';
 import { LoadingDots } from './LoadingDots';
-import { buildStaffMatricule, getAccountCreationKind, makeStudentTechnicalEmail } from '../src/services/userAccountWorkflow';
+import { buildSchoolAcronym, buildStaffMatricule, buildStudentMatricule, getAccountCreationKind, makeStudentTechnicalEmail } from '../src/services/userAccountWorkflow';
 
 // Enhanced type for the user object supporting comprehensive student & parent info
 export interface User {
@@ -279,9 +279,7 @@ const UserForm: React.FC<UserFormProps> = ({
   const AccountIcon = accountTheme.icon;
 
   const getSchoolAcronym = () => {
-    const words = String(schoolSettings?.name || 'EDUCO').normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[A-Za-z0-9]+/g) || [];
-    const acronym = words.length > 1 ? words.map(word => word[0]).join('') : (words[0] || 'EDUCO').slice(0, 5);
-    return acronym.toUpperCase().slice(0, 6) || 'EDUCO';
+    return buildSchoolAcronym(schoolSettings?.name || (schoolSettings as any)?.identifier || 'EDUCO');
   };
 
   // Steps definition
@@ -346,6 +344,20 @@ const UserForm: React.FC<UserFormProps> = ({
     setFormErrors({});
   }, [user, defaultRole]);
 
+  useEffect(() => {
+    if (user || formData.studentId) return;
+
+    const nextMatricule = isStudent
+      ? buildStudentMatricule({ schoolAcronym: getSchoolAcronym() })
+      : buildStaffMatricule({ schoolAcronym: getSchoolAcronym(), role: formData.role });
+
+    setFormData(prev => ({
+      ...prev,
+      studentId: nextMatricule,
+      ...(!isStudent ? { matricule: nextMatricule } : {})
+    }));
+  }, [user, formData.role, formData.studentId, isStudent, schoolSettings?.name]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -364,11 +376,10 @@ const UserForm: React.FC<UserFormProps> = ({
   };
 
   const generateStudentId = () => {
-    const year = new Date().getFullYear();
-    const randomNum = String(Math.floor(Math.random() * 900) + 100);
-    const prefix = formData.class ? formData.class.substring(0, 3).toUpperCase().replace(/[^A-Z0-9]/g, '') : 'GSMT';
-    const newId = `${prefix}-${year}-MAT-${randomNum}`;
-    setFormData(prev => ({ ...prev, studentId: newId }));
+    const newId = isStudent
+      ? buildStudentMatricule({ schoolAcronym: getSchoolAcronym() })
+      : buildStaffMatricule({ schoolAcronym: getSchoolAcronym(), role: formData.role });
+    setFormData(prev => ({ ...prev, studentId: newId, ...(!isStudent ? { matricule: newId } : {}) }));
     if (formErrors.studentId) {
       setFormErrors(prev => {
         const next = { ...prev };
@@ -425,8 +436,12 @@ const UserForm: React.FC<UserFormProps> = ({
       setIsSubmitting(true);
       // Auto-generate email if missing for students
       const finalData = { ...formData };
+      if (isStudent && !finalData.studentId) {
+        finalData.studentId = buildStudentMatricule({ schoolAcronym: getSchoolAcronym() });
+      }
       if (!isStudent && !finalData.id && !finalData.matricule) {
-        finalData.matricule = buildStaffMatricule({ schoolAcronym: getSchoolAcronym(), role: finalData.role });
+        finalData.matricule = finalData.studentId || buildStaffMatricule({ schoolAcronym: getSchoolAcronym(), role: finalData.role });
+        finalData.studentId = finalData.matricule;
       }
       if (!finalData.email && finalData.studentId) {
         finalData.email = makeStudentTechnicalEmail({

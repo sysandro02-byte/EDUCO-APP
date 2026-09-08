@@ -61,13 +61,37 @@ export const makeStudentTechnicalEmail = (params: {
   return `${cleanName}.${schoolPart}.${cleanMatricule}@eleves.educo.local`;
 };
 
+export const buildSchoolAcronym = (schoolNameOrAcronym?: string | null) => {
+  const words = String(schoolNameOrAcronym || 'EDUCO')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .match(/[A-Za-z0-9]+/g) || [];
+  const acronym = words.length > 1
+    ? words.map(word => word[0]).join('')
+    : (words[0] || 'EDUCO').slice(0, 6);
+  return acronym.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || 'EDUCO';
+};
+
+const buildScopedMatricule = (params: {
+  schoolAcronym?: string | null;
+  prefix: string;
+  idOrSeed?: number | string | null;
+}) => {
+  const schoolAcronym = buildSchoolAcronym(params.schoolAcronym);
+  const seed = String(params.idOrSeed || Date.now()).replace(/\D/g, '').slice(-5).padStart(5, '0');
+  return `${schoolAcronym}-${params.prefix}-${new Date().getFullYear()}-${seed}`;
+};
+
+export const buildStudentMatricule = (params: {
+  schoolAcronym?: string | null;
+  idOrSeed?: number | string | null;
+}) => buildScopedMatricule({ ...params, prefix: 'ELV' });
+
 export const buildStaffMatricule = (params: {
   schoolAcronym?: string | null;
   role?: string | null;
   idOrSeed?: number | string | null;
 }) => {
   const prefix = isTeacherRole(params.role) ? 'ENS' : 'PER';
-  const schoolAcronym = String(params.schoolAcronym || 'EDUCO').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || 'EDUCO';
-  const seed = String(params.idOrSeed || Date.now()).replace(/\D/g, '').slice(-5).padStart(5, '0');
-  return `${schoolAcronym}-${prefix}-${new Date().getFullYear()}-${seed}`;
+  return buildScopedMatricule({ ...params, prefix });
 };

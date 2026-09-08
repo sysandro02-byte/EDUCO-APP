@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildDuplicateEmailMessage,
+  buildSchoolAcronym,
   buildStaffMatricule,
+  buildStudentMatricule,
   getAccountCreationKind,
   normalizeAccountStatus,
   makeStudentTechnicalEmail,
@@ -26,6 +28,11 @@ test('account creation workflow separates roles and enforces a single normalized
   assert.equal(normalizeAccountStatus('Actif'), 'Actif');
   assert.equal(normalizeAccountStatus('inactive'), 'Inactif');
   assert.equal(normalizeAccountStatus('suspended'), 'Suspendu');
+  assert.equal(buildSchoolAcronym('Groupe Scolaire Mboté Talents'), 'GSMT');
+  assert.equal(
+    buildStudentMatricule({ schoolAcronym: 'Groupe Scolaire Mboté Talents', idOrSeed: 456 }),
+    `GSMT-ELV-${new Date().getFullYear()}-00456`,
+  );
 
   const studentEmail = makeStudentTechnicalEmail({
     name: 'Ada Lovelace',
@@ -36,10 +43,10 @@ test('account creation workflow separates roles and enforces a single normalized
 
   assert.match(
     buildStaffMatricule({ schoolAcronym: 'Louka Tech', role: 'Enseignant', idOrSeed: 123 }),
-    /^LOUKAT-ENS-\d{4}-00123$/,
+    /^LT-ENS-\d{4}-00123$/,
   );
   assert.match(
     buildStaffMatricule({ schoolAcronym: 'Louka Tech', role: 'Responsable des finances', idOrSeed: 987 }),
-    /^LOUKAT-PER-\d{4}-00987$/,
+    /^LT-PER-\d{4}-00987$/,
   );
 });
