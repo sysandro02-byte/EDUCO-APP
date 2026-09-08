@@ -24,6 +24,7 @@ import {
   Activity, 
   Layers 
 } from 'lucide-react';
+import { canonicalizeRole } from '../src/services/userAccountWorkflow';
 
 interface WeeklyAttendanceChartCardProps {
   attendance?: any[];
@@ -53,7 +54,7 @@ const WeeklyAttendanceChartCard: React.FC<WeeklyAttendanceChartCardProps> = ({
 
   // Compute student list
   const students = useMemo(() => {
-    return users.filter(u => u.role === 'Élève');
+    return users.filter(u => canonicalizeRole(u.role) === 'Élève');
   }, [users]);
 
   // Compute weekly attendance dataset

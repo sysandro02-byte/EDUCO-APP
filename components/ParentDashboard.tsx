@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { requestSchoolApi } from '../src/services/api';
 import { showAppFeedback } from '../src/utils/appFeedback';
+import { canonicalizeRole } from '../src/services/userAccountWorkflow';
 
 interface ParentDashboardProps {
   currentUser: User;
@@ -111,15 +112,23 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
   };
 
   // Find linked student
-  const parentStudentId = currentUser?.studentId?.trim();
-  const linkedStudent = users.find(u => 
-    u.role === 'Élève' && (
-      (parentStudentId && u.studentId?.toLowerCase() === parentStudentId.toLowerCase()) ||
-      (parentStudentId && `STD-${u.id}`.toLowerCase() === parentStudentId.toLowerCase()) ||
-      (currentUser.email && u.email?.toLowerCase() === currentUser.email.toLowerCase()) ||
-      (currentUser.email && (u as any).parentEmail?.toLowerCase() === currentUser.email.toLowerCase())
-    )
-  );
+  const normalizeRef = (value?: string | number | null) => String(value || '').trim().toLowerCase();
+  const parentStudentId = normalizeRef(currentUser?.studentId || (currentUser as any)?.matricule || (currentUser as any)?.student_id);
+  const parentEmail = normalizeRef(currentUser.email);
+  const linkedStudent = users.find(u => {
+    const studentRefs = [
+      u.id,
+      u.studentId,
+      (u as any).matricule,
+      (u as any).student_id,
+      (u as any).studentRecordId,
+      `STD-${u.id}`,
+    ].map(normalizeRef).filter(Boolean);
+    return canonicalizeRole(u.role) === 'Élève' && (
+      (!!parentStudentId && studentRefs.includes(parentStudentId)) ||
+      (!!parentEmail && normalizeRef((u as any).parentEmail || (u as any).parent_email) === parentEmail)
+    );
+  });
 
   if (!linkedStudent) {
     return (
@@ -143,10 +152,17 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
     conductGrade: 'Non renseigné',
   };
 
+  const linkedStudentRefs = new Set([
+    linkedStudent.id,
+    linkedStudent.studentId,
+    (linkedStudent as any).matricule,
+    (linkedStudent as any).student_id,
+    (linkedStudent as any).studentRecordId,
+  ].map(normalizeRef).filter(Boolean));
+
   const studentPayments = payments.filter(p => 
-    p.studentId === linkedStudent.studentId || 
-    p.studentId === linkedStudent.id || 
-    p.studentName === linkedStudent.name
+    linkedStudentRefs.has(normalizeRef(p.studentId ?? p.student_id ?? p.studentRecordId)) ||
+    normalizeRef(p.studentName || p.name) === normalizeRef(linkedStudent.name)
   );
 
   const childTransactions = transactions.filter(t =>
@@ -176,11 +192,11 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
     t.classId === studentClass?.id
   );
 
-  const studentAttendance = attendance.filter(a => a.studentId === linkedStudent.id);
+  const studentAttendance = attendance.filter(a => linkedStudentRefs.has(normalizeRef(a.studentId ?? a.student_id)));
 
   // Financial calculations
   const totalFeesRequired = fees.filter(f => (!f.class && !f.classId) || f.class === linkedStudent.class || f.classId === studentClass?.id).reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
-  const totalPaid = studentPayments.reduce((sum, p) => sum + (Number(p.amountPaid) || Number(p.amount) || 0), 0)
+  const totalPaid = studentPayments.reduce((sum, p) => sum + (Number(p.amountPaid ?? p.amount_paid ?? p.amount) || 0), 0)
     || studentTransactions
       .filter(t => /revenu|income|recette/i.test(String(t.type || '')))
       .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);

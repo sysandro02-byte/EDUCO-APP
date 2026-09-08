@@ -16,6 +16,7 @@ import { Class } from './ClassForm';
 import { Fee } from './FeeForm';
 import ClassFinancialOverview from './ClassFinancialOverview';
 import { AlertCircle, CheckCircle2, TrendingDown, UserX, GraduationCap, Clock, TrendingUp } from 'lucide-react';
+import { canonicalizeRole } from '../src/services/userAccountWorkflow';
 
 
 type Payment = { id: number; studentId: string; name: string; class: string; totalFees: number; amountPaid: number; familyId?: number };
@@ -60,7 +61,7 @@ const FinanceManagerDashboard: React.FC<FinanceManagerDashboardProps> = ({
     const [payslipData, setPayslipData] = useState<{ personnel: Personnel, netAmount: number, paymentDetails: any } | null>(null);
     const [periodFilter, setPeriodFilter] = useState<FilterType>('week');
     
-    const currency = schoolSettings.currency;
+    const currency = schoolSettings?.currency || 'FCFA';
 
     const approvedTransactions = useMemo(() => transactions.filter(t => t.status === 'Approuvé'), [transactions]);
 
@@ -89,8 +90,8 @@ const FinanceManagerDashboard: React.FC<FinanceManagerDashboardProps> = ({
         return labels[periodFilter];
     }
 
-    const totalRevenue = filteredTransactions.filter(t => t.type === 'Revenu').reduce((sum, t) => sum + t.amount, 0);
-    const totalExpenses = filteredTransactions.filter(t => t.type === 'Dépense').reduce((sum, t) => sum + t.amount, 0);
+    const totalRevenue = filteredTransactions.filter(t => t.type === 'Revenu').reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    const totalExpenses = filteredTransactions.filter(t => t.type === 'Dépense').reduce((sum, t) => sum + Number(t.amount || 0), 0);
     const netProfit = totalRevenue - totalExpenses;
 
     // 1) Total Frais Impayés
@@ -100,15 +101,15 @@ const FinanceManagerDashboard: React.FC<FinanceManagerDashboardProps> = ({
     const totalCollectedFees = (payments || []).reduce((sum, p) => sum + (p.amountPaid || 0), 0);
 
     // 3) Total des Dépenses (Approuvées Globales)
-    const totalExpensesApproved = approvedTransactions.filter(t => t.type === 'Dépense').reduce((sum, t) => sum + t.amount, 0);
+    const totalExpensesApproved = approvedTransactions.filter(t => t.type === 'Dépense').reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
     // 4) Total d'élèves qui n'ont pas payé les frais d'écolages
     const unpaidStudentsCount = (payments || []).filter(p => ((p.totalFees || 0) - (p.amountPaid || 0)) > 0).length;
-    const totalStudentsCount = (users || []).filter(u => u.role === 'Élève').length || (payments || []).length;
+    const totalStudentsCount = (users || []).filter(u => canonicalizeRole(u.role) === 'Élève').length || (payments || []).length;
 
     // 5) Total d'enseignants
-    const totalTeachers = (personnel || []).filter(p => p.role === 'Enseignant').length || 
-                          (users || []).filter(u => u.role === 'Enseignant').length;
+    const totalTeachers = (personnel || []).filter(p => canonicalizeRole(p.role) === 'Enseignant').length || 
+                          (users || []).filter(u => canonicalizeRole(u.role) === 'Enseignant').length;
 
     const pendingOperations = transactions.filter(t => t.status === 'En attente').length;
     const averageFee = fees.length > 0 ? fees.filter(f => f.type === 'Scolarité').reduce((sum, f) => sum + f.amount, 0) / fees.filter(f => f.type === 'Scolarité').length : 0;
@@ -264,7 +265,7 @@ const FinanceManagerDashboard: React.FC<FinanceManagerDashboardProps> = ({
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
-                    <RevenueChartCard transactions={transactions} />
+                    <RevenueChartCard transactions={transactions} currency={currency} />
                 </div>
                 <div className="space-y-6">
                     <BudgetTracker 

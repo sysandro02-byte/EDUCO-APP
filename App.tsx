@@ -44,6 +44,7 @@ import MobileQuickSearchModal from './components/MobileQuickSearchModal';
 import { PasskeyRegisterPromptModal } from './components/auth/PasskeyRegisterPromptModal';
 import { isWebAuthnSupported, fetchUserDevices } from './src/services/webauthnService';
 import { deliverParentPaymentReceipt, buildParentReceiptMessage } from './utils/parentReceiptDelivery';
+import { canonicalizeRole } from './src/services/userAccountWorkflow';
 
 import { MenuIcon, SearchIcon, MoonIcon, SunIcon, ChatIcon, LogoIcon } from './components/Icons';
 import { 
@@ -206,7 +207,7 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [pendingOtpUser, setPendingOtpUser] = useState<User | null>(null);
   const [otpVerified, setOtpVerified] = useState(() => sessionStorage.getItem('otpVerified') === 'true');
-  const loggedInRole = currentUser?.role || null;
+  const loggedInRole = currentUser?.role ? canonicalizeRole(currentUser.role) : null;
   const currentUserId = currentUser?.id || null;
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -3086,11 +3087,21 @@ const App: React.FC = () => {
 
     if (loggedInRole === 'Élève') {
       const studentUser = users.find(u => String(u.id) === String(currentUserId)) || currentUser;
-      const personalPayments = payments.filter(p => String(p.studentId) === String(studentUser?.id));
-      const studentPayment = studentUser ? { id: studentUser.id, name: studentUser.name, studentId: studentUser.studentId || '', class: studentUser.class || '', totalFees: fees.filter(f => !f.class || f.class === studentUser.class).reduce((sum, f) => sum + Number(f.amount || 0), 0), amountPaid: personalPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0) } : undefined;
-      const receiptTransactions: Transaction[] = personalPayments.map(p => ({ id: String(p.receiptNumber || p.id), type: 'Revenu', amount: Number(p.amount || 0), date: p.paymentDate || p.date, description: 'Scolarité — ' + studentUser?.name, category: 'Scolarité', status: 'Approuvé', paymentMethod: p.paymentMethod }));
-      const studentGrades = grades.filter(g => g.studentId === currentUserId);
-      const studentComments = reportCardComments.find(c => c.studentId === currentUserId);
+      const studentRefs = new Set([
+        String(studentUser?.id || ''),
+        String((studentUser as any)?.studentId || ''),
+        String((studentUser as any)?.matricule || ''),
+        String((studentUser as any)?.studentRecordId || ''),
+        String((studentUser as any)?.student_id || ''),
+      ].filter(Boolean));
+      const personalPayments = payments.filter((p: any) =>
+        studentRefs.has(String(p.studentId ?? p.student_id ?? p.studentRecordId ?? ''))
+        || (!!studentUser?.name && String(p.studentName || p.name || '').toLowerCase() === studentUser.name.toLowerCase())
+      );
+      const studentPayment = studentUser ? { id: studentUser.id, name: studentUser.name, studentId: studentUser.studentId || '', class: studentUser.class || '', totalFees: fees.filter(f => !f.class || f.class === studentUser.class).reduce((sum, f) => sum + Number(f.amount || 0), 0), amountPaid: personalPayments.reduce((sum, p: any) => sum + Number(p.amountPaid ?? p.amount_paid ?? p.amount ?? 0), 0) } : undefined;
+      const receiptTransactions: Transaction[] = personalPayments.map((p: any) => ({ id: String(p.receiptNumber || p.receipt_number || p.id), type: 'Revenu', amount: Number(p.amountPaid ?? p.amount_paid ?? p.amount ?? 0), date: p.paymentDate || p.payment_date || p.date, description: 'Scolarité — ' + studentUser?.name, category: 'Scolarité', status: 'Approuvé', paymentMethod: p.paymentMethod || p.payment_method }));
+      const studentGrades = grades.filter((g: any) => studentRefs.has(String(g.studentId ?? g.student_id ?? '')) || (!!studentUser?.name && g.studentName === studentUser.name));
+      const studentComments = reportCardComments.find((c: any) => studentRefs.has(String(c.studentId ?? c.student_id ?? '')) || (!!studentUser?.name && c.studentName === studentUser.name));
       
       switch(activePage) {
         case 'Tableau de bord':
@@ -3290,7 +3301,13 @@ const App: React.FC = () => {
           const teacherClasses = classes.filter((schoolClass: any) => String(schoolClass.teacherId ?? schoolClass.teacher_id ?? '') === String(currentUserId ?? ''));
           const teacherClassIds = new Set(teacherClasses.map((schoolClass: any) => String(schoolClass.id)));
           const teacherClassNames = new Set(teacherClasses.map((schoolClass: any) => String(schoolClass.name)));
-          const teacherStudents = users.filter((user: any) => user.role === 'Élève' && teacherClassNames.has(String(user.class || user.className || '')));
+          const teacherStudents = users.filter((user: any) => {
+            const userRole = canonicalizeRole(user.role);
+            return userRole === 'Élève' && (
+              teacherClassNames.has(String(user.class || user.className || ''))
+              || teacherClassIds.has(String(user.classId ?? user.class_id ?? ''))
+            );
+          });
           const teacherStudentIds = new Set(teacherStudents.map((student: any) => String(student.id)));
           const teacherAttendance = attendance.filter((record: any) =>
             teacherClassIds.has(String(record.classId ?? record.class_id ?? ''))
@@ -3566,7 +3583,7 @@ const App: React.FC = () => {
       <Sidebar 
         isOpen={sidebarOpen} 
         setIsOpen={setSidebarOpen}
-        currentUser={currentUser}
+        currentUser={currentUser ? { ...currentUser, role: loggedInRole || currentUser.role } : currentUser}
         onUpdateAvatar={handleUpdateAvatar}
         onLogout={handleLogout}
         activePage={activePage}

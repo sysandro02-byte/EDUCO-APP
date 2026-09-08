@@ -5,6 +5,7 @@ import {
   buildSchoolAcronym,
   buildStaffMatricule,
   buildStudentMatricule,
+  canonicalizeRole,
   getAccountCreationKind,
   normalizeAccountStatus,
   makeStudentTechnicalEmail,
@@ -28,6 +29,10 @@ test('account creation workflow separates roles and enforces a single normalized
   assert.equal(normalizeAccountStatus('Actif'), 'Actif');
   assert.equal(normalizeAccountStatus('inactive'), 'Inactif');
   assert.equal(normalizeAccountStatus('suspended'), 'Suspendu');
+  assert.equal(canonicalizeRole('Caissier'), 'Caissière');
+  assert.equal(canonicalizeRole('RAF'), 'Responsable des finances');
+  assert.equal(canonicalizeRole('DE'), 'Directeur des Etudes');
+  assert.equal(canonicalizeRole('Professeur'), 'Enseignant');
   assert.equal(buildSchoolAcronym('Groupe Scolaire Mboté Talents'), 'GSMT');
   assert.equal(
     buildStudentMatricule({ schoolAcronym: 'Groupe Scolaire Mboté Talents', idOrSeed: 456 }),

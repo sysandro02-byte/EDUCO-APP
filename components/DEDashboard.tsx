@@ -3,6 +3,7 @@ import StatCard from './StatCard';
 import { GradesIcon, StudentsIcon, BriefcaseIcon, AttendanceIcon, TimetableIcon } from './Icons';
 import { Calendar as CalendarIcon, Clock, ArrowRight, Bell, Send, Sparkles, MessageSquare } from 'lucide-react';
 import WeeklyAttendanceChartCard from './WeeklyAttendanceChartCard';
+import { canonicalizeRole } from '../src/services/userAccountWorkflow';
 
 interface DEDashboardProps {
   users: any[];
@@ -22,8 +23,8 @@ const DEDashboard: React.FC<DEDashboardProps> = ({
   setActivePage 
 }) => {
   const stats = useMemo(() => {
-    const totalStudents = users.filter(u => u.role === 'Élève').length;
-    const totalTeachers = users.filter(u => u.role === 'Enseignant' || u.role === 'Professeur').length;
+    const totalStudents = users.filter(u => canonicalizeRole(u.role) === 'Élève').length;
+    const totalTeachers = users.filter(u => canonicalizeRole(u.role) === 'Enseignant').length;
     
     const today = new Date().toISOString().split('T')[0];
     const todayAttendance = attendance.filter(a => a.date === today);

@@ -54,6 +54,7 @@ import {
   buildSchoolAcronym,
   buildStaffMatricule,
   buildStudentMatricule,
+  canonicalizeRole,
   getAccountCreationKind,
   normalizeAccountStatus,
   normalizeEmail,
@@ -164,7 +165,7 @@ const mapSupabaseUser = (user: any) => user ? ({
   schoolId: user.school_id || user.schoolId,
   name: user.name,
   email: user.email,
-  role: user.role,
+  role: canonicalizeRole(user.role),
   avatar: user.avatar,
   status: normalizeAccountStatus(user.status),
   personnelId: user.personnelId || user.personnel_id,
@@ -1772,7 +1773,7 @@ async function startServer() {
               salary: person?.base_salary ?? user.salary,
               hireDate: person?.hire_date || user.hireDate,
               bankAccount: person?.bank_account || user.bankAccount,
-              role: person?.role || user.role,
+              role: canonicalizeRole(person?.role || user.role),
               status: normalizeAccountStatus(user.status || student?.status)
             };
           };
@@ -1816,13 +1817,14 @@ async function startServer() {
     try {
       const dbUser = (req.user?.role || req.user?.schoolId) ? req.user : await getUserByUid(req.user!.uid);
       const requestedRole = String(req.body.role || '');
+      const canonicalRequestedRole = canonicalizeRole(requestedRole);
       const normalizedRequestedRole = normalizeRole(requestedRole);
       const accountKind = getAccountCreationKind(requestedRole);
       const requestEmail = normalizeEmail(req.body.email);
-      if (requestedRole === 'Admin') {
+      if (canonicalRequestedRole === 'Admin') {
         return res.status(403).json({ error: 'Le compte Admin unique ne peut pas être créé depuis la gestion des utilisateurs.' });
       }
-      if (requestedRole === 'Co-admin' && dbUser?.role !== 'Admin') {
+      if (canonicalRequestedRole === 'Co-admin' && dbUser?.role !== 'Admin') {
         return res.status(403).json({ error: 'Seul le compte Admin peut créer ou modifier un compte Co-admin.' });
       }
       
@@ -1837,7 +1839,7 @@ async function startServer() {
       const targetSchoolId: number | null = isCentralAdmin && Number.isInteger(requestedSchoolId) && requestedSchoolId > 0
         ? requestedSchoolId
         : (dbUser?.schoolId ? Number(dbUser.schoolId) : null);
-      if (!targetSchoolId && requestedRole !== 'Co-admin') {
+      if (!targetSchoolId && canonicalRequestedRole !== 'Co-admin') {
         return res.status(403).json({ error: 'Aucun établissement associé au créateur de ce compte.' });
       }
       if (!isCentralAdmin && Number(targetSchoolId) !== Number(dbUser?.schoolId)) {
@@ -1868,7 +1870,7 @@ async function startServer() {
             .update({
               name: req.body.name,
               email: req.body.email,
-              role: req.body.role,
+              role: canonicalRequestedRole,
               status: req.body.status === 'Inactif' ? 'inactive' : 'active',
               avatar: req.body.avatar,
               school_id: targetSchoolId
@@ -1884,7 +1886,7 @@ async function startServer() {
           .set({
             name: req.body.name,
             email: req.body.email,
-            role: req.body.role,
+            role: canonicalRequestedRole,
             status: req.body.status || 'Actif',
             avatar: req.body.avatar,
             schoolId: targetSchoolId
@@ -1916,7 +1918,7 @@ async function startServer() {
           email_confirm: true,
           user_metadata: {
             name: req.body.name || requestEmail.split('@')[0],
-            role: req.body.role || 'Enseignant'
+            role: canonicalRequestedRole || 'Enseignant'
           }
         });
         
@@ -1934,7 +1936,7 @@ async function startServer() {
           uid: resolvedUid,
           name: req.body.name,
           email: requestEmail,
-          role: req.body.role,
+          role: canonicalRequestedRole,
           status: req.body.status === 'Inactif' ? 'inactive' : 'active',
           school_id: targetSchoolId,
           ...(req.body.avatar !== undefined && { avatar: req.body.avatar })
@@ -1998,13 +2000,13 @@ async function startServer() {
 
         if (accountKind !== 'student' && accountKind !== 'parent' && normalizedRequestedRole !== 'co-admin') {
           const requestedStaffMatricule = keepIfScoped(req.body.matricule || req.body.studentId);
-          const matricule = requestedStaffMatricule || buildStaffMatricule({ schoolAcronym, role: req.body.role, idOrSeed: sbUser.id });
+          const matricule = requestedStaffMatricule || buildStaffMatricule({ schoolAcronym, role: canonicalRequestedRole, idOrSeed: sbUser.id });
           const { data: existingPersonnel } = await adminClient.from('personnel').select('id').eq('user_id', sbUser.id).eq('school_id', targetSchoolId).maybeSingle();
           const personnelPayload = {
             user_id: sbUser.id,
             school_id: targetSchoolId,
             matricule,
-            role: req.body.role,
+            role: canonicalRequestedRole,
             base_salary: Number(req.body.baseSalary || req.body.salary || 0)
           };
           const { data: savedPersonnel, error: personnelError } = existingPersonnel?.id
@@ -2019,7 +2021,7 @@ async function startServer() {
         sendWelcomeEmail({
           email: requestEmail,
           name: req.body.name,
-          role: req.body.role || 'Personnel',
+          role: canonicalRequestedRole || 'Personnel',
           schoolName: schoolRow?.name || 'Administration Centrale EDUCO',
           schoolIdentifier: schoolRow?.identifier || 'EDUCO-CENTRAL',
           tempPassword,
@@ -2038,6 +2040,7 @@ async function startServer() {
       const newUser = await db.insert(users).values({
         ...req.body,
         uid: resolvedUid,
+        role: canonicalRequestedRole,
         status: req.body.status || 'Actif',
         schoolId: targetSchoolId
       }).returning();
@@ -2055,11 +2058,12 @@ async function startServer() {
       if (isNaN(targetUserId)) return res.status(400).json({ error: 'ID utilisateur invalide' });
 
       const { name, email, role, status, avatar, phone, schoolId } = req.body;
+      const canonicalRole = canonicalizeRole(role);
       const actor = await getRequestUser(req);
-      if (role === 'Admin') {
+      if (canonicalRole === 'Admin') {
         return res.status(403).json({ error: 'Il ne peut exister qu’un seul compte Admin et ce rôle ne peut pas être attribué.' });
       }
-      if (role === 'Co-admin' && actor?.role !== 'Admin') {
+      if (canonicalRole === 'Co-admin' && actor?.role !== 'Admin') {
         return res.status(403).json({ error: 'Seul le compte Admin peut attribuer le rôle Co-admin.' });
       }
       const isCentralAdmin = actor?.role === 'Admin' || actor?.role === 'Co-admin';
@@ -2079,7 +2083,7 @@ async function startServer() {
         const payload = {
           ...(name !== undefined && { name }),
           ...(email !== undefined && { email: normalizedEmail || email }),
-          ...(role !== undefined && { role }),
+          ...(role !== undefined && { role: canonicalRole }),
           ...(status !== undefined && { status: status === 'Inactif' ? 'inactive' : 'active' }),
           ...(avatar !== undefined && { avatar }),
           ...(isCentralAdmin && schoolId !== undefined && { school_id: Number(schoolId) })
@@ -2104,7 +2108,7 @@ async function startServer() {
         .set({
           ...(name !== undefined && { name }),
           ...(email !== undefined && { email: normalizedEmail || email }),
-          ...(role !== undefined && { role }),
+          ...(role !== undefined && { role: canonicalRole }),
           ...(status !== undefined && { status }),
           ...(avatar !== undefined && { avatar }),
           ...(isCentralAdmin && schoolId !== undefined && { schoolId: Number(schoolId) })
@@ -2998,6 +3002,7 @@ async function startServer() {
 
       let userId = req.body.userId || req.body.user_id || null;
       const personName = req.body.name || req.body.fullName || 'Membre du personnel';
+      const personRole = canonicalizeRole(req.body.role || 'Personnel') || 'Personnel';
       const { data: schoolRow } = await supabaseAdmin
         .from('schools')
         .select('name,identifier')
@@ -3007,7 +3012,7 @@ async function startServer() {
       const requestedMatricule = String(req.body.matricule || req.body.studentId || '').trim();
       const scopedMatricule = requestedMatricule.toUpperCase().startsWith(`${schoolAcronym}-`)
         ? requestedMatricule
-        : buildStaffMatricule({ schoolAcronym, role: req.body.role || 'Personnel', idOrSeed: userId || Date.now() });
+        : buildStaffMatricule({ schoolAcronym, role: personRole, idOrSeed: userId || Date.now() });
       const personEmail = req.body.email || `${scopedMatricule.toLowerCase().replace(/[^a-z0-9._-]/g, '-') }@personnel.educo.local`;
 
       if (!userId) {
@@ -3028,7 +3033,7 @@ async function startServer() {
               school_id: dbUser.schoolId,
               name: personName,
               email: personEmail,
-              role: req.body.role || 'Personnel',
+              role: personRole,
               status: req.body.status || 'active'
             }])
             .select('*')
@@ -3042,7 +3047,7 @@ async function startServer() {
           .update({
             name: personName,
             email: personEmail,
-            role: req.body.role || 'Personnel',
+            role: personRole,
             status: req.body.status || 'active'
           })
           .eq('id', Number(userId))
@@ -3053,7 +3058,7 @@ async function startServer() {
         user_id: Number(userId),
         school_id: dbUser.schoolId,
         matricule: scopedMatricule,
-        role: req.body.role || null,
+        role: personRole,
         base_salary: Number(req.body.baseSalary || req.body.salary || 0),
         hire_date: req.body.hireDate || req.body.hire_date || null,
         bank_account: req.body.bankAccount || req.body.bank_account || null

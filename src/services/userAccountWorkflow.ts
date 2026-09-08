@@ -3,6 +3,32 @@ export type AccountCreationKind = 'student' | 'teacher' | 'parent' | 'staff';
 const teacherRoles = new Set(['enseignant']);
 const studentRoles = new Set(['élève', 'eleve']);
 const parentRoles = new Set(['parent', 'parent d\'eleve', 'parent d’eleve']);
+const canonicalRolesByNormalized = new Map<string, string>([
+  ['admin', 'Admin'],
+  ['superadmin', 'SuperAdmin'],
+  ['super admin', 'SuperAdmin'],
+  ['co admin', 'Co-admin'],
+  ['co-admin', 'Co-admin'],
+  ['promoteur', 'Promoteur'],
+  ['directeur general', 'Directeur Général'],
+  ['directeur', 'Directeur Général'],
+  ['directeur des etudes', 'Directeur des Etudes'],
+  ['de', 'Directeur des Etudes'],
+  ['directeur du primaire', 'Directeur du Primaire'],
+  ['responsable des finances', 'Responsable des finances'],
+  ['responsable administratif et financier', 'Responsable des finances'],
+  ['raf', 'Responsable des finances'],
+  ['caissiere', 'Caissière'],
+  ['caissier', 'Caissière'],
+  ['caisse', 'Caissière'],
+  ['enseignant', 'Enseignant'],
+  ['professeur', 'Enseignant'],
+  ['eleve', 'Élève'],
+  ['parent', 'Parent'],
+  ['parent d eleve', 'Parent d\'élève'],
+  ['parent d’eleve', 'Parent d\'élève'],
+  ['parent deleve', 'Parent d\'élève'],
+]);
 
 export const normalizeEmail = (email?: string | null) => String(email || '').trim().toLowerCase();
 
@@ -12,6 +38,12 @@ export const normalizeRole = (role?: string | null) =>
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
+
+export const canonicalizeRole = (role?: string | null) => {
+  const originalRole = String(role || '').trim();
+  const normalizedRole = normalizeRole(originalRole).replace(/\s+/g, ' ');
+  return canonicalRolesByNormalized.get(normalizedRole) || originalRole;
+};
 
 export const normalizeAccountStatus = (status?: string | null) => {
   const normalized = String(status || '').trim().toLowerCase();

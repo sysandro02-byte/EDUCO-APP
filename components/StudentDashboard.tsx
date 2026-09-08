@@ -6,7 +6,9 @@ const StudentDashboard = ({ user, classes, setActivePage }) => {
     return <div>Chargement des informations de l'élève...</div>;
   }
 
-  const studentClass = classes.find(c => c.name === user.class);
+  const matricule = user.studentId || user.matricule || user.student_id || 'Non renseigné';
+  const className = user.class || user.className || 'Non assignée';
+  const studentClass = classes.find(c => c.name === className || String(c.id) === String(user.classId || user.class_id || ''));
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
@@ -16,8 +18,8 @@ const StudentDashboard = ({ user, classes, setActivePage }) => {
       <div className="bg-blue-50 border-2 border-blue-100 rounded-lg p-4 mb-6">
         <h3 className="font-semibold text-blue-800">Vos Informations Scolaires</h3>
         <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-          <p><span className="font-medium text-gray-600">Matricule:</span> {user.studentId}</p>
-          <p><span className="font-medium text-gray-600">Classe:</span> {user.class}</p>
+          <p><span className="font-medium text-gray-600">Matricule:</span> {matricule}</p>
+          <p><span className="font-medium text-gray-600">Classe:</span> {className}</p>
           <p><span className="font-medium text-gray-600">Professeur Principal:</span> {studentClass?.mainTeacher || 'Non assigné'}</p>
         </div>
       </div>

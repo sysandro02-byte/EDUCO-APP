@@ -41,6 +41,7 @@ import { Class } from './ClassForm';
 import { Fee } from './FeeForm';
 import { SchoolSettings, SchoolSubscriptionInfo } from '../App';
 import { showAppFeedback } from '../src/utils/appFeedback';
+import { canonicalizeRole } from '../src/services/userAccountWorkflow';
 
 interface UserManagementPageProps {
   users: User[];
@@ -104,6 +105,7 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
     if (normalized === 'suspended' || normalized === 'suspendu') return 'Suspendu';
     return status || 'Actif';
   };
+  const getDisplayRole = (role?: string) => canonicalizeRole(role) || 'Personnel';
 
   const handleAddUser = (role = 'Élève') => {
     setEditingUser(null);
@@ -232,7 +234,8 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
     return users.filter(user => {
       // If current user is NOT SuperAdmin/Admin (e.g. Promoteur or school staff), NEVER show Admin accounts
       if (currentUserRole !== 'Admin') {
-        if (user.role === 'Admin' || user.role === 'SuperAdmin') {
+        const userRole = getDisplayRole(user.role);
+        if (userRole === 'Admin' || userRole === 'SuperAdmin') {
           return false;
         }
       }
@@ -270,16 +273,16 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
   // KPIs computed strictly on establishment users
   const totalUsersCount = establishmentUsers.length;
   const activeUsersCount = establishmentUsers.filter(u => getDisplayStatus(u.status) === 'Actif').length;
-  const teachersCount = establishmentUsers.filter(u => u.role === 'Enseignant').length;
-  const studentsCount = establishmentUsers.filter(u => u.role === 'Élève').length;
+  const teachersCount = establishmentUsers.filter(u => getDisplayRole(u.role) === 'Enseignant').length;
+  const studentsCount = establishmentUsers.filter(u => getDisplayRole(u.role) === 'Élève').length;
   const adminStaffCount = establishmentUsers.filter(u => 
-    ['Co-admin', 'Promoteur', 'Directeur Général', 'Directeur des Etudes', 'Responsable des finances', 'Caissière'].includes(u.role) ||
-    (currentUserRole === 'Admin' && u.role === 'Admin')
+    ['Co-admin', 'Promoteur', 'Directeur Général', 'Directeur des Etudes', 'Responsable des finances', 'Caissière'].includes(getDisplayRole(u.role)) ||
+    (currentUserRole === 'Admin' && getDisplayRole(u.role) === 'Admin')
   ).length;
 
   const filteredUsers = useMemo(() => {
     return establishmentUsers
-      .filter(user => roleFilter === 'All' || user.role === roleFilter)
+      .filter(user => roleFilter === 'All' || getDisplayRole(user.role) === roleFilter)
       .filter(user => statusFilter === 'All' || getDisplayStatus(user.status) === statusFilter)
       .filter(user => schoolFilter === 'All' || (user as any).schoolName === schoolFilter)
       .filter(user => 
