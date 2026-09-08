@@ -164,6 +164,7 @@ const mapSupabaseUser = (user: any) => user ? ({
   role: user.role,
   avatar: user.avatar,
   status: user.status,
+  personnelId: user.personnelId || user.personnel_id,
   studentId: user.student_id || user.studentId || user.matricule,
   parentName: user.parent_name || user.parentName,
   parentEmail: user.parent_email || user.parentEmail,
@@ -1944,12 +1945,19 @@ async function startServer() {
           const acronym = (words.length > 1 ? words.map((word: string) => word[0]).join('') : (words[0] || 'EDUCO').slice(0, 5)).toUpperCase().slice(0, 6);
           const matricule = req.body.matricule || req.body.studentId || buildStaffMatricule({ schoolAcronym: acronym, role: req.body.role, idOrSeed: sbUser.id });
           const { data: existingPersonnel } = await adminClient.from('personnel').select('id').eq('user_id', sbUser.id).eq('school_id', targetSchoolId).maybeSingle();
-          const personnelPayload = { user_id: sbUser.id, school_id: targetSchoolId, matricule, role: req.body.role };
-          const { error: personnelError } = existingPersonnel?.id
-            ? await adminClient.from('personnel').update(personnelPayload).eq('id', existingPersonnel.id).eq('school_id', targetSchoolId)
-            : await adminClient.from('personnel').insert([personnelPayload]);
+          const personnelPayload = {
+            user_id: sbUser.id,
+            school_id: targetSchoolId,
+            matricule,
+            role: req.body.role,
+            base_salary: Number(req.body.baseSalary || req.body.salary || 0)
+          };
+          const { data: savedPersonnel, error: personnelError } = existingPersonnel?.id
+            ? await adminClient.from('personnel').update(personnelPayload).eq('id', existingPersonnel.id).eq('school_id', targetSchoolId).select('id').single()
+            : await adminClient.from('personnel').insert([personnelPayload]).select('id').single();
           if (personnelError) throw personnelError;
           sbUser.matricule = matricule;
+          sbUser.personnelId = savedPersonnel?.id;
         }
 
 

@@ -1629,6 +1629,33 @@ const App: React.FC = () => {
         } else {
           setUsers(prevUsers => [...prevUsers, savedUser]);
         }
+        if (!['Élève', 'Parent', 'Admin', 'Co-admin'].includes(savedUser.role)) {
+          const personnelRecord = {
+            id: (savedUser as any).personnelId || savedUser.id,
+            userId: savedUser.id,
+            schoolId: (savedUser as any).schoolId,
+            matricule: (savedUser as any).matricule || (savedUser as any).studentId || '',
+            name: savedUser.name,
+            email: savedUser.email,
+            role: savedUser.role,
+            baseSalary: Number((savedUser as any).baseSalary || (savedUser as any).salary || 0),
+            salary: Number((savedUser as any).baseSalary || (savedUser as any).salary || 0),
+            lastPaymentDate: 'N/A',
+            primes: [],
+            deductions: [],
+            status: savedUser.status || 'Actif'
+          };
+          setPersonnel(prevPersonnel => {
+            const existingIndex = prevPersonnel.findIndex(person =>
+              String((person as any).userId || person.id) === String(savedUser.id)
+              || (!!(person as any).email && !!savedUser.email && String((person as any).email).toLowerCase() === savedUser.email.toLowerCase())
+            );
+            if (existingIndex >= 0) {
+              return prevPersonnel.map((person, index) => index === existingIndex ? { ...person, ...personnelRecord } : person);
+            }
+            return [...prevPersonnel, personnelRecord];
+          });
+        }
         addActivityLog(userToSave.id ? 'Modification utilisateur' : 'Création utilisateur', `Nom: ${savedUser.name}`);
         
         if (isNewParent) {

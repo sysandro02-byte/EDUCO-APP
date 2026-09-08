@@ -229,15 +229,19 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
         }
       }
 
-      // Filter by establishment if specified on user / promoteur
+      // Filter by establishment without mixing numeric ids and display names.
       if (currentUserRole === 'Promoteur' || currentUserRole !== 'Admin') {
-        const mySchool = String((currentUser as any)?.schoolId || (currentUser as any)?.schoolName || schoolSettings?.name || '');
-        const userSchool = String((user as any)?.schoolId || (user as any)?.schoolName || '');
+        const mySchoolId = String((currentUser as any)?.schoolId || (schoolSettings as any)?.id || '').trim();
+        const userSchoolId = String((user as any)?.schoolId || '').trim();
+        const mySchoolName = String((currentUser as any)?.schoolName || schoolSettings?.name || '').trim().toLowerCase();
+        const userSchoolName = String((user as any)?.schoolName || '').trim().toLowerCase();
 
-        if (mySchool && userSchool) {
-          if (userSchool.trim().toLowerCase() !== mySchool.trim().toLowerCase()) {
-            return false;
-          }
+        if (mySchoolId && userSchoolId) {
+          return userSchoolId === mySchoolId;
+        }
+
+        if (mySchoolName && userSchoolName) {
+          return userSchoolName === mySchoolName;
         }
       }
 
