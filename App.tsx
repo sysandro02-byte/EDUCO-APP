@@ -2571,12 +2571,46 @@ const App: React.FC = () => {
   };
 
   const persistOperation = async (key: string, body: any, setter: (value: any) => void) => {
+    const applyLocalOperation = () => {
+      let nextValue: any = body.value;
+      setter((prev: any) => {
+        if (key === 'attendance' && Array.isArray(body.records)) {
+          const rows = Array.isArray(prev) ? prev : [];
+          const keptRows = rows.filter((row: any) => !(String(row.classId ?? row.class_id ?? '') === String(body.classId) && row.date === body.date));
+          return [...keptRows, ...body.records.map((row: any) => ({
+            ...row,
+            classId: body.classId,
+            date: body.date,
+            id: `${body.classId}:${body.date}:${row.studentId}`,
+          }))];
+        }
+        if (Array.isArray(prev)) {
+          if (body.action === 'delete') {
+            nextValue = prev.filter((row: any) => String(row.id) !== String(body.id));
+            return nextValue;
+          }
+          const value = { ...body.value, id: body.value?.id || `${key}-${Date.now()}` };
+          nextValue = [...prev.filter((row: any) => String(row.id) !== String(value.id)), value];
+          return nextValue;
+        }
+        return body.value;
+      });
+      return nextValue;
+    };
+
     try {
       const result = await saveSchoolOperation(key, body);
       setter(result.value);
       return true;
     } catch (error: any) {
-      alert(`Erreur de sauvegarde : ${error.message}`);
+      const message = String(error?.message || '');
+      const canFallbackLocal = /route|HTML|JSON|Failed to fetch|NetworkError|serveur/i.test(message);
+      if (canFallbackLocal) {
+        applyLocalOperation();
+        alert("Le serveur n'a pas confirmé la sauvegarde, mais la modification est conservée localement. Déployez/mettez à jour le backend puis réessayez la synchronisation.");
+        return true;
+      }
+      alert(`Erreur de sauvegarde : ${message || 'Le serveur ne peut pas confirmer cette opération.'}`);
       return false;
     }
   };

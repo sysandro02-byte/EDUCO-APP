@@ -74,6 +74,19 @@ async function safeJson(res: Response, fallback: any = null) {
     try {
       return JSON.parse(text);
     } catch (e) {
+      const htmlRouteMatch = text.match(/Cannot\s+(GET|POST|PUT|DELETE|PATCH)\s+([^<\s]+)/i);
+      if (htmlRouteMatch) {
+        return {
+          error: `Le serveur ne reconnait pas encore la route ${htmlRouteMatch[1].toUpperCase()} ${htmlRouteMatch[2]}. Vérifiez que le backend déployé est à jour.`,
+          rawError: text
+        };
+      }
+      if (/^\s*</.test(text)) {
+        return {
+          error: `Le serveur a renvoyé une page HTML au lieu d'une réponse JSON (HTTP ${res.status}).`,
+          rawError: text
+        };
+      }
       return { error: text };
     }
   } catch (error: any) {
@@ -587,7 +600,7 @@ export async function activateSubscriptionCode(code: string) {
       headers,
       body: JSON.stringify({ code }),
     });
-    const data = await res.json();
+    const data = await safeJson(res, {});
     localStorage.removeItem('educo_local_subscription');
     return data;
   } catch (error: any) {
@@ -608,7 +621,13 @@ export async function requestSubscriptionRenewal(data: {
       headers,
       body: JSON.stringify(data),
     });
-    return await res.json();
+    const payload = await safeJson(res, {});
+    if (!res.ok || payload?.error) {
+      return {
+        error: payload?.error || 'Impossible de transmettre la demande de renouvellement.',
+      };
+    }
+    return payload;
   } catch (error: any) {
     console.error('Error requesting renewal:', error);
     return { error: error.message || 'Erreur lors de la demande' };

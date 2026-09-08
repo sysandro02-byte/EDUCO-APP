@@ -11,6 +11,7 @@ import {
   makeStudentTechnicalEmail,
   normalizeEmail,
 } from '../src/services/userAccountWorkflow.ts';
+import { mutateOperations, operationRoles } from '../server/operations.ts';
 
 test('account creation workflow separates roles and enforces a single normalized email identity', () => {
   assert.equal(normalizeEmail('  Promoteur@Educo.CG '), 'promoteur@educo.cg');
@@ -54,4 +55,25 @@ test('account creation workflow separates roles and enforces a single normalized
     buildStaffMatricule({ schoolAcronym: 'Louka Tech', role: 'Responsable des finances', idOrSeed: 987 }),
     /^LT-PER-\d{4}-00987$/,
   );
+});
+
+test('school operations persist settings and collection entries consistently', () => {
+  assert.ok(operationRoles.rafSettings.includes('Responsable des finances'));
+
+  const savedSettings = mutateOperations({}, 'rafSettings', {
+    value: { alerts: { approvalThresholdAmount: 50000 } },
+  });
+  assert.deepEqual(savedSettings.rafSettings, { alerts: { approvalThresholdAmount: 50000 } });
+
+  const savedEvents = mutateOperations({ financialEvents: [] }, 'financialEvents', {
+    value: { title: 'Échéance scolarité', start: '2026-09-30' },
+  });
+  assert.equal(savedEvents.financialEvents.length, 1);
+  assert.equal(savedEvents.financialEvents[0].title, 'Échéance scolarité');
+
+  const afterDelete = mutateOperations(savedEvents, 'financialEvents', {
+    action: 'delete',
+    id: savedEvents.financialEvents[0].id,
+  });
+  assert.equal(afterDelete.financialEvents.length, 0);
 });

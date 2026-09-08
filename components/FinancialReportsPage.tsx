@@ -258,6 +258,7 @@ const FinancialForecasts = ({ transactions, payments, users, currency } : { tran
     const generateForecast = async () => {
         setLoading(true);
         setForecast('');
+
         try {
             const prompt = `En tant qu'analyste financier pour une école, analyse les données suivantes (devise: ${currency}):
 - Revenus annuels actuels : ${totalRevenue.toLocaleString()}
@@ -420,6 +421,26 @@ const FinancialReportsPage: React.FC<FinancialReportsPageProps> = ({ transaction
         const totalExpenses = approvedTransactions.filter(t => t.type === 'Dépense').reduce((sum, t) => sum + t.amount, 0);
         const unpaidFees = payments.reduce((sum, p) => sum + (p.totalFees - p.amountPaid), 0);
         const collectionRate = (payments.reduce((sum, p) => sum + p.amountPaid, 0) / payments.reduce((sum, p) => sum + p.totalFees, 1)) * 100;
+        const budgetTotal = Number(budget?.total || 0);
+        const buildOfflineAiReport = (reason?: string) => `### Rapport Financier Stratégique (Analyse locale)
+
+${reason ? `> Note technique : ${reason}\n\n` : ''}#### 1. Résumé Exécutif
+L'établissement présente un résultat net de **${(totalRevenue - totalExpenses).toLocaleString()} ${currency}** sur la période analysée, avec **${totalRevenue.toLocaleString()} ${currency}** de revenus approuvés et **${totalExpenses.toLocaleString()} ${currency}** de dépenses approuvées.
+
+#### 2. Analyse de la Performance
+- **Recouvrement** : le taux de recouvrement global est estimé à **${collectionRate.toFixed(2)}%**.
+- **Créances** : les frais impayés totalisent **${unpaidFees.toLocaleString()} ${currency}**.
+- **Budget** : les dépenses représentent **${budgetTotal > 0 ? ((totalExpenses / budgetTotal) * 100).toFixed(2) : '0.00'}%** du budget annuel.
+
+#### 3. Risques Prioritaires
+- Suivi rapproché des familles en retard de paiement pour protéger la trésorerie.
+- Validation stricte des décaissements avant impact sur la caisse.
+- Mise à jour régulière du budget par catégorie pour éviter les dépassements invisibles.
+
+#### 4. Recommandations
+- Lancer une relance ciblée sur les plus gros soldes impayés.
+- Contrôler chaque semaine les dépenses approuvées par rapport au budget.
+- Consolider les paiements par classe afin d'identifier les niveaux à risque.`;
 
         try {
 
@@ -427,8 +448,8 @@ const FinancialReportsPage: React.FC<FinancialReportsPageProps> = ({ transaction
             - Revenus totaux (approuvés): ${totalRevenue.toLocaleString()}
             - Dépenses totales (approuvées): ${totalExpenses.toLocaleString()}
             - Bénéfice net: ${(totalRevenue - totalExpenses).toLocaleString()}
-            - Budget total annuel: ${budget.total.toLocaleString()}
-            - Dépenses par rapport au budget: ${((totalExpenses / budget.total) * 100).toFixed(2)}%
+            - Budget total annuel: ${budgetTotal.toLocaleString()}
+            - Dépenses par rapport au budget: ${budgetTotal > 0 ? ((totalExpenses / budgetTotal) * 100).toFixed(2) : '0.00'}%
             - Total des frais de scolarité impayés: ${unpaidFees.toLocaleString()}
             - Taux de recouvrement global: ${collectionRate.toFixed(2)}%
 
@@ -445,33 +466,18 @@ const FinancialReportsPage: React.FC<FinancialReportsPageProps> = ({ transaction
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ prompt })
             });
-            const data = await res.json();
+            const data = await res.json().catch(() => null);
             
-            if (data.error) throw new Error(data.error);
+            if (!res.ok || data?.error || !data?.text) throw new Error(data?.error || `Service IA indisponible (HTTP ${res.status}).`);
             setAiReportContent(data.text);
 
         } catch (error: any) {
             console.error("Erreur lors de la génération du rapport IA:", error);
             const errStr = String(error?.message || error);
             if (errStr.includes('resource_exhausted') || errStr.includes('quota') || errStr.includes('429')) {
-                setAiReportContent(`### Rapport Financier Stratégique (Mode Hors-Ligne - Quota API Dépassé)
-
-#### 1. Résumé Exécutif
-L'établissement maintient une activité financière stable malgré un volume de créances impayées à surveiller. Les revenus approuvés s'élèvent à **${totalRevenue.toLocaleString()} ${currency}** pour des dépenses de **${totalExpenses.toLocaleString()} ${currency}**.
-
-#### 2. Analyse de la Performance
-- **Rentabilité** : Bénéfice net positif de **${(totalRevenue - totalExpenses).toLocaleString()} ${currency}**.
-- **Gestion budgétaire** : Utilisation maîtrisée du budget annuel de ${budget.total.toLocaleString()} ${currency}.
-
-#### 3. Identification des Risques
-- **Retards de recouvrement** : Le total des frais impayés (${unpaidFees.toLocaleString()} ${currency}) représente un risque de trésorerie à court terme si les relances ne sont pas intensifiées.
-- **Inflation des charges** : Surveillance requise sur les postes de dépenses opérationnelles.
-
-#### 4. Recommandations Stratégiques
-- **Accélération des recouvrements** : Mettre en place un plan de relance automatisé pour les familles en retard de paiement.
-- **Pilotage rigoureux** : Maintenir le suivi hebdomadaire des décaissements via le tableau de bord de la caisse.`);
+                setAiReportContent(buildOfflineAiReport('quota IA dépassé ou indisponible temporairement.'));
             } else {
-                setAiReportContent("Désolé, une erreur est survenue lors de la communication avec l'IA. Veuillez réessayer plus tard.");
+                setAiReportContent(buildOfflineAiReport('service IA indisponible, analyse générée localement.'));
             }
         } finally {
             setIsAiLoading(false);

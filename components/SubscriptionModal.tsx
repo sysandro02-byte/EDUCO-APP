@@ -113,7 +113,11 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
       });
 
       if (res.error) {
-        setRenewalError(res.error);
+        setRenewalError(
+          /token|session|autorisé|autorise/i.test(String(res.error))
+            ? "Votre session n'est plus reconnue par le serveur. Reconnectez-vous, puis renvoyez la demande d'abonnement."
+            : res.error
+        );
       } else {
         setRenewalSuccess(`Votre demande de renouvellement (${requestedMonths} mois - ${requestedPlan === 'ai_premium' ? 'IA Premium' : 'Standard'}) a été transmise à l'administrateur.`);
         setTimeout(() => {

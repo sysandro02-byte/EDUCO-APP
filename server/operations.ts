@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Express } from 'express';
+import { canonicalizeRole } from '../src/services/userAccountWorkflow.ts';
 
 const direction = ['Promoteur', 'Directeur Général', 'Directeur des Etudes', 'Directeur du Primaire'];
 const finance = ['Promoteur', 'Directeur Général', 'Responsable des finances'];
@@ -9,7 +10,7 @@ export const operationRoles: Record<string, string[]> = {
   subjects: direction, timetable: direction, homeworkDiary: teaching,
   reportCardComments: teaching, financialEvents: [...finance, 'Caissière'],
   academicYear: direction, schoolSettings: direction, budget: finance,
-  cashierSettings: finance, rafSettings: ['Promoteur', 'Directeur Général'],
+  cashierSettings: finance, rafSettings: finance,
   communicationSettings: finance, messageTemplates: [...finance, 'Caissière'],
 };
 const collections = new Set(['attendance', 'subjects', 'timetable', 'homeworkDiary', 'reportCardComments', 'financialEvents', 'messageTemplates']);
@@ -52,7 +53,7 @@ export function registerOperations(app: Express, requireAuth: any, getUser: any,
       const table = String(req.params.table);
       const allowed: Record<string, string[]> = { classes: direction, fees: finance, personnel: finance };
       const user = await getUser(req);
-      if (!user?.schoolId || !allowed[table]?.includes(user.role)) return res.status(403).json({ error: 'Suppression non autorisée.' });
+      if (!user?.schoolId || !allowed[table]?.includes(canonicalizeRole(user.role))) return res.status(403).json({ error: 'Suppression non autorisée.' });
       const client = getClient(req);
       if (!client) throw new Error('Supabase non configuré.');
       const { data, error } = await client.from(table).delete().eq('school_id', user.schoolId).eq('id', req.body.id).select('id');
@@ -95,14 +96,15 @@ export function registerOperations(app: Express, requireAuth: any, getUser: any,
         .filter((row: any) => !data.attendance.some((r: any) => same(r.classId, row.classId) && r.date === row.date)), ...data.attendance];
       data.timetable = saved.timetable ?? (legacy[1].data || []).map((row: any) => ({ id: String(row.id), classId: row.class_id, subjectId: row.subject_id, teacherId: row.teacher_id, day: row.day_of_week, startTime: row.start_time, endTime: row.end_time }));
       data.schoolSettings = { name: school.name, address: school.address || '', contact: school.phone || '', email: school.email || '', logo: school.logo || '', currency: 'FCFA', ...(school.settings?.schoolSettings || {}), ...(saved.schoolSettings || {}) };
-      if (personalRole(user.role)) {
+      const userRole = canonicalizeRole(user.role);
+      if (personalRole(userRole)) {
         const linked = selectPersonalStudents(user, students);
         const classIds = linked.map((s: any) => s.class_id);
         const studentIds = linked.flatMap((s: any) => [s.id, s.user_id]);
         for (const key of ['attendance', 'reportCardComments']) data[key] = data[key].filter((row: any) => studentIds.some(id => same(id, row.studentId)));
         for (const key of ['timetable', 'homeworkDiary']) data[key] = data[key].filter((row: any) => classIds.some((id: any) => same(id, row.classId)));
         for (const key of ['cashierSettings', 'rafSettings', 'communicationSettings', 'budget', 'messageTemplates']) delete data[key];
-      } else if (user.role === 'Enseignant') {
+      } else if (userRole === 'Enseignant') {
         const classIds = classRows.filter((c: any) => same(c.teacher_id, user.id)).map((c: any) => c.id);
         for (const key of ['attendance', 'timetable', 'homeworkDiary']) data[key] = data[key].filter((row: any) => classIds.some((id: any) => same(id, row.classId)));
         for (const key of ['cashierSettings', 'rafSettings', 'communicationSettings', 'budget']) delete data[key];
@@ -114,7 +116,8 @@ export function registerOperations(app: Express, requireAuth: any, getUser: any,
     try {
       const key = String(req.params.key);
       const { user, client } = await context(req);
-      if (!operationRoles[key]?.includes(user.role)) return res.status(403).json({ error: 'Opération non autorisée pour ce compte.' });
+      const userRole = canonicalizeRole(user.role);
+      if (!operationRoles[key]?.includes(userRole)) return res.status(403).json({ error: 'Opération non autorisée pour ce compte.' });
       const body = req.body;
       if (body.action !== 'delete' && key !== 'attendance' && (!body.value || typeof body.value !== 'object' || Array.isArray(body.value))) return res.status(400).json({ error: 'Données invalides.' });
       if (key === 'attendance' && (!body.classId || !Array.isArray(body.records) || !/^\d{4}-\d{2}-\d{2}$/.test(body.date || '') || body.records.some((r: any) => !r.studentId || !['Présent', 'Absent', 'En Retard', 'Retard', 'present', 'absent', 'late', 'Retard justifié', 'Absence justifiée'].includes(r.status)))) return res.status(400).json({ error: 'Feuille de présence invalide.' });
@@ -122,7 +125,7 @@ export function registerOperations(app: Express, requireAuth: any, getUser: any,
       if (classId) {
         const { data: schoolClass, error } = await client.from('classes').select('*').eq('id', classId).eq('school_id', user.schoolId).maybeSingle();
         if (error) throw error;
-        if (!schoolClass || (user.role === 'Enseignant' && !same(schoolClass.teacher_id, user.id))) return res.status(403).json({ error: 'Classe non autorisée.' });
+        if (!schoolClass || (userRole === 'Enseignant' && !same(schoolClass.teacher_id, user.id))) return res.status(403).json({ error: 'Classe non autorisée.' });
       }
       if (key === 'attendance' || key === 'reportCardComments') {
         const ids = key === 'attendance' ? body.records.map((row: any) => row.studentId) : [body.value.studentId];
