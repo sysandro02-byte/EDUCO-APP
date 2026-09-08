@@ -14,7 +14,26 @@ export interface WebAuthnDevice {
 export interface WebAuthnAvailability {
   supported: boolean;
   reason?: string;
+  localhostUrl?: string;
 }
+
+const isLocalNetworkHostname = (hostname: string): boolean => (
+  hostname === '127.0.0.1'
+  || hostname === '0.0.0.0'
+  || hostname.startsWith('192.168.')
+  || hostname.startsWith('10.')
+  || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)
+);
+
+const getLocalhostUrl = (): string | undefined => {
+  if (typeof window === 'undefined' || !isLocalNetworkHostname(window.location.hostname)) {
+    return undefined;
+  }
+
+  const nextUrl = new URL(window.location.href);
+  nextUrl.hostname = 'localhost';
+  return nextUrl.toString();
+};
 
 /**
  * WebAuthn is a powerful browser feature and is deliberately unavailable on
@@ -28,9 +47,13 @@ export function getWebAuthnAvailability(): WebAuthnAvailability {
   }
 
   if (!window.isSecureContext) {
+    const localhostUrl = getLocalhostUrl();
     return {
       supported: false,
-      reason: 'La biométrie doit être ouverte depuis une adresse HTTPS. En développement, utilisez http://localhost plutôt qu’une adresse IP locale.'
+      reason: localhostUrl
+        ? 'La biométrie est bloquée sur cette adresse IP locale. Ouvrez cette même page avec localhost pour l’utiliser en développement.'
+        : 'La biométrie doit être ouverte depuis une adresse HTTPS. En développement, utilisez http://localhost plutôt qu’une adresse IP locale.',
+      localhostUrl
     };
   }
 

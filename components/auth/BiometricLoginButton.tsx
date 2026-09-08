@@ -14,12 +14,14 @@ export const BiometricLoginButton: React.FC<BiometricLoginButtonProps> = ({
   userEmail
 }) => {
   const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
+  const [localhostUrl, setLocalhostUrl] = useState<string | null>(null);
   const [hasPlatformAuth, setHasPlatformAuth] = useState<boolean | null>(null);
 
   useEffect(() => {
     const checkAvailability = async () => {
       const availability = getWebAuthnAvailability();
       setUnavailableReason(availability.supported ? null : availability.reason || null);
+      setLocalhostUrl(availability.localhostUrl || null);
       if (availability.supported) {
         const platformAuth = await isPlatformAuthenticatorAvailable();
         setHasPlatformAuth(platformAuth);
@@ -32,11 +34,21 @@ export const BiometricLoginButton: React.FC<BiometricLoginButtonProps> = ({
 
   if (unavailableReason) {
     return (
-      <div className="p-3.5 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2.5">
-        <AlertCircle className="w-4 h-4 text-slate-400 shrink-0" />
-        <span>
-          {unavailableReason} Utilisez votre mot de passe ci-dessous.
-        </span>
+      <div className="p-3.5 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl text-xs text-slate-500 dark:text-slate-400 flex flex-col gap-3">
+        <div className="flex items-center gap-2.5">
+          <AlertCircle className="w-4 h-4 text-slate-400 shrink-0" />
+          <span>
+            {unavailableReason} Utilisez votre mot de passe ci-dessous.
+          </span>
+        </div>
+        {localhostUrl && (
+          <a
+            href={localhostUrl}
+            className="inline-flex items-center justify-center rounded-xl bg-[#1F4A59] px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-[#285d70]"
+          >
+            Ouvrir avec localhost
+          </a>
+        )}
       </div>
     );
   }

@@ -203,7 +203,7 @@ const CashierDashboard: React.FC<CashierDashboardProps> = ({
         Transaction ID: ${transactionForReceipt.id}
         Date: ${new Date(transactionForReceipt.date).toLocaleString('fr-FR')}
         Description: ${transactionForReceipt.description}
-        Montant: ${transactionForReceipt.amount} ${schoolSettings.currency}
+        Montant: ${transactionForReceipt.amount} ${currency}
       `;
 
       try {
@@ -281,7 +281,7 @@ const CashierDashboard: React.FC<CashierDashboardProps> = ({
     }
   };
   const [payslipData, setPayslipData] = useState<{ personnel: Personnel, netAmount: number, paymentDetails: any } | null>(null);
-  const currency = schoolSettings.currency;
+  const currency = schoolSettings.currency || 'FCFA';
 
   const handleSaveAndShowReceipt = async (paymentData: SinglePaymentData) => {
     const newTransaction = await handleSaveSinglePayment(paymentData);
