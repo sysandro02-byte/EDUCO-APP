@@ -309,7 +309,35 @@ const unwrapCollection = (value: any, key: string, fallback: any[] = []) => {
   return fallback;
 };
 
-export async function fetchSchoolOperationalData() {
+export async function requestSchoolApi(path: string, body?: any, method?: 'GET' | 'POST' | 'PUT' | 'DELETE') {
+  const res = await fetch(getApiUrl(path), {
+    method: method || (body === undefined ? 'GET' : 'POST'),
+    headers: await getAuthHeaders(),
+    ...(body !== undefined && { body: JSON.stringify(body) }),
+  });
+  const data = await safeJson(res, null);
+  if (!res.ok || !data || data.error) throw new Error(data?.error || 'Le serveur ne peut pas confirmer cette opération.');
+  return data;
+}
+
+export async function saveSchoolOperation(key: string, body: any) {
+  return requestSchoolApi(`/api/operations/${encodeURIComponent(key)}`, body);
+}
+
+export async function fetchSchoolOperationalData(role?: string) {
+  const operations = await requestSchoolApi('/api/operations');
+  if (/parent|élève|eleve/i.test(role || '')) {
+    const data = await requestSchoolApi('/api/admin/export-data');
+    const students = data.students || [];
+    const personalUsers = (data.users || []).map((user: any) => {
+      const student = students.find((s: any) => String(s.userId) === String(user.id));
+      return student ? { ...user, studentRecordId: student.id, studentId: student.studentId || student.matricule, classId: student.classId, class: (data.classes || []).find((c: any) => String(c.id) === String(student.classId))?.name || student.class, parentEmail: student.parentEmail } : user;
+    });
+    return { ...data, ...operations, users: personalUsers,
+      payments: (data.payments || []).map((p: any) => ({ ...p, studentRecordId: p.studentId, studentId: students.find((s: any) => String(s.id) === String(p.studentId))?.userId || p.studentId })),
+      grades: (data.grades || []).map((g: any) => ({ ...g, studentId: students.find((s: any) => String(s.id) === String(g.studentId))?.userId || g.studentId })),
+    };
+  }
   const [
     users,
     payments,
@@ -320,14 +348,14 @@ export async function fetchSchoolOperationalData() {
     grades,
     budget,
   ] = await Promise.all([
-    fetchAuthedJson('/api/users', []),
-    fetchAuthedJson('/api/payments', []),
-    fetchAuthedJson('/api/transactions', []),
-    fetchAuthedJson('/api/personnel', []),
-    fetchAuthedJson('/api/classes', []),
-    fetchAuthedJson('/api/fees', []),
-    fetchAuthedJson('/api/grades', []),
-    fetchAuthedJson('/api/budget', { total: 0, income: 0, expense: 0 }),
+    requestSchoolApi('/api/users'),
+    requestSchoolApi('/api/payments'),
+    requestSchoolApi('/api/transactions'),
+    requestSchoolApi('/api/personnel'),
+    requestSchoolApi('/api/classes'),
+    requestSchoolApi('/api/fees'),
+    requestSchoolApi('/api/grades'),
+    requestSchoolApi('/api/budget'),
   ]);
 
   return {
@@ -338,7 +366,8 @@ export async function fetchSchoolOperationalData() {
     classes: unwrapCollection(classes, 'classes'),
     fees: unwrapCollection(fees, 'fees'),
     grades: unwrapCollection(grades, 'grades'),
-    budget,
+    ...operations,
+    budget: { categories: [], ...budget, ...(operations.budget || {}) },
   };
 }
 

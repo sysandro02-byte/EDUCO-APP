@@ -310,7 +310,7 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
                 Direction Générale & Promoteur
               </span>
               <span className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-white/10 text-slate-200 border border-white/15">
-                Année Scolaire : {schoolSettings?.academicYear || schoolSettings?.currentYear || '2025-2026'}
+                Année Scolaire : {schoolSettings?.academicYear || schoolSettings?.currentYear || ''}
               </span>
               <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
@@ -1220,7 +1220,7 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
               <div className="p-5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/80 rounded-2xl">
                 <span className="text-xs font-bold text-indigo-800 dark:text-indigo-300">Autonomie en Mois de Masse Salariale</span>
                 <p className="text-2xl font-black text-indigo-700 dark:text-indigo-400 mt-1">
-                  {(totalMonthlyPayroll > 0 ? (simulatedProjectedNetCash / totalMonthlyPayroll).toFixed(1) : '4.8')} <span className="text-xs">mois</span>
+                  {(totalMonthlyPayroll > 0 ? (simulatedProjectedNetCash / totalMonthlyPayroll).toFixed(1) : '—')} <span className="text-xs">mois</span>
                 </p>
                 <p className="text-[11px] text-indigo-600/80 dark:text-indigo-400/80 mt-2">
                   Réserve de sécurité salariale disponible pour l'établissement

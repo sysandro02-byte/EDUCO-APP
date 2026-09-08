@@ -126,7 +126,7 @@ const DailyCollectionsLineChart: React.FC<DailyCollectionsLineChartProps> = ({
   const { chartData, monthTotal, dailyAverage, bestDay, totalOps } = useMemo(() => {
     // Approved revenue transactions
     const approvedRevenues = transactions.filter(t => {
-      if (t.type !== 'Revenu' || t.status === 'Rejeté') return false;
+      if (t.type !== 'Revenu' || !['Approuvé', 'approved', 'paid'].includes(t.status || '')) return false;
       const d = new Date(t.date);
       return !isNaN(d.getTime()) && d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
     });
@@ -146,23 +146,6 @@ const DailyCollectionsLineChart: React.FC<DailyCollectionsLineChartProps> = ({
         dailyMap[day].count += 1;
       }
     });
-
-    // If transactions for current month are empty, check if we have transactions overall to distribute or simulate realistically
-    const hasAnyInMonth = approvedRevenues.length > 0;
-    if (!hasAnyInMonth && transactions.length > 0) {
-      // Look for any transactions to compute realistic spread
-      const allApprovedRevenues = transactions.filter(t => t.type === 'Revenu' && t.status !== 'Rejeté');
-      if (allApprovedRevenues.length > 0) {
-        allApprovedRevenues.forEach(t => {
-          const d = new Date(t.date);
-          const day = Math.min(daysInMonth, Math.max(1, d.getDate()));
-          if (dailyMap[day]) {
-            dailyMap[day].amount += Number(t.amount) || 0;
-            dailyMap[day].count += 1;
-          }
-        });
-      }
-    }
 
     // Build chart array and calculate cumulative
     let runningCumul = 0;

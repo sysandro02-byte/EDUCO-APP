@@ -34,9 +34,9 @@ type Payment = {
 
 interface CashierDashboardProps {
   setActivePage: (page: string) => void;
-  handleSaveSinglePayment: (paymentData: SinglePaymentData) => Transaction | null;
+  handleSaveSinglePayment: (paymentData: SinglePaymentData) => Promise<Transaction | null>;
   handleSaveUser: (user: User) => void | Promise<void>;
-  handlePaySalary: (personnelId: number, paymentData: AppSalaryPaymentData) => Transaction | null;
+  handlePaySalary: (personnelId: number, paymentData: AppSalaryPaymentData) => Promise<Transaction | null>;
   transactions: Transaction[];
   payments: Payment[];
   users: User[];
@@ -283,14 +283,16 @@ const CashierDashboard: React.FC<CashierDashboardProps> = ({
   const [payslipData, setPayslipData] = useState<{ personnel: Personnel, netAmount: number, paymentDetails: any } | null>(null);
   const currency = schoolSettings.currency;
 
-  const handleSaveAndShowReceipt = (paymentData: SinglePaymentData) => {
-    const newTransaction = handleSaveSinglePayment(paymentData);
+  const handleSaveAndShowReceipt = async (paymentData: SinglePaymentData) => {
+    const newTransaction = await handleSaveSinglePayment(paymentData);
     if (newTransaction) {
         setTransactionForReceipt(newTransaction);
         window.setTimeout(() => setPaymentModalState('receipt'), 0);
+        return newTransaction;
     } else {
         setPaymentModalState('closed');
         alert("Erreur: L'élève sélectionné n'a pas été trouvé.");
+        return null;
     }
   };
 
@@ -299,9 +301,9 @@ const CashierDashboard: React.FC<CashierDashboardProps> = ({
     setIsRegistrationModalOpen(false);
   };
   
-  const onSaveSalary = (salaryData: SalaryPaymentData) => {
+  const onSaveSalary = async (salaryData: SalaryPaymentData) => {
       const appSalaryData = { netAmount: salaryData.netAmount, details: { primes: salaryData.primes, deductions: salaryData.deductions }};
-      const newTransaction = handlePaySalary(salaryData.personnel.id!, appSalaryData);
+      const newTransaction = await handlePaySalary(salaryData.personnel.id!, appSalaryData);
       if (newTransaction) {
           setPayslipData({ 
               personnel: salaryData.personnel, 

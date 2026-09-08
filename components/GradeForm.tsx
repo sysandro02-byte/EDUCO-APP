@@ -9,6 +9,7 @@ export interface Grade {
   assignment: string;
   score: number;
   studentName?: string;
+  date?: string;
 }
 
 interface GradeFormProps {

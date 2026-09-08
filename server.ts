@@ -1,4 +1,6 @@
 import express from 'express';
+import { registerOperations, selectPersonalStudents } from './server/operations';
+import { registerCollections } from './server/collections';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
@@ -496,6 +498,34 @@ async function startServer() {
   app.use(cors({ origin: true, credentials: true }));
   app.use(express.json({ limit: '8mb' }));
 
+  // Enforce operational rights on the server as well as in the navigation.
+  app.use('/api', (req: AuthRequest, res, next) => {
+    const resource = req.path.split('/')[1];
+    const writers: Record<string, string[]> = {
+      transactions: ['Promoteur', 'Directeur Général', 'Responsable des finances', 'Caissière'],
+      payments: ['Promoteur', 'Directeur Général', 'Responsable des finances', 'Caissière'],
+      classes: ['Promoteur', 'Directeur Général', 'Directeur des Etudes', 'Directeur du Primaire'],
+      fees: ['Promoteur', 'Directeur Général', 'Responsable des finances'],
+      personnel: ['Promoteur', 'Directeur Général', 'Responsable des finances'],
+      grades: ['Promoteur', 'Directeur Général', 'Directeur des Etudes', 'Directeur du Primaire', 'Enseignant'],
+      school: ['Promoteur', 'Directeur Général'],
+    };
+    if (!writers[resource]) return next();
+    return requireAuth(req, res, async () => {
+      try {
+        const user = await getRequestUser(req);
+        const role = user?.role || '';
+        if (req.method === 'GET') {
+          if (/parent|élève|eleve/i.test(role) && resource !== 'school') return res.status(403).json({ error: 'Utilisez votre espace personnel pour consulter vos données.' });
+        } else if (!['Admin', 'Co-admin', ...writers[resource]].includes(role)
+          || (resource === 'transactions' && req.path.endsWith('/status') && role === 'Caissière')) {
+          return res.status(403).json({ error: 'Opération non autorisée pour ce compte.' });
+        }
+        next();
+      } catch (error: any) { res.status(503).json({ error: error.message }); }
+    });
+  });
+
   // WebAuthn / Passkeys API Routes
   app.use('/api/auth/webauthn', createWebAuthnRouter(getSupabaseAdmin, db, schema.webauthnCredentials));
 
@@ -506,7 +536,7 @@ async function startServer() {
 
   // Health check
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', timestamp: new Date().toISOString(), commit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null });
   });
 
   // Get All Accounts in Supabase DB
@@ -2603,6 +2633,55 @@ async function startServer() {
     }
   });
 
+  app.put('/api/transactions/:id', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getRequestUser(req);
+      if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
+      const transactionId = Number(req.params.id);
+      if (!Number.isSafeInteger(transactionId) || transactionId <= 0) {
+        return res.status(400).json({ error: 'Transaction Supabase invalide ou non synchronisée.' });
+      }
+
+      const { data: existing, error: existingError } = await supabaseAdmin
+        .from('transactions')
+        .select('*')
+        .eq('id', transactionId)
+        .eq('school_id', dbUser.schoolId)
+        .single();
+      if (existingError) throw existingError;
+
+      const amount = req.body.amount !== undefined ? Number(req.body.amount) : undefined;
+      if (amount !== undefined && (!Number.isFinite(amount) || amount < 0)) {
+        return res.status(400).json({ error: 'Montant invalide.' });
+      }
+
+      const status = req.body.status || mapSupabaseTransaction(existing).status;
+      const description = req.body.description !== undefined ? String(req.body.description || '') : mapSupabaseTransaction(existing).description;
+      const updatePayload: Record<string, any> = {
+        ...(req.body.type !== undefined && { type: req.body.type }),
+        ...(req.body.category !== undefined && { category: req.body.category }),
+        ...(amount !== undefined && { amount }),
+        ...(req.body.date !== undefined && { date: req.body.date }),
+        description: status ? `(Status: ${status}) ${description}` : description,
+      };
+
+      const { data, error } = await supabaseAdmin
+        .from('transactions')
+        .update(updatePayload)
+        .eq('id', transactionId)
+        .eq('school_id', dbUser.schoolId)
+        .select('*')
+        .single();
+      if (error) throw error;
+      res.json(mapSupabaseTransaction(data));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Payments Endpoints
   app.get('/api/payments', requireAuth, async (req: AuthRequest, res) => {
     try {
@@ -2686,6 +2765,8 @@ async function startServer() {
   });
 
   // School Settings Endpoints
+  registerOperations(app, requireAuth, getRequestUser, getSupabaseAdmin);
+  registerCollections(app, requireAuth, getRequestUser, getSupabaseAdmin, mapSupabaseTransaction);
   app.get('/api/school', requireAuth, async (req: AuthRequest, res) => {
     try {
       const dbUser = await getRequestUser(req);
@@ -2772,7 +2853,7 @@ async function startServer() {
         teacher_id: req.body.teacherId || req.body.teacher_id || null
       };
 
-      const query = Number.isFinite(Number(req.body.id))
+      const query = (Number.isSafeInteger(Number(req.body.id)) && Number(req.body.id) > 0)
         ? supabaseAdmin.from('classes').update(payload).eq('id', Number(req.body.id)).eq('school_id', dbUser.schoolId)
         : supabaseAdmin.from('classes').insert([payload]);
       const { data, error } = await query.select('*').single();
@@ -2814,7 +2895,7 @@ async function startServer() {
         type: req.body.type || req.body.category || null
       };
 
-      const query = Number.isFinite(Number(req.body.id))
+      const query = (Number.isSafeInteger(Number(req.body.id)) && Number(req.body.id) > 0)
         ? supabaseAdmin.from('fees').update(payload).eq('id', Number(req.body.id)).eq('school_id', dbUser.schoolId)
         : supabaseAdmin.from('fees').insert([payload]);
       const { data, error } = await query.select('*').single();
@@ -2907,7 +2988,7 @@ async function startServer() {
         hire_date: req.body.hireDate || req.body.hire_date || null,
         bank_account: req.body.bankAccount || req.body.bank_account || null
       };
-      const query = Number.isFinite(Number(req.body.id))
+      const query = (Number.isSafeInteger(Number(req.body.id)) && Number(req.body.id) > 0)
         ? supabaseAdmin.from('personnel').update(payload).eq('id', Number(req.body.id)).eq('school_id', dbUser.schoolId)
         : supabaseAdmin.from('personnel').insert([payload]);
       const { data, error } = await query.select('*').single();
@@ -2932,12 +3013,15 @@ async function startServer() {
       ]);
       if (error) throw error;
       const subjectsById = new Map((subjectRows || []).map((s: any) => [Number(s.id), s.name]));
+      const studentResult = await supabaseAdmin.from('students').select('id,user_id').eq('school_id', dbUser.schoolId);
+      if (studentResult.error) throw studentResult.error;
+      const studentUserIds = new Map((studentResult.data || []).map((s: any) => [Number(s.id), s.user_id]));
       const classIds = new Set<number>();
       const { data: schoolClasses } = await supabaseAdmin.from('classes').select('id').eq('school_id', dbUser.schoolId);
       (schoolClasses || []).forEach((c: any) => classIds.add(Number(c.id)));
       res.json((gradeRows || [])
         .filter((g: any) => classIds.has(Number(g.class_id || g.classId)))
-        .map((g: any) => mapSupabaseGrade(g, subjectsById.get(Number(g.subject_id || g.subjectId)))));
+        .map((g: any) => ({ ...mapSupabaseGrade(g, subjectsById.get(Number(g.subject_id || g.subjectId))), studentId: studentUserIds.get(Number(g.student_id)) || g.student_id })));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -2972,48 +3056,16 @@ async function startServer() {
       }
 
       const requestedStudentId = Number(req.body.studentId || req.body.student_id);
-      let resolvedStudentId = requestedStudentId;
-      const { data: existingStudentById } = await supabaseAdmin
-        .from('students')
-        .select('*')
-        .eq('id', requestedStudentId)
-        .limit(1)
-        .maybeSingle();
-      if (!existingStudentById) {
-        const { data: studentUser } = await supabaseAdmin
-          .from('users')
-          .select('*')
-          .eq('id', requestedStudentId)
-          .eq('school_id', dbUser.schoolId)
-          .limit(1)
-          .maybeSingle();
-        if (studentUser?.id) {
-          const { data: existingStudentByUser } = await supabaseAdmin
-            .from('students')
-            .select('*')
-            .eq('user_id', studentUser.id)
-            .limit(1)
-            .maybeSingle();
-          if (existingStudentByUser?.id) {
-            resolvedStudentId = existingStudentByUser.id;
-          } else {
-            const { data: createdStudent, error: studentError } = await supabaseAdmin
-              .from('students')
-              .insert([{
-                user_id: studentUser.id,
-                school_id: dbUser.schoolId,
-                student_id: studentUser.student_id || studentUser.matricule || `MAT-${studentUser.id}`,
-                parent_name: studentUser.parent_name || '',
-                parent_phone: studentUser.phone || '',
-                status: studentUser.status || 'active'
-              }])
-              .select('*')
-              .single();
-            if (studentError) throw studentError;
-            resolvedStudentId = createdStudent.id;
-          }
-        }
-      }
+      const classId = Number(req.body.classId || req.body.class_id);
+      const score = Number(req.body.score);
+      if (!Number.isFinite(score) || score < 0 || score > 20) return res.status(400).json({ error: 'La note doit être comprise entre 0 et 20.' });
+      const classResult = await supabaseAdmin.from('classes').select('*').eq('school_id', dbUser.schoolId).eq('id', classId).maybeSingle();
+      if (classResult.error) throw classResult.error;
+      if (!classResult.data || (dbUser.role === 'Enseignant' && Number(classResult.data.teacher_id) !== Number(dbUser.id))) return res.status(403).json({ error: 'Classe non autorisée.' });
+      const studentResult = await supabaseAdmin.from('students').select('*').eq('school_id', dbUser.schoolId).eq('user_id', requestedStudentId).maybeSingle();
+      if (studentResult.error) throw studentResult.error;
+      if (!studentResult.data || Number(studentResult.data.class_id) !== classId) return res.status(400).json({ error: 'Élève non inscrit dans cette classe.' });
+      const resolvedStudentId = studentResult.data.id;
 
       const payload = {
         student_id: resolvedStudentId,
@@ -3025,9 +3077,13 @@ async function startServer() {
         teacher_id: dbUser.id,
         date: req.body.date || new Date().toISOString()
       };
-      const { data, error } = await supabaseAdmin.from('grades').insert([payload]).select('*').single();
+      const gradeId = Number(req.body.id);
+      const query = Number.isSafeInteger(gradeId) && gradeId > 0
+        ? supabaseAdmin.from('grades').update(payload).eq('id', gradeId).eq('class_id', classId)
+        : supabaseAdmin.from('grades').insert([payload]);
+      const { data, error } = await query.select('*').single();
       if (error) throw error;
-      res.json(mapSupabaseGrade(data, subjectName));
+      res.json({ ...mapSupabaseGrade(data, subjectName), studentId: requestedStudentId });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -3044,7 +3100,7 @@ async function startServer() {
 
       const text = String(req.body.text || req.body.message || '').trim();
       if (!text) return res.status(400).json({ error: 'Le message est obligatoire.' });
-      const targetSchoolId = req.body.targetSchoolId || req.body.schoolId || dbUser.schoolId;
+      const targetSchoolId = /parent|élève|eleve/i.test(dbUser.role) ? dbUser.schoolId : (req.body.targetSchoolId || req.body.schoolId || dbUser.schoolId);
       const targetRoles = Array.isArray(req.body.roles) && req.body.roles.length > 0 ? req.body.roles : null;
 
       let usersQuery = supabaseAdmin.from('users').select('*').eq('school_id', Number(targetSchoolId));
@@ -4669,10 +4725,12 @@ async function startServer() {
               const existingIdx = allStudents.findIndex(x => x.id === st.id || (st.matricule && x.matricule === st.matricule));
               const studentObj = {
                 id: st.id,
+                userId: st.user_id || st.userId || linkedUser?.id,
+                studentId: st.student_id || st.studentId || st.matricule || (linkedUser as any)?.studentId,
                 name: st.name || linkedUser?.name || `Élève #${st.id}`,
                 schoolId: st.school_id || st.schoolId || linkedUser?.schoolId || 1,
                 classId: st.class_id || st.classId || null,
-                matricule: st.matricule || (linkedUser as any)?.studentId || (linkedUser as any)?.matricule || `MAT-${st.id}`,
+                matricule: st.student_id || st.matricule || (linkedUser as any)?.studentId || '',
                 class: st.class || (linkedUser as any)?.class || 'Non assignée',
                 email: st.email || linkedUser?.email || '',
                 phone: st.phone || linkedUser?.phone || '',
@@ -4954,21 +5012,17 @@ async function startServer() {
       const currentAppUser = enrichedUsers.find(isCurrentUserRow) || dbUser || req.user;
       const parentStudentReference = String(currentAppUser?.studentId || currentAppUser?.student_id || '').toLowerCase();
       const parentName = String(currentAppUser?.name || '').toLowerCase();
-      const linkedParentStudents = enrichedStudents.filter((student: any) =>
-        (parentStudentReference && String(student.studentId || student.matricule || '').toLowerCase() === parentStudentReference)
-        || (!!currentUserEmail && (String(student.parentEmail || '').toLowerCase() === currentUserEmail || String(student.email || '').toLowerCase() === currentUserEmail))
-        || (!!parentName && String(student.parentName || '').toLowerCase() === parentName)
-      );
+      const linkedParentStudents = selectPersonalStudents({ ...currentAppUser, schoolId: currentSchoolId, role: userRole }, enrichedStudents);
       const linkedStudentIds = new Set(linkedParentStudents.map((student: any) => String(student.id)));
       const linkedStudentReferences = new Set(linkedParentStudents.map((student: any) => String(student.studentId || student.matricule || '')));
       const linkedStudentNames = new Set(linkedParentStudents.map((student: any) => String(student.name || '').toLowerCase()));
       const linkedStudentUserIds = new Set(enrichedUsers
-        .filter((user: any) => /élève|eleve|student/i.test(String(user.role || '')) && (linkedStudentReferences.has(String(user.studentId || user.matricule || '')) || linkedStudentNames.has(String(user.name || '').toLowerCase())))
+        .filter((user: any) => belongsToCurrentSchool(user) && /élève|eleve|student/i.test(String(user.role || '')) && (linkedParentStudents.some((s: any) => String(s.userId) === String(user.id)) || (!!user.studentId && linkedStudentReferences.has(String(user.studentId)))))
         .map((user: any) => String(user.id)));
 
-      if (!isSuperAdmin && /parent/.test(normalizedRole)) {
+      if (!isSuperAdmin && /parent|élève|eleve|student/.test(normalizedRole)) {
         const linkedClassIds = new Set(linkedParentStudents.map((student: any) => String(student.classId || student.class_id || '')));
-        visibleUsers = enrichedUsers.filter((user: any) => isCurrentUserRow(user) || linkedStudentUserIds.has(String(user.id)));
+        visibleUsers = enrichedUsers.filter((user: any) => belongsToCurrentSchool(user) && (isCurrentUserRow(user) || linkedStudentUserIds.has(String(user.id))));
         visibleStudents = linkedParentStudents;
         visiblePersonnel = [];
         visibleClasses = enrichedClasses.filter((schoolClass: any) => linkedClassIds.has(String(schoolClass.id)));
@@ -5007,7 +5061,7 @@ async function startServer() {
       let visibleSubscriptions = isSuperAdmin ? allSubscriptions : allSubscriptions.filter(belongsToCurrentSchool);
       let visibleSubscriptionRequests = isSuperAdmin ? allSubscriptionRequests : allSubscriptionRequests.filter(belongsToCurrentSchool);
 
-      if (!isSuperAdmin && (/parent/.test(normalizedRole) || /enseignant|professeur|teacher/.test(normalizedRole))) {
+      if (!isSuperAdmin && (/parent|élève|eleve|student/.test(normalizedRole) || /enseignant|professeur|teacher/.test(normalizedRole))) {
         visibleSubscriptions = [];
         visibleSubscriptionRequests = [];
       }

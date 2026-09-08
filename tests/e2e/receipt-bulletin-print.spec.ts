@@ -171,6 +171,13 @@ async function installE2EState(page: Page, user = currentUser) {
     })) as typeof window.open;
   }, { fixture: offlineFixture, user });
 
+  await page.route('**/api/operations', async route => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(offlineFixture) });
+  });
+  await page.route(/\/api\/collections(?:\?.*)?$/, async route => {
+    const body = route.request().postDataJSON();
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ success: true, transaction: { ...body.transaction, id: '900001' } }) });
+  });
   await page.route('**/api/db/status**', async route => {
     await route.fulfill({
       contentType: 'application/json',
@@ -279,16 +286,28 @@ async function installE2EState(page: Page, user = currentUser) {
 
 async function openCashierPaymentForm(page: Page) {
   await page.locator('button').filter({ hasText: 'Paiement Écolage' }).click();
-  await page.locator('button').filter({ hasText: /frais d'écolage|réinscription/i }).click();
+  const formHeading = page.getByRole('heading', { name: /guichet de paiement/i });
+  if (!(await formHeading.isVisible().catch(() => false))) {
+    await page.locator('button').filter({ hasText: /frais d'écolage|réinscription/i }).click();
+  }
   await expect(page.getByRole('heading', { name: /guichet de paiement/i })).toBeVisible();
 }
 
 async function selectExistingStudent(page: Page) {
-  await page.locator('select').filter({ hasText: e2eStudent.name }).selectOption(String(e2eStudent.id));
+  const monthlyStudentSelect = page.locator('label:has-text("Sélectionner l\'Élève")').locator('..').locator('select');
+  if (await monthlyStudentSelect.isVisible().catch(() => false)) {
+    await monthlyStudentSelect.selectOption(String(e2eStudent.id));
+    return;
+  }
+  await page.locator('label:has-text("Choisir l\'Élève")').locator('..').locator('select').selectOption(String(e2eStudent.id));
 }
 
 async function fillVisibleAmount(page: Page, amount: string) {
   await page.locator('form input[type="number"]').filter({ visible: true }).first().fill(amount);
+}
+
+async function closeReceipt(page: Page) {
+  await page.getByRole('button', { name: /^fermer$/i }).last().click();
 }
 
 async function waitForSchoolOperationalData(page: Page) {
@@ -326,9 +345,9 @@ for (const account of [cashierUser, rafUser]) {
     const paymentPrintHtml = await page.evaluate(() => (window as any).__educoPrintCalls.at(-1)?.html || '');
     expect(paymentPrintHtml).toContain('Ticket N°');
     expect(paymentPrintHtml).toContain(e2eStudent.name);
-    expect(paymentPrintHtml).toContain('10 000');
+    expect(paymentPrintHtml.replace(/\s/g, ' ')).toContain('10 000');
 
-    await page.getByRole('button', { name: /^fermer$/i }).click();
+    await closeReceipt(page);
     await openCashierPaymentForm(page);
     await page.getByRole('button', { name: /réinscription/i }).click();
     await selectExistingStudent(page);
@@ -343,9 +362,9 @@ for (const account of [cashierUser, rafUser]) {
       .toBeGreaterThan(1);
     const renewalPrintHtml = await page.evaluate(() => (window as any).__educoPrintCalls.at(-1)?.html || '');
     expect(renewalPrintHtml).toContain('Ticket N°');
-    expect(renewalPrintHtml).toContain('réinscription');
+    expect(renewalPrintHtml.toLowerCase()).toContain('réinscription');
 
-    await page.getByRole('button', { name: /^fermer$/i }).click();
+    await closeReceipt(page);
     await openCashierPaymentForm(page);
     await page.getByRole('button', { name: /inscription \(nouveau\)/i }).click();
     await page.getByPlaceholder('Ex: Kouamé K. Emmanuel').fill(`Inscription ${account.role} E2E`);
@@ -378,7 +397,7 @@ test('imprime un reçu et un bulletin depuis les vrais écrans EDUCO', async ({ 
   await expect(page.getByRole('heading', { name: /gestion de l'abonnement & licence/i })).toBeVisible();
   await expect(page.getByText('EDUCO-SCH-E2E')).toBeVisible();
   await expect(page.getByRole('button', { name: /demander un renouvellement/i })).toBeEnabled();
-  await page.getByRole('button', { name: /^fermer$/i }).click();
+  await page.getByRole('button', { name: /^fermer$/i }).last().click();
   await expect(page.getByRole('heading', { name: 'Tableau de bord', exact: true })).toBeVisible();
 
   await page.getByText('Paiements', { exact: true }).first().click();
@@ -386,7 +405,7 @@ test('imprime un reçu et un bulletin depuis les vrais écrans EDUCO', async ({ 
   await expect(page.getByText(e2eStudent.name).first()).toBeVisible();
 
   await page.getByRole('button', { name: /enregistrer un paiement/i }).click();
-  await page.getByRole('button', { name: /inscription/i }).click();
+  await page.getByRole('button', { name: /^inscription \(nouveau\)$/i }).click();
   await page.getByPlaceholder('Ex: Kouamé K. Emmanuel').fill('Nouvel Élève Ticket E2E');
   await page.locator('label:has-text("Classe d\'Affectation")').locator('..').locator('select').selectOption('CM2 A');
   await page.getByPlaceholder('+242 06 XXX XX XX').fill('+242 06 222 3333');
@@ -407,7 +426,7 @@ test('imprime un reçu et un bulletin depuis les vrais écrans EDUCO', async ({ 
   expect(inscriptionPrintHtml).toContain('Nouvel Élève Ticket E2E');
   expect(inscriptionPrintHtml).toContain('Inscription');
 
-  await page.getByRole('button', { name: /^fermer$/i }).click();
+  await closeReceipt(page);
   await page.getByRole('button', { name: /aperçu.*reçu|reçu/i }).first().click();
   await expect(page.getByText(/ticket n°/i).first()).toBeVisible();
   await page.getByRole('button', { name: /imprimer directement/i }).click();
@@ -419,20 +438,21 @@ test('imprime un reçu et un bulletin depuis les vrais écrans EDUCO', async ({ 
   expect(receiptPrintHtml).toContain('Ticket N°');
   expect(receiptPrintHtml).toContain('Élève Reçu Bulletin E2E');
 
-  await page.getByRole('button', { name: /^fermer$/i }).click();
+  await closeReceipt(page);
   await page.getByText('Notes', { exact: true }).first().click();
   await expect(page.getByRole('heading', { name: /gestion des notes/i })).toBeVisible();
   await expect(page.getByText(e2eStudent.name).first()).toBeVisible();
 
-  await page.getByRole('button', { name: /gérer les appréciations/i }).click();
+  await page.getByRole('button', { name: /gérer les appréciations/i }).first().click();
   await page.getByRole('button', { name: /générer le bulletin/i }).click();
   await expect(page.getByText(/Bulletin de Notes/i).first()).toBeVisible();
   await expect(page.getByText(e2eStudent.name).first()).toBeVisible();
 
+  const printCountBeforeBulletin = await page.evaluate(() => (window as any).__educoPrintCalls?.length || 0);
   await page.getByRole('button', { name: /imprimer le bulletin officiel/i }).click();
   await expect
     .poll(async () => page.evaluate(() => (window as any).__educoPrintCalls?.length || 0))
-    .toBeGreaterThan(1);
+    .toBeGreaterThan(printCountBeforeBulletin);
   const bulletinPrintHtml = await page.evaluate(() => (window as any).__educoPrintCalls.at(-1)?.html || '');
   expect(bulletinPrintHtml).toContain('Bulletin de Notes');
   expect(bulletinPrintHtml).toContain('Élève Reçu Bulletin E2E');

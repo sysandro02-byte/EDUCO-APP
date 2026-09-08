@@ -43,7 +43,6 @@ const TeacherClassesPage: React.FC<TeacherClassesPageProps> = ({ classes, studen
     if (selectedClassId) {
       const recordsToSave = Array.from(attendanceRecords.entries()).map(([studentId, status]) => ({ studentId, status }));
       onSaveAttendance(selectedClassId, selectedDate, recordsToSave);
-      alert('Présences enregistrées avec succès !');
     }
   };
 

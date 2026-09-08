@@ -17,7 +17,7 @@ interface StudentPaymentsPageProps {
 }
 
 const StudentPaymentsPage: React.FC<StudentPaymentsPageProps> = ({ paymentInfo, transactions, schoolSettings }) => {
-  const currency = schoolSettings?.currency || '€';
+  const currency = schoolSettings?.currency || 'FCFA';
 
   if (!paymentInfo) {
     return (
@@ -34,14 +34,14 @@ const StudentPaymentsPage: React.FC<StudentPaymentsPageProps> = ({ paymentInfo, 
     generateReceiptPdf(transaction, schoolSettings || {
       name: 'EDUCO - Établissement Scolaire',
       logo: '',
-      address: 'Avenue de l\'Éducation',
-      contact: '+242 06 000 00 00',
-      email: 'contact@educo.cg',
+      address: '',
+      contact: '',
+      email: '',
       currency: currency,
       themeColor: '#1F4A59',
       slogan: "L'Excellence au service du Futur",
-      currentYear: '2025-2026',
-      academicYear: '2025-2026',
+      currentYear: '',
+      academicYear: '',
       defaultLanguage: 'Français',
       dashboardView: 'avancé',
     });

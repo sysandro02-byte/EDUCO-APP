@@ -3,7 +3,7 @@ import { User } from './UserForm';
 import { Class } from './ClassForm';
 import { Fee } from './FeeForm';
 import { GraduationCapIcon, CheckCircleIcon, SearchIcon, UsersIcon } from './Icons';
-import { SinglePaymentData } from '../App';
+import { SinglePaymentData, Transaction } from '../App';
 import Modal from './Modal';
 import { Eye, Printer, ArrowLeft, FileText, CheckCircle2, Camera, Trash2, User as UserIcon, ShieldAlert } from 'lucide-react';
 import StudentPhotoCaptureModal from './StudentPhotoCaptureModal';
@@ -23,7 +23,7 @@ export type StudentPaymentInfo = {
 }
 
 interface PaymentFormProps {
-  onSave: (paymentData: SinglePaymentData) => void;
+  onSave: (paymentData: SinglePaymentData) => Promise<Transaction | null> | Transaction | null | void;
   onCancel: () => void;
   payments: StudentPaymentInfo[];
   users: User[];
@@ -484,10 +484,12 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
         if (pendingPaymentData && !isSubmitting) {
             setIsSubmitting(true);
             try {
-                // Perform the transaction and await completion
                 await new Promise(resolve => setTimeout(resolve, 600));
+                const savedTransaction = await Promise.resolve(onSave(pendingPaymentData));
+                if (savedTransaction) {
+                    return;
+                }
                 setShowPreviewModal(false);
-                await Promise.resolve(onSave(pendingPaymentData));
             } catch (error) {
                 console.error("Erreur lors de la validation du paiement vers Supabase:", error);
             } finally {

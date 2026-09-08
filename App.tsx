@@ -1,4 +1,5 @@
 import { simulateBrevoSend } from "./utils/communications";
+import { saveSchoolOperation, requestSchoolApi } from './src/services/api';
 
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -695,6 +696,7 @@ const App: React.FC = () => {
   const [homeworkDiary, setHomeworkDiary] = useState<HomeworkDiaryEntry[]>([]);
   const [reportCardComments, setReportCardComments] = useState<ReportCardComments[]>([]);
   const [financialEvents, setFinancialEvents] = useState<FinancialEvent[]>([]);
+  const [businessSyncError, setBusinessSyncError] = useState('');
 
   // State for cashier's operational hours
   const [isCaisseOpen, setIsCaisseOpen] = useState(true);
@@ -885,11 +887,11 @@ const App: React.FC = () => {
         setPayments([]);
         setPersonnel([]);
         setTransactions([]);
-        setBudget(offlineCache?.budget || initialBudget);
+        setBudget(initialBudget);
         setTopClasses([]);
         setNotifications([]);
         setMessages([]);
-        setAcademicYear(offlineCache?.academicYear || initialAcademicYear);
+        setAcademicYear(initialAcademicYear);
         setClasses([]);
         setFees([]);
         setSubjects([]);
@@ -955,6 +957,7 @@ const App: React.FC = () => {
   // Refresh business data from the backend. Notifications have their own
   // per-user endpoint below.
   useEffect(() => {
+    let cancelled = false;
     const areRecordsEqual = (a: any[], b: any[]) => {
       if (a === b) return true;
       if (!a || !b || a.length !== b.length) return false;
@@ -990,7 +993,9 @@ const App: React.FC = () => {
           return;
         }
 
-        const schoolData = await fetchSchoolOperationalData();
+        const schoolData = await fetchSchoolOperationalData(userRole);
+        if (cancelled) return false;
+        setBusinessSyncError('');
         replaceIfArray<User>(setUsers, schoolData.users);
         replaceIfArray<any>(setPayments, schoolData.payments);
         replaceIfArray<Transaction>(setTransactions, schoolData.transactions);
@@ -998,21 +1003,43 @@ const App: React.FC = () => {
         replaceIfArray<Class>(setClasses, schoolData.classes);
         replaceIfArray<Fee>(setFees, schoolData.fees);
         replaceIfArray<Grade>(setGrades, schoolData.grades);
+        replaceIfArray<any>(setAttendance, schoolData.attendance);
+        replaceIfArray<Subject>(setSubjects, schoolData.subjects);
+        replaceIfArray<TimetableEntry>(setTimetable, schoolData.timetable);
+        replaceIfArray<HomeworkDiaryEntry>(setHomeworkDiary, schoolData.homeworkDiary);
+        replaceIfArray<ReportCardComments>(setReportCardComments, schoolData.reportCardComments);
+        replaceIfArray<FinancialEvent>(setFinancialEvents, schoolData.financialEvents);
+        replaceIfArray<MessageTemplate>(setMessageTemplates, schoolData.messageTemplates);
+        if (schoolData.schoolSettings) setSchoolSettings(prev => ({ ...initialSchoolSettings, ...prev, ...schoolData.schoolSettings }));
+        if (schoolData.academicYear) setAcademicYear(schoolData.academicYear);
+        if (schoolData.cashierSettings) setCashierSettings(schoolData.cashierSettings);
+        if (schoolData.rafSettings) setRafSettings(schoolData.rafSettings);
+        if (schoolData.communicationSettings) setCommunicationSettings(schoolData.communicationSettings);
         if (schoolData.budget && typeof schoolData.budget === 'object') {
           setBudget(prev => JSON.stringify(prev) === JSON.stringify(schoolData.budget) ? prev : schoolData.budget);
         }
+        return true;
       } catch (e) {
         console.warn('Business data sync warning:', e);
+        if (!cancelled) setBusinessSyncError('Les dernières données ne peuvent pas être chargées. Vérifiez la connexion puis réessayez.');
+        return false;
       }
     };
 
+    const refreshRequested = async (event: Event) => {
+      const success = await syncBusinessData();
+      (event as CustomEvent).detail?.resolve?.(success);
+    };
     syncBusinessData();
     const syncInterval = setInterval(syncBusinessData, 60000);
     const onFocus = () => syncBusinessData();
     window.addEventListener('focus', onFocus);
+    window.addEventListener('educo:refresh-data', refreshRequested);
     return () => {
+      cancelled = true;
       clearInterval(syncInterval);
       window.removeEventListener('focus', onFocus);
+      window.removeEventListener('educo:refresh-data', refreshRequested);
     };
   }, [loggedInRole, currentUser]);
 
@@ -1658,7 +1685,8 @@ const App: React.FC = () => {
   };
 
   // New handler for single, detailed payments
-  const handleSaveSinglePayment = (paymentData: SinglePaymentData): Transaction | null => {
+  const handleSaveSinglePayment = async (paymentData: SinglePaymentData): Promise<Transaction | null> => {
+    try {
       const today = new Date();
       const pType = paymentData.paymentType || 'Frais Mensuels';
 
@@ -1746,7 +1774,7 @@ const App: React.FC = () => {
               address: paymentData.newStudentData.address || '',
               parentName: paymentData.newStudentData.parentTuteur || paymentData.parentTuteur || '',
               guardian: paymentData.newStudentData.parentTuteur || paymentData.parentTuteur || '',
-              avatar: paymentData.newStudentData.avatar || `https://i.pravatar.cc/150?u=${newId}`,
+              avatar: paymentData.newStudentData.avatar || '',
               familyId: paymentData.isLargeFamily ? Date.now() : undefined,
               isAccountActivated: false, // Compte à activer par Promoteur / DG / DE
               enrollmentType: 'Inscription',
@@ -1776,15 +1804,11 @@ const App: React.FC = () => {
               siblings: paymentData.familyNameOrSiblings || paymentData.newStudentData.freresSoeurs || '',
           };
 
-          setUsers(prev => [...prev, newStudentUser]);
-          setPayments(prev => [...prev, newPaymentRecord]);
-          saveUserToDb(newStudentUser)
-            .then((saved: any) => {
-              if (saved?.id) {
-                setUsers(prev => prev.map(u => u.id === newId ? { ...u, ...saved, id: saved.id } : u));
-              }
-            })
-            .catch((err) => console.warn('Élève gardé localement, synchronisation Supabase échouée:', err));
+          const saved = await saveUserToDb({ ...newStudentUser, id: undefined, schoolId: currentUser?.schoolId });
+          if (!saved?.id) throw new Error("L'inscription n'a pas été confirmée.");
+          targetStudentId = saved.id;
+          setUsers(prev => [...prev, { ...newStudentUser, ...saved }]);
+          setPayments(prev => [...prev, { ...newPaymentRecord, id: saved.id }]);
       } else {
           // EXISTING STUDENT (for Frais Mensuels, Réinscription, or Dossier d'Examen)
           const student = (payments || []).find(p => p.id === targetStudentId) || (users || []).find(u => u.id === targetStudentId);
@@ -1951,24 +1975,15 @@ const App: React.FC = () => {
           },
       } as any;
 
-      // Add new transaction
-      setTransactions(prev => [newTransaction, ...prev]);
-
-      // Queue offline operation for auto-sync
-      queueOfflineOperation({
-        type: 'TRANSACTION',
-        action: 'CREATE',
-        payload: newTransaction,
-      });
-      persistTransaction(newTransaction);
-      savePaymentToDb({
-        studentId: typeof targetStudentId === 'number' ? targetStudentId : undefined,
+      const savedCollection = await requestSchoolApi('/api/collections', {
+        studentUserId: targetStudentId,
         amount: paymentData.amount,
-        paymentDate: today.toISOString(),
-        receiptNumber: `REC-${Date.now()}-${targetStudentId || 'N'}`,
+        receiptNumber: newTransaction.id,
         paymentMethod: paymentData.paymentMethod,
-        status: 'paid'
-      }).catch((err) => console.warn('Paiement gardé localement, synchronisation Supabase échouée:', err));
+        transaction: newTransaction,
+      });
+      Object.assign(newTransaction, savedCollection.transaction, { receiptSummary: newTransaction.receiptSummary });
+      setTransactions(prev => [newTransaction, ...prev]);
 
       // Logging & Notifications
       const details = `Paiement ${pType} pour ${studentName} (${studentClass}). Montant: ${paymentData.amount.toLocaleString()} ${schoolSettings?.currency || 'FCFA'}`;
@@ -2031,9 +2046,14 @@ const App: React.FC = () => {
       }
       
       return newTransaction;
+    } catch (error: any) {
+      window.dispatchEvent(new CustomEvent('educo:refresh-data'));
+      alert("Erreur : le paiement n'a pas été confirmé. " + error.message);
+      return null;
+    }
   };
 
-  const handlePaySalary = (personnelId: number, paymentData: SalaryPaymentData): Transaction | null => {
+  const handlePaySalary = async (personnelId: number, paymentData: SalaryPaymentData): Promise<Transaction | null> => {
     // Cashier permissions and limits validation
     if (loggedInRole === 'Caissière' && cashierSettings) {
         const perms = cashierSettings.permissions;
@@ -2093,13 +2113,12 @@ const App: React.FC = () => {
       ...(pd.salaryPeriod ? { salaryPeriod: pd.salaryPeriod } : {}),
     } as any;
 
-    setTransactions(prev => [newTransaction, ...prev]);
-    queueOfflineOperation({
-      type: 'TRANSACTION',
-      action: 'CREATE',
-      payload: newTransaction,
-    });
-    persistTransaction(newTransaction);
+    try {
+      const saved = await requestSchoolApi('/api/transactions', newTransaction);
+      Object.assign(newTransaction, saved);
+      setTransactions(prev => [newTransaction, ...prev]);
+    } catch (error: any) { alert('Erreur : ' + error.message); return null; }
+
     addActivityLog('Paiement de salaire (en attente)', `Personnel: ${employee.name}, Période: ${pd.salaryPeriod || 'N/A'}, Montant: ${paymentData.netAmount.toLocaleString()} ${schoolSettings?.currency}`);
     
     addNotification(
@@ -2111,11 +2130,15 @@ const App: React.FC = () => {
     return newTransaction;
   };
   
-  const handleUpdateTransactionStatus = (transactionId: string, status: 'Approuvé' | 'Rejeté') => {
-      if (loggedInRole !== 'Responsable des finances' && loggedInRole !== 'Promoteur' && loggedInRole !== 'Admin') {
+  const handleUpdateTransactionStatus = async (transactionId: string, status: 'Approuvé' | 'Rejeté') => {
+      if (!['Responsable des finances', 'Promoteur', 'Directeur Général', 'Admin'].includes(loggedInRole)) {
           alert("Seul le Responsable Administratif et Financier (RAF), le Directeur Général (DG / Promoteur) ou l'Administrateur est habilité à valider ou rejeter les opérations. La caissière n'a pas ce droit.");
           return;
       }
+      try {
+        const saved = await updateTransactionStatusInDb(transactionId, status);
+        if (!saved?.id || saved.error) throw new Error(saved?.error || 'Validation non confirmée.');
+      } catch (error: any) { alert('Erreur : ' + error.message); return; }
       const currentUserProfile = currentUser;
       const approverName = currentUserProfile?.name || 'Responsable';
       const approverTitle = loggedInRole === 'Promoteur' ? 'Directeur Général (DG)' : loggedInRole;
@@ -2143,20 +2166,6 @@ const App: React.FC = () => {
       const transaction = transactions.find(t => t.id === transactionId);
       if (transaction && budget) {
           addActivityLog(`Validation transaction (${status}) par ${approvedByText}`, `ID: ${transactionId}, Desc: ${transaction.description}`);
-          if (/^\d+$/.test(String(transactionId))) {
-            updateTransactionStatusInDb(String(transactionId), status)
-              .then((saved: any) => {
-                if (saved?.id) {
-                  setTransactions(prev => prev.map(t => (
-                    String(t.id) === String(transactionId)
-                      ? { ...t, ...saved, id: String(saved.id), status } as Transaction
-                      : t
-                  )));
-                }
-              })
-              .catch((err) => console.warn('Validation gardée localement, synchronisation Supabase échouée:', err));
-          }
-          
           // Notification to Caisse, RAF, DG (Promoteur) & Admin
           addNotification(
               `L'opération "${transaction.description}" (${transaction.amount.toLocaleString()} ${schoolSettings?.currency || 'FCFA'}) a été ${status === 'Approuvé' ? 'approuvée' : 'rejetée'} par ${approvedByText}.`,
@@ -2185,30 +2194,29 @@ const App: React.FC = () => {
       }
   };
 
-  const handleEditTransaction = (transactionId: string, updatedData: Partial<Transaction>) => {
+  const handleEditTransaction = async (transactionId: string, updatedData: Partial<Transaction>) => {
       if (loggedInRole !== 'Responsable des finances' && loggedInRole !== 'Promoteur' && loggedInRole !== 'Admin') {
           alert("Seul le Responsable Administratif et Financier (RAF), le Directeur Général (DG / Promoteur) ou l'Administrateur a le droit de modifier une transaction.");
           return;
       }
 
-      setTransactions(prev => prev.map(t => {
-          if (t.id === transactionId) {
-              const updated = { ...t, ...updatedData };
-              addActivityLog('Modification de transaction par le RAF', `ID: ${transactionId}, Intitulé: ${updated.description}, Montant: ${updated.amount}`);
-              return updated;
-          }
-          return t;
-      }));
+      try {
+          const savedTransaction = await requestSchoolApi(`/api/transactions/${encodeURIComponent(transactionId)}`, updatedData, 'PUT') as Transaction;
+          setTransactions(prev => prev.map(t => t.id === transactionId ? savedTransaction : t));
+          addActivityLog('Modification de transaction par le RAF', `ID: ${transactionId}, Intitulé: ${savedTransaction.description}, Montant: ${savedTransaction.amount}`);
 
-      addNotification(
-          `La transaction ${transactionId} a été modifiée par le RAF/DG.`,
-          'Modification Transaction',
-          ['Caissière', 'Responsable des finances', 'Promoteur', 'Admin'],
-          'Comptabilité'
-      );
+          addNotification(
+              `La transaction ${transactionId} a été modifiée par le RAF/DG.`,
+              'Modification Transaction',
+              ['Caissière', 'Responsable des finances', 'Promoteur', 'Admin'],
+              'Comptabilité'
+          );
+      } catch (error: any) {
+          alert(error?.message || "La transaction n'a pas été modifiée sur le serveur.");
+      }
   };
   
-  const handleSaveExpense = (description: string, amount: number, category: string, justification?: File, extra?: any) => {
+  const handleSaveExpense = async (description: string, amount: number, category: string, justification?: File, extra?: any) => {
       // Cashier permissions and limits validation
       if (loggedInRole === 'Caissière' && cashierSettings) {
           const perms = cashierSettings.permissions;
@@ -2273,15 +2281,12 @@ const App: React.FC = () => {
           approvedAt: status === 'Approuvé' ? new Date().toISOString() : undefined,
           ...(extra || {}),
       } as any;
-      const newTransactions = [newExpense, ...transactions];
-      setTransactions(newTransactions);
-      
-      queueOfflineOperation({
-        type: 'TRANSACTION',
-        action: 'CREATE',
-        payload: newExpense,
-      });
-      persistTransaction(newExpense);
+    try {
+      const saved = await requestSchoolApi('/api/transactions', newExpense);
+      Object.assign(newExpense, saved);
+      setTransactions(prev => [newExpense, ...prev]);
+    } catch (error: any) { alert('Erreur : ' + error.message); return; }
+
       
       if (isRAFOrDG) {
         addActivityLog('Enregistrement dépense (Direction/RAF)', `Desc: ${description}, Montant: ${amount} ${schoolSettings?.currency}, Cat: ${category}`);
@@ -2309,7 +2314,7 @@ const App: React.FC = () => {
         );
       }
 
-      const totalSpentInCategory = newTransactions
+      const totalSpentInCategory = [newExpense, ...transactions]
         .filter(t => t.type === 'Dépense' && t.status === 'Approuvé' && t.category === category)
         .reduce((sum, t) => sum + t.amount, 0);
       const budgetForCategory = budget.categories.find(c => c.name === category)?.amount;
@@ -2343,7 +2348,7 @@ const App: React.FC = () => {
       }
   };
 
-  const handleSaveRevenue = (description: string, amount: number, category: string, justification?: File, extra?: any) => {
+  const handleSaveRevenue = async (description: string, amount: number, category: string, justification?: File, extra?: any) => {
       // Cashier permissions and limits validation
       if (loggedInRole === 'Caissière' && cashierSettings) {
           const perms = cashierSettings.permissions;
@@ -2387,13 +2392,12 @@ const App: React.FC = () => {
           justification: justification ? justification.name : undefined,
           ...(extra || {}),
       } as any;
+      try {
+      const saved = await requestSchoolApi('/api/transactions', newRevenue);
+      Object.assign(newRevenue, saved);
       setTransactions(prev => [newRevenue, ...prev]);
-      queueOfflineOperation({
-        type: 'TRANSACTION',
-        action: 'CREATE',
-        payload: newRevenue,
-      });
-      persistTransaction(newRevenue);
+    } catch (error: any) { alert('Erreur : ' + error.message); return; }
+
       addActivityLog('Enregistrement revenu', `Desc: ${description}, Montant: ${amount} ${schoolSettings?.currency}, Cat: ${category}`);
       addNotification(
           `Nouveau revenu de ${amount.toLocaleString()} ${schoolSettings?.currency} enregistré.`,
@@ -2404,35 +2408,17 @@ const App: React.FC = () => {
   };
 
 
-  const handleSavePersonnel = (personnelToSave: Personnel) => {
-    if (personnelToSave.id) {
-        // Update
-        setPersonnel(personnel.map(p => p.id === personnelToSave.id ? personnelToSave : p));
-        savePersonnelToDb(personnelToSave)
-          .then((saved: any) => {
-            if (saved?.id) {
-              setPersonnel(prev => prev.map(p => p.id === personnelToSave.id ? { ...p, ...saved } : p));
-            }
-          })
-          .catch((err) => console.warn('Personnel gardé localement, synchronisation Supabase échouée:', err));
-        addActivityLog('Mise à jour fiche personnel', `ID: ${personnelToSave.id}, Nom: ${personnelToSave.name}`);
-    } else {
-        // Create
-        const newId = personnel.length > 0 ? Math.max(...personnel.map(p => p.id as number)) + 1 : 1;
-        const newPersonnel = { ...personnelToSave, id: newId };
-        setPersonnel([...personnel, newPersonnel]);
-        savePersonnelToDb({ ...newPersonnel, id: undefined })
-          .then((saved: any) => {
-            if (saved?.id) {
-              setPersonnel(prev => prev.map(p => p.id === newId ? { ...p, ...saved } : p));
-            }
-          })
-          .catch((err) => console.warn('Personnel gardé localement, synchronisation Supabase échouée:', err));
-        addActivityLog('Création membre du personnel', `Nom: ${newPersonnel.name}, Rôle: ${newPersonnel.role}`);
-    }
+  const handleSavePersonnel = async (record: Personnel) => {
+    try {
+      const saved = await requestSchoolApi('/api/personnel', { ...record, id: record.id || undefined });
+      setPersonnel(prev => [...prev.filter(row => String(row.id) !== String(saved.id)), { ...record, ...saved }]);
+      addActivityLog('Enregistrement personnel', String(saved.id));
+    } catch (error: any) { alert('Erreur : ' + error.message); }
   };
 
-  const handleDeletePersonnel = (personnelId: number) => {
+  const handleDeletePersonnel = async (personnelId: number) => {
+    try { await requestSchoolApi("/api/records/personnel/delete", { id: personnelId }); }
+    catch (error: any) { alert("Erreur : " + error.message); return; }
     const personToDelete = personnel.find(p => p.id === personnelId);
     if (personToDelete) {
         setPersonnel(personnel.filter(p => p.id !== personnelId));
@@ -2440,7 +2426,8 @@ const App: React.FC = () => {
     }
   };
 
-  const handleUpdateBudget = (newBudget: number) => {
+  const handleUpdateBudget = async (newBudget: number) => {
+    if (!await persistOperation('budget', { value: { ...budget, total: newBudget, categories: budget?.categories || [] } }, setBudget)) return;
     setBudget(prev => (prev ? {...prev, total: newBudget} : { total: newBudget, categories: [] }));
     addActivityLog('Mise à jour budget total', `Nouveau montant: ${newBudget.toLocaleString()} ${schoolSettings?.currency}`);
   };
@@ -2487,38 +2474,23 @@ const App: React.FC = () => {
     }).catch((err) => console.warn('Message gardé localement, synchronisation Supabase échouée:', err));
   };
 
-  const handleUpdateAcademicYear = (newYear: AcademicYear) => {
+  const handleUpdateAcademicYear = async (newYear: AcademicYear) => {
+    if (!await persistOperation('academicYear', { value: newYear }, setAcademicYear)) return;
     setAcademicYear(newYear);
     addActivityLog('Mise à jour année scolaire', `Début: ${newYear.startDate}, Fin: ${newYear.endDate}`);
   };
 
-  const handleSaveClass = (classToSave: Class) => {
-    if (classToSave.id) {
-      setClasses(classes.map(c => c.id === classToSave.id ? classToSave : c));
-      saveClassToDb(classToSave)
-        .then((saved: any) => {
-          if (saved?.id) {
-            setClasses(prev => prev.map(c => c.id === classToSave.id ? { ...c, ...saved } : c));
-          }
-        })
-        .catch((err) => console.warn('Classe gardée localement, synchronisation Supabase échouée:', err));
-      addActivityLog('Modification classe', `ID: ${classToSave.id}, Nom: ${classToSave.name}`);
-    } else {
-      const newId = classes.length > 0 ? Math.max(...classes.map(c => c.id as number)) + 1 : 1;
-      const newClass = { ...classToSave, id: newId };
-      setClasses([...classes, newClass]);
-      saveClassToDb({ ...newClass, id: undefined })
-        .then((saved: any) => {
-          if (saved?.id) {
-            setClasses(prev => prev.map(c => c.id === newId ? { ...c, ...saved } : c));
-          }
-        })
-        .catch((err) => console.warn('Classe gardée localement, synchronisation Supabase échouée:', err));
-      addActivityLog('Création classe', `Nom: ${newClass.name}`);
-    }
+  const handleSaveClass = async (record: Class) => {
+    try {
+      const saved = await requestSchoolApi('/api/classes', { ...record, id: record.id || undefined });
+      setClasses(prev => [...prev.filter(row => String(row.id) !== String(saved.id)), { ...record, ...saved }]);
+      addActivityLog('Enregistrement classes', String(saved.id));
+    } catch (error: any) { alert('Erreur : ' + error.message); }
   };
 
-  const handleDeleteClass = (classId: number) => {
+  const handleDeleteClass = async (classId: number) => {
+    try { await requestSchoolApi("/api/records/classes/delete", { id: classId }); }
+    catch (error: any) { alert("Erreur : " + error.message); return; }
     const classToDelete = classes.find(c => c.id === classId);
     setClasses(classes.filter(c => c.id !== classId));
     if(classToDelete) {
@@ -2526,33 +2498,17 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSaveFee = (feeToSave: Fee) => {
-    if (feeToSave.id) {
-        setFees(fees.map(f => f.id === feeToSave.id ? feeToSave : f));
-        saveFeeToDb(feeToSave)
-          .then((saved: any) => {
-            if (saved?.id) {
-              setFees(prev => prev.map(f => f.id === feeToSave.id ? { ...f, ...saved } : f));
-            }
-          })
-          .catch((err) => console.warn('Tarif gardé localement, synchronisation Supabase échouée:', err));
-        addActivityLog('Modification tarif', `ID: ${feeToSave.id}, Classe/Service: ${feeToSave.class}`);
-    } else {
-        const newId = fees.length > 0 ? Math.max(...fees.map(f => f.id)) + 1 : 1;
-        const newFee = { ...feeToSave, id: newId };
-        setFees([...fees, newFee]);
-        saveFeeToDb({ ...newFee, id: undefined })
-          .then((saved: any) => {
-            if (saved?.id) {
-              setFees(prev => prev.map(f => f.id === newId ? { ...f, ...saved } : f));
-            }
-          })
-          .catch((err) => console.warn('Tarif gardé localement, synchronisation Supabase échouée:', err));
-        addActivityLog('Création tarif', `Classe/Service: ${newFee.class}, Montant: ${newFee.amount}`);
-    }
+  const handleSaveFee = async (record: Fee) => {
+    try {
+      const saved = await requestSchoolApi('/api/fees', { ...record, id: record.id || undefined });
+      setFees(prev => [...prev.filter(row => String(row.id) !== String(saved.id)), { ...record, ...saved }]);
+      addActivityLog('Enregistrement fees', String(saved.id));
+    } catch (error: any) { alert('Erreur : ' + error.message); }
   };
 
-  const handleDeleteFee = (feeId: number) => {
+  const handleDeleteFee = async (feeId: number) => {
+    try { await requestSchoolApi("/api/records/fees/delete", { id: feeId }); }
+    catch (error: any) { alert("Erreur : " + error.message); return; }
       const feeToDelete = fees.find(f => f.id === feeId);
       setFees(fees.filter(f => f.id !== feeId));
       if (feeToDelete) {
@@ -2560,17 +2516,11 @@ const App: React.FC = () => {
       }
   };
 
-  const handleSaveGrade = (gradeToSave: Grade) => {
-    const newId = `grade_${Date.now()}`;
-    const newGrade = { ...gradeToSave, id: newId };
-    setGrades(prev => [...prev, newGrade]);
-    saveGradeToDb(newGrade)
-      .then((saved: any) => {
-        if (saved?.id) {
-          setGrades(prev => prev.map(g => g.id === newId ? { ...g, ...saved } : g));
-        }
-      })
-      .catch((err) => console.warn('Note gardée localement, synchronisation Supabase échouée:', err));
+  const handleSaveGrade = async (gradeToSave: Grade) => {
+    try {
+      const saved = await requestSchoolApi('/api/grades', gradeToSave);
+      setGrades(prev => [...prev.filter(g => String(g.id) !== String(saved.id)), saved]);
+    } catch (error: any) { alert('Erreur : ' + error.message); return; }
     const student = users.find(u => u.id === gradeToSave.studentId);
     addActivityLog('Ajout de note', `Élève: ${student?.name}, Matière: ${gradeToSave.subject}, Note: ${gradeToSave.score}`);
 
@@ -2590,10 +2540,20 @@ const App: React.FC = () => {
     );
   };
 
-  const handleSaveAttendance = (classId: number, date: string, records: AttendanceRecord[]) => {
-      const otherDays = attendance.filter(att => !(att.classId === classId && att.date === date));
-      const newAttendance = records.map(rec => ({ ...rec, classId, date }));
-      setAttendance([...otherDays, ...newAttendance]);
+  const persistOperation = async (key: string, body: any, setter: (value: any) => void) => {
+    try {
+      const result = await saveSchoolOperation(key, body);
+      setter(result.value);
+      return true;
+    } catch (error: any) {
+      alert(`Erreur de sauvegarde : ${error.message}`);
+      return false;
+    }
+  };
+
+  const handleSaveAttendance = async (classId: number, date: string, records: AttendanceRecord[]) => {
+      if (!await persistOperation('attendance', { classId, date, records }, setAttendance)) return;
+      alert('Présences enregistrées avec succès.');
       const className = classes.find(c => c.id === classId)?.name || '';
       addActivityLog('Enregistrement des présences', `Classe: ${className}, Date: ${date}`);
       
@@ -2605,7 +2565,8 @@ const App: React.FC = () => {
     );
   };
 
-  const handleSaveSchoolSettings = (settings: SchoolSettings) => {
+  const handleSaveSchoolSettings = async (settings: SchoolSettings) => {
+    if (!await persistOperation('schoolSettings', { value: settings }, setSchoolSettings)) return;
     setSchoolSettings(settings);
     try {
       const currentOffline = loadOfflineData() || {};
@@ -2620,107 +2581,53 @@ const App: React.FC = () => {
     addActivityLog('Mise à jour des paramètres de l\'établissement');
   };
 
-  const handleSaveSubject = (subjectToSave: Subject) => {
-    if (subjectToSave.id) {
-        setSubjects(subjects.map(s => s.id === subjectToSave.id ? subjectToSave : s));
-        addActivityLog('Modification matière', `ID: ${subjectToSave.id}, Nom: ${subjectToSave.name}`);
-    } else {
-        const newId = subjects.length > 0 ? Math.max(...subjects.map(s => s.id as number)) + 1 : 1;
-        const newSubject = { ...subjectToSave, id: newId };
-        setSubjects([...subjects, newSubject]);
-        addActivityLog('Création matière', `Nom: ${newSubject.name}`);
-    }
+  const handleSaveSubject = async (subjectToSave: Subject) => {
+    await persistOperation('subjects', { value: subjectToSave }, setSubjects);
   };
 
-  const handleDeleteSubject = (subjectId: number) => {
-    const subjectToDelete = subjects.find(s => s.id === subjectId);
-    if (subjectToDelete) {
-        setSubjects(subjects.filter(s => s.id !== subjectId));
-        addActivityLog('Suppression matière', `ID: ${subjectId}, Nom: ${subjectToDelete.name}`);
-    }
+  const handleDeleteSubject = async (subjectId: number) => {
+    await persistOperation('subjects', { action: 'delete', id: subjectId }, setSubjects);
   };
-
-  const handleSaveMessageTemplate = (templateToSave: MessageTemplate) => {
-    if (templateToSave.id) {
-        setMessageTemplates(messageTemplates.map(t => t.id === templateToSave.id ? templateToSave : t));
-        addActivityLog('Modification modèle de message', `ID: ${templateToSave.id}`);
-    } else {
-        const newId = messageTemplates.length > 0 ? Math.max(...messageTemplates.map(t => t.id)) + 1 : 1;
-        const newTemplate = { ...templateToSave, id: newId };
-        setMessageTemplates([...messageTemplates, newTemplate]);
-        addActivityLog('Création modèle de message', `Titre: ${newTemplate.title}`);
-    }
+  const handleSaveMessageTemplate = async (templateToSave: MessageTemplate) => {
+    await persistOperation('messageTemplates', { value: templateToSave }, setMessageTemplates);
   };
-
-  const handleSaveCashierSettings = (settings: CashierSettings) => {
+  const handleSaveCashierSettings = async (settings: CashierSettings) => {
+    if (!await persistOperation('cashierSettings', { value: settings }, setCashierSettings)) return;
     setCashierSettings(settings);
     addActivityLog('Mise à jour des paramètres de la caisse');
   };
 
-  const handleSaveCommunicationSettings = (settings: CommunicationSettings) => {
+  const handleSaveCommunicationSettings = async (settings: CommunicationSettings) => {
+    if (!await persistOperation('communicationSettings', { value: settings }, setCommunicationSettings)) return;
     setCommunicationSettings(settings);
     addActivityLog('Configuration Communication ', 'Mise à jour des paramètres de communication');
   };
 
-  const handleSaveRafSettings = (settings: RafSettings) => {
+  const handleSaveRafSettings = async (settings: RafSettings) => {
+    if (!await persistOperation('rafSettings', { value: settings }, setRafSettings)) return;
     setRafSettings(settings);
     addActivityLog('Mise à jour des paramètres du RAF');
   };
 
   // New Pedagogical Handlers
-  const handleSaveTimetableEntry = (entry: TimetableEntry) => {
-    setTimetable(prev => {
-      const index = prev.findIndex(e => e.id === entry.id);
-      if (index > -1) {
-        const newTimetable = [...prev];
-        newTimetable[index] = entry;
-        return newTimetable;
-      }
-      return [...prev, { ...entry, id: `tt_${Date.now()}` }];
-    });
-    addActivityLog('Mise à jour Emploi du temps', `Classe ID: ${entry.classId}`);
+  const handleSaveTimetableEntry = async (entry: TimetableEntry) => {
+    await persistOperation('timetable', { value: entry }, setTimetable);
   };
-
-  const handleDeleteTimetableEntry = (id: string) => {
-    setTimetable(prev => prev.filter(e => e.id !== id));
-    addActivityLog('Suppression d\'un cours de l\'emploi du temps');
+  const handleDeleteTimetableEntry = async (id: string) => {
+    await persistOperation('timetable', { action: 'delete', id }, setTimetable);
   };
-
-  const handleSaveHomeworkEntry = (entry: HomeworkDiaryEntry) => {
-    setHomeworkDiary(prev => [...prev, { ...entry, id: `hw_${Date.now()}` }]);
-    addActivityLog('Ajout au cahier de texte', `Classe ID: ${entry.classId}`);
+  const handleSaveHomeworkEntry = async (entry: HomeworkDiaryEntry) => {
+    await persistOperation('homeworkDiary', { value: entry }, setHomeworkDiary);
   };
-
-  const handleSaveReportCardComments = (comments: ReportCardComments) => {
-    setReportCardComments(prev => {
-        const index = prev.findIndex(c => c.studentId === comments.studentId && c.period === comments.period);
-        if (index > -1) {
-            const newComments = [...prev];
-            newComments[index] = comments;
-            return newComments;
-        }
-        return [...prev, { ...comments, id: `rc_${Date.now()}` }];
-    });
-    const student = users.find(u => u.id === comments.studentId);
-    addActivityLog('Sauvegarde appréciation bulletin', `Élève: ${student?.name}`);
+  const handleSaveReportCardComments = async (comments: ReportCardComments) => {
+    await persistOperation('reportCardComments', { value: comments }, setReportCardComments);
   };
-
-  const handleSaveFinancialEvent = (event: FinancialEvent) => {
-    setFinancialEvents(prev => {
-      if (event.id) {
-        return prev.map(e => e.id === event.id ? event : e);
-      }
-      return [...prev, { ...event, id: `fe_${Date.now()}` }];
-    });
-    addActivityLog('Mise à jour du calendrier financier', event.title);
+  const handleSaveFinancialEvent = async (event: FinancialEvent) => {
+    await persistOperation('financialEvents', { value: event }, setFinancialEvents);
   };
-  
-  const handleDeleteFinancialEvent = (eventId: string) => {
-    setFinancialEvents(prev => prev.filter(e => e.id !== eventId));
-    addActivityLog('Suppression d\'un événement du calendrier financier');
+  const handleDeleteFinancialEvent = async (id: string) => {
+    await persistOperation('financialEvents', { action: 'delete', id }, setFinancialEvents);
   };
-
-
   const handleViewStudentProfile = (studentId: number) => {
     setViewingStudentId(studentId);
     setActivePage('Profil Élève');
@@ -3149,8 +3056,10 @@ const App: React.FC = () => {
     }
 
     if (loggedInRole === 'Élève') {
-      const studentUser = users.find(u => u.id === currentUserId);
-      const studentPayment = payments.find(p => p.studentId === studentUser?.studentId);
+      const studentUser = users.find(u => String(u.id) === String(currentUserId)) || currentUser;
+      const personalPayments = payments.filter(p => String(p.studentId) === String(studentUser?.id));
+      const studentPayment = studentUser ? { id: studentUser.id, name: studentUser.name, studentId: studentUser.studentId || '', class: studentUser.class || '', totalFees: fees.filter(f => !f.class || f.class === studentUser.class).reduce((sum, f) => sum + Number(f.amount || 0), 0), amountPaid: personalPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0) } : undefined;
+      const receiptTransactions: Transaction[] = personalPayments.map(p => ({ id: String(p.receiptNumber || p.id), type: 'Revenu', amount: Number(p.amount || 0), date: p.paymentDate || p.date, description: 'Scolarité — ' + studentUser?.name, category: 'Scolarité', status: 'Approuvé', paymentMethod: p.paymentMethod }));
       const studentGrades = grades.filter(g => g.studentId === currentUserId);
       const studentComments = reportCardComments.find(c => c.studentId === currentUserId);
       
@@ -3166,7 +3075,7 @@ const App: React.FC = () => {
                     schoolSettings={schoolSettings}
                   />;
         case 'Paiements':
-          return <StudentPaymentsPage paymentInfo={studentPayment} transactions={transactions.filter(t => studentPayment && t.description.includes(studentPayment.name))} schoolSettings={schoolSettings} />;
+          return <StudentPaymentsPage paymentInfo={studentPayment} transactions={receiptTransactions} schoolSettings={schoolSettings} />;
         case 'Emploi du temps':
           return <TimetablePage currentUserRole={loggedInRole} timetable={timetable} classes={classes} subjects={subjects} users={users} onSave={handleSaveTimetableEntry} onDelete={handleDeleteTimetableEntry} />;
         case 'Cahier de Texte':
@@ -3966,7 +3875,8 @@ const App: React.FC = () => {
         )}
 
         <main className="p-3 sm:p-6 lg:p-8 flex-1 pb-24 lg:pb-8">
-          <RenderContent />
+          {businessSyncError && <div role="alert" className="mb-4 p-4 rounded-xl bg-amber-50 text-amber-900 border border-amber-200">{businessSyncError} <button className="underline font-bold ml-2" onClick={() => window.dispatchEvent(new CustomEvent('educo:refresh-data'))}>Réessayer</button></div>}
+          {RenderContent()}
         </main>
 
         {/* Global Persistent Footer */}
@@ -4041,4 +3951,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-

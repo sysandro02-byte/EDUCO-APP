@@ -31,7 +31,7 @@ type Payment = typeof initialPayments[0];
 
 interface PaymentsPageProps {
   payments: Payment[];
-  onSavePayment: (paymentData: SinglePaymentData) => Transaction | null;
+  onSavePayment: (paymentData: SinglePaymentData) => Promise<Transaction | null>;
   currentUserRole: string;
   transactions: Transaction[];
   users: User[];
@@ -100,6 +100,7 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({
 
   // Role permissions - Seul le caissier, le RAF et le directeur général peuvent encaisser les paiements et inscrire/réinscrire
   const canManagePayments = 
+    currentUserRole === 'Promoteur' ||
     currentUserRole === 'Admin' || 
     currentUserRole === 'Co-admin' || 
     currentUserRole === 'Caissière' || 
@@ -142,7 +143,7 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({
   /**
    * Helper: Find existing transaction OR synthesize a valid receipt transaction for student
    */
-  const getReceiptTransaction = (payment: Payment): Transaction => {
+  const getReceiptTransaction = (payment: Payment): Transaction | null => {
     const studentNameLower = payment.name.toLowerCase().trim();
     const studentIdLower = payment.studentId ? payment.studentId.toLowerCase().trim() : '';
 
@@ -156,21 +157,11 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({
       return matchedTx;
     }
 
-    return {
-      id: `REC-${payment.studentId || payment.id}-${Date.now().toString().slice(-4)}`,
-      description: `Frais de scolarité - ${payment.name} (${payment.studentId || 'N/A'})`,
-      type: 'Revenu',
-      amount: payment.amountPaid > 0 ? payment.amountPaid : payment.totalFees,
-      date: new Date().toISOString(),
-      status: 'Approuvé',
-      category: 'Scolarité',
-      paymentMethod: 'Espèce',
-      approvedBy: 'Caisse Principale',
-    };
+    return null;
   };
 
-  const handleSaveAndShowReceipt = (paymentData: SinglePaymentData) => {
-    const newTransaction = onSavePayment(paymentData);
+  const handleSaveAndShowReceipt = async (paymentData: SinglePaymentData) => {
+    const newTransaction = await onSavePayment(paymentData);
     if (newTransaction) {
       setTransactionForReceipt(newTransaction);
       setPaymentModalState('receipt');
@@ -182,12 +173,14 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({
 
   const handlePrintReceipt = (payment: Payment) => {
     const tx = getReceiptTransaction(payment);
+    if (!tx) { alert("Aucun reçu enregistré pour cet élève."); return; }
     setTransactionForReceipt(tx);
     setPaymentModalState('receipt');
   };
 
   const handleDownloadReceiptPDF = (payment: Payment) => {
     const tx = getReceiptTransaction(payment);
+    if (!tx) { alert("Aucun reçu enregistré pour cet élève."); return; }
     generateReceiptPdf(tx, schoolSettings);
   };
 

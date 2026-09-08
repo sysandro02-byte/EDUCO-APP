@@ -19,6 +19,7 @@ import {
   Clock, DollarSign, Award, Sparkles, MessageSquare, Phone, Mail,
   RefreshCw, Settings, Shield, Lock, Fingerprint, Eye, Filter, Check, X
 } from 'lucide-react';
+import { requestSchoolApi } from '../src/services/api';
 import { showAppFeedback } from '../src/utils/appFeedback';
 
 interface ParentDashboardProps {
@@ -63,18 +64,10 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
   // 1) Module de Paramètres Parent & Sécurité State
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [accountType, setAccountType] = useState<'principal' | 'tuteur' | 'representant' | 'mandate'>('principal');
-  const [preferredChannel, setPreferredChannel] = useState<'whatsapp' | 'sms' | 'push' | 'email'>('whatsapp');
-  const [notifyPayments, setNotifyPayments] = useState(true);
-  const [notifyGrades, setNotifyGrades] = useState(true);
-  const [notifyAbsences, setNotifyAbsences] = useState(true);
-  const [notifyDiscipline, setNotifyDiscipline] = useState(true);
-  const [enablePinSignature, setEnablePinSignature] = useState(true);
-  const [pinCode, setPinCode] = useState('1234');
-  const [enableBiometrics, setEnableBiometrics] = useState(true);
-  const [allowCoParentAccess, setAllowCoParentAccess] = useState(false);
-  const [coParentEmail, setCoParentEmail] = useState('');
-  const [settingsSavedSuccess, setSettingsSavedSuccess] = useState(false);
+  useEffect(() => {
+    const savedView = localStorage.getItem('educo-parent-view-' + currentUser.id);
+    if (savedView === 'simplified' || savedView === 'detailed') setViewMode(savedView);
+  }, [currentUser.id]);
 
   // 2) Synchronisation Automatique & Réactivité Real-Time State
   const [lastSyncedAt, setLastSyncedAt] = useState<Date>(new Date());
@@ -85,39 +78,34 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
   const [viewMode, setViewMode] = useState<'simplified' | 'detailed'>('simplified');
   const [timelineFilter, setTimelineFilter] = useState<'all' | 'direction' | 'finances' | 'surveillance' | 'teachers'>('all');
 
-  // Trigger auto-sync simulation when payments, grades, or attendance update
+  // Reflect changes received from the backend when payments, grades, or attendance update
   useEffect(() => {
     setLastSyncedAt(new Date());
   }, [grades.length, payments.length, attendance.length, transactions.length]);
 
-  const handleManualSync = () => {
+  const handleManualSync = async () => {
     setIsSyncing(true);
-    setTimeout(() => {
-      setIsSyncing(false);
+    try {
+      const success = await new Promise<boolean>(resolve => window.dispatchEvent(new CustomEvent('educo:refresh-data', { detail: { resolve } })));
+      if (!success) throw new Error('Impossible de charger les dernières données.');
       setLastSyncedAt(new Date());
-      setLiveToast({
-        title: "Données de l'élève synchronisées en direct",
-        message: "Derniers bulletins, versements caisse et appels d'assiduité mis à jour.",
-        author: "Serveur Établissement EDUCO",
-        time: "À l'instant"
-      });
-      showAppFeedback("Données de l'élève synchronisées en direct. Derniers bulletins, versements caisse et appels d'assiduité mis à jour.", 'success', 'Synchronisation terminée');
-      setTimeout(() => setLiveToast(null), 6000);
-    }, 800);
+      showAppFeedback('Les données ont été actualisées depuis le serveur.', 'success');
+    } catch (error: any) { showAppFeedback(error.message, 'error'); }
+    finally { setIsSyncing(false); }
   };
 
   // Default fallback settings
   const defaultSchoolSettings: SchoolSettings = schoolSettings || {
     name: "Établissement Scolaire EDUCO",
     logo: "",
-    address: "Avenue de l'Éducation, BP 1420",
-    contact: "+242 06 000 0000",
-    email: "contact@educo.cg",
+    address: "",
+    contact: "",
+    email: "",
     currency: "FCFA",
     themeColor: "#1F4A59",
     slogan: "L'Excellence au service du Futur",
-    currentYear: "2025-2026",
-    academicYear: "2025-2026",
+    currentYear: "",
+    academicYear: "",
     defaultLanguage: "Français",
     dashboardView: "avancé",
   };
@@ -129,8 +117,7 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
       (parentStudentId && u.studentId?.toLowerCase() === parentStudentId.toLowerCase()) ||
       (parentStudentId && `STD-${u.id}`.toLowerCase() === parentStudentId.toLowerCase()) ||
       (currentUser.email && u.email?.toLowerCase() === currentUser.email.toLowerCase()) ||
-      (currentUser.email && (u as any).parentEmail?.toLowerCase() === currentUser.email.toLowerCase()) ||
-      (currentUser.name && u.parentName?.toLowerCase() === currentUser.name.toLowerCase())
+      (currentUser.email && (u as any).parentEmail?.toLowerCase() === currentUser.email.toLowerCase())
     )
   );
 
@@ -182,7 +169,7 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
   const studentHomework = homeworkDiary.filter(h => 
     h.className === linkedStudent.class || 
     h.classId === studentClass?.id
-  );
+  ).map(h => ({ ...h, subject: h.subject || subjects.find(s => s.id === h.subjectId)?.name || '', task: h.task || h.homework || h.contentCovered, dueDate: h.dueDate || h.date }));
 
   const studentTimetable = timetable.filter(t => 
     t.className === linkedStudent.class || 
@@ -192,7 +179,7 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
   const studentAttendance = attendance.filter(a => a.studentId === linkedStudent.id);
 
   // Financial calculations
-  const totalFeesRequired = fees.filter(f => f.class === linkedStudent.class).reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
+  const totalFeesRequired = fees.filter(f => (!f.class && !f.classId) || f.class === linkedStudent.class || f.classId === studentClass?.id).reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
   const totalPaid = studentPayments.reduce((sum, p) => sum + (Number(p.amountPaid) || Number(p.amount) || 0), 0)
     || studentTransactions
       .filter(t => /revenu|income|recette/i.test(String(t.type || '')))
@@ -302,7 +289,7 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
           <div className="flex items-center gap-5">
             <div className="relative shrink-0">
               <img 
-                src={linkedStudent.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300"} 
+                src={linkedStudent.avatar || "/icon-192.png"}
                 alt={linkedStudent.name}
                 className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover border-4 border-white/20 shadow-2xl"
               />
@@ -314,7 +301,7 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
             <div>
               <div className="flex items-center gap-2 flex-wrap mb-1">
                 <span className="px-3 py-0.5 bg-white/10 backdrop-blur-md rounded-full text-[11px] font-bold uppercase tracking-wider text-emerald-300 border border-white/10">
-                  {accountType === 'principal' ? 'Parent Principal' : accountType === 'tuteur' ? 'Tuteur Légal' : accountType === 'representant' ? 'Représentant Légal' : 'Parent Mandaté'} • {currentUser.name}
+                  Parent / Tuteur • {currentUser.name}
                 </span>
                 <span className="px-3 py-0.5 bg-white/20 rounded-full text-[11px] font-mono font-bold text-white">
                   Matricule: {linkedStudent.studentId}
@@ -464,7 +451,7 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
                 <span>Appréciation des Enseignants</span>
               </h3>
               <span className="px-2.5 py-1 bg-sky-100 dark:bg-sky-900/40 text-sky-800 dark:text-sky-300 text-[10px] font-bold rounded-lg uppercase">
-                {studentComments.period || 'Trimestre 1'}
+                {studentComments.period || 'Période non renseignée'}
               </span>
             </div>
 
@@ -597,108 +584,15 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
                 {/* Chronological Timeline Cards */}
                 <div className="relative pl-6 space-y-4 pt-2 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200 dark:before:bg-slate-700">
                   
-                  {/* Item 1: RAF & Caisse */}
-                  {studentTransactions.length > 0 && (timelineFilter === 'all' || timelineFilter === 'finances') && (
-                    <div className="relative group animate-fade-in">
-                      <div className="absolute -left-6 top-1.5 w-5 h-5 rounded-full bg-emerald-500 border-4 border-white dark:border-slate-800 shadow-md"></div>
-                      <div className="p-4 bg-slate-50 dark:bg-slate-700/40 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="px-2.5 py-1 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 font-black text-[10px] rounded-lg uppercase tracking-wider flex items-center gap-1">
-                            <DollarSign className="w-3.5 h-3.5" /> RAF & Caisse (Finances)
-                          </span>
-                          <span className="text-slate-400 font-bold text-[10px]">12 Février 2026 à 10:14</span>
-                        </div>
-                        <h4 className="text-xs font-black text-slate-900 dark:text-slate-100">
-                          Reçu de Paiement Validé • Scolarité Tranche 1 (150 000 {defaultSchoolSettings.currency})
-                        </h4>
-                        <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">
-                          La Caissière a confirmé la réception des frais d'écolage. Le reçu officiel REC-2026-0891 certifié par le RAF est prêt.
-                        </p>
-                        <div className="pt-2 flex justify-end">
-                          <button
-                            onClick={() => setActiveTab('payments')}
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            <span>Télécharger le Reçu PDF</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Item 2: Surveillant Général */}
-                  {(timelineFilter === 'all' || timelineFilter === 'surveillance') && (
-                    <div className="relative group animate-fade-in">
-                      <div className="absolute -left-6 top-1.5 w-5 h-5 rounded-full bg-amber-500 border-4 border-white dark:border-slate-800 shadow-md"></div>
-                      <div className="p-4 bg-slate-50 dark:bg-slate-700/40 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="px-2.5 py-1 bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 font-black text-[10px] rounded-lg uppercase tracking-wider flex items-center gap-1">
-                            <Clock className="w-3.5 h-3.5" /> Surveillant Général (Assiduité)
-                          </span>
-                          <span className="text-slate-400 font-bold text-[10px]">08 Février 2026 à 08:30</span>
-                        </div>
-                        <h4 className="text-xs font-black text-slate-900 dark:text-slate-100">
-                          Appel d'Assiduité • Absence du 07/02 Justifiée avec Succès
-                        </h4>
-                        <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">
-                          Le certificat médical soumis par le parent a été enregistré et approuvé par la Surveillance Générale. 0 heure d'absence non justifiée.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Item 3: Directeur des Études */}
-                  {(timelineFilter === 'all' || timelineFilter === 'direction') && (
-                    <div className="relative group animate-fade-in">
-                      <div className="absolute -left-6 top-1.5 w-5 h-5 rounded-full bg-[#1F4A59] border-4 border-white dark:border-slate-800 shadow-md"></div>
-                      <div className="p-4 bg-slate-50 dark:bg-slate-700/40 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="px-2.5 py-1 bg-[#1F4A59]/10 text-[#1F4A59] dark:text-sky-300 font-black text-[10px] rounded-lg uppercase tracking-wider flex items-center gap-1 border border-[#1F4A59]/20">
-                            <Award className="w-3.5 h-3.5" /> Directeur des Études (DE)
-                          </span>
-                          <span className="text-slate-400 font-bold text-[10px]">01 Février 2026 à 14:00</span>
-                        </div>
-                        <h4 className="text-xs font-black text-slate-900 dark:text-slate-100">
-                          Publication Officielle du Bulletin Trimestriel • Moyenne: {overallAverage}/20
-                        </h4>
-                        <p className="text-xs text-slate-600 dark:text-slate-300 italic font-medium">
-                          "Félicitations du Conseil de Classe présidé par la Direction. Continuez à maintenir cet excellent niveau de travail."
-                        </p>
-                        <div className="pt-2 flex justify-end">
-                          <button
-                            onClick={() => setShowBulletinModal(true)}
-                            className="px-3 py-1.5 bg-[#1F4A59] hover:bg-[#285d70] text-white font-bold text-[11px] rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <FileText className="w-3.5 h-3.5" />
-                            <span>Consulter le Bulletin Officiel</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Item 4: Équipe Pédagogique */}
-                  {(timelineFilter === 'all' || timelineFilter === 'teachers') && (
-                    <div className="relative group animate-fade-in">
-                      <div className="absolute -left-6 top-1.5 w-5 h-5 rounded-full bg-sky-500 border-4 border-white dark:border-slate-800 shadow-md"></div>
-                      <div className="p-4 bg-slate-50 dark:bg-slate-700/40 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="px-2.5 py-1 bg-sky-100 dark:bg-sky-900/40 text-sky-800 dark:text-sky-300 font-black text-[10px] rounded-lg uppercase tracking-wider flex items-center gap-1">
-                            <BookOpen className="w-3.5 h-3.5" /> Équipe Pédagogique (Enseignants)
-                          </span>
-                          <span className="text-slate-400 font-bold text-[10px]">Hier à 16:45</span>
-                        </div>
-                        <h4 className="text-xs font-black text-slate-900 dark:text-slate-100">
-                          Nouvelles Évaluations Saisies : Mathématiques (18/20) & Devoir de Physique prescrit
-                        </h4>
-                        <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">
-                          M. Okemba a publié la note du devoir de synthèse et ajouté les exercices de révision dans le cahier de texte.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
+                  {[
+                    ...studentTransactions.map(t => ({ id: 'payment-' + t.id, date: t.date, category: 'finances', text: t.description + ' — ' + t.amount.toLocaleString('fr-FR') + ' ' + defaultSchoolSettings.currency })),
+                    ...studentAttendance.map((a, index) => ({ id: 'attendance-' + index, date: a.date, category: 'surveillance', text: 'Présence : ' + a.status })),
+                    ...studentGrades.map(g => ({ id: 'grade-' + g.id, date: g.date, category: 'teachers', text: g.subject + ' : ' + g.score + '/20' })),
+                    ...studentHomework.map(h => ({ id: 'homework-' + h.id, date: h.date, category: 'teachers', text: h.subject + ' : ' + h.task })),
+                  ].filter(item => timelineFilter === 'all' || item.category === timelineFilter)
+                    .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+                    .map(item => <div key={item.id} className="p-4 rounded-xl bg-slate-50 border border-slate-200"><p className="text-xs text-slate-500">{item.date ? new Date(item.date).toLocaleDateString('fr-FR') : 'Date non renseignée'}</p><p className="text-sm mt-1">{item.text}</p></div>)}
+                  <p className="text-xs text-slate-500">Seuls les événements enregistrés pour votre enfant apparaissent ici.</p>
                 </div>
               </div>
             )}
@@ -775,12 +669,19 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
                   <div className="flex justify-end">
                     <button
                       type="button"
-                      onClick={() => {
-                        if (!transmissionNote.trim()) return;
-                        setTransmissionSent(true);
-                        setTransmissionNote('');
-                        setTimeout(() => setTransmissionSent(false), 5000);
+                      onClick={async () => {
+                        if (!transmissionNote.trim() || isSyncing) return;
+                        setIsSyncing(true);
+                        try {
+                          const roles = transmissionType === 'absence' ? ['Surveillant Général', 'Surveillant Général Adjoint'] : transmissionType === 'payment_proof' ? ['Responsable des finances', 'Caissière'] : ['Directeur des Etudes', 'Directeur du Primaire', 'Directeur Général'];
+                          const result = await requestSchoolApi('/api/messages', { roles, title: 'Transmission parent — ' + linkedStudent.name, text: linkedStudent.name + ' (' + (linkedStudent.studentId || '') + ') : ' + transmissionNote.trim() });
+                          if (!result.sent) throw new Error('Aucun destinataire disponible dans cet établissement.');
+                          setTransmissionSent(true);
+                          setTransmissionNote('');
+                        } catch (error: any) { showAppFeedback(error.message, 'error'); }
+                        finally { setIsSyncing(false); }
                       }}
+                      disabled={isSyncing}
                       className="px-5 py-2.5 bg-[#1F4A59] hover:bg-[#275d70] text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-all active:scale-95 flex items-center gap-2"
                     >
                       <span>Transmettre à l'Administration</span>
@@ -969,13 +870,14 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-            {['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'].map((day) => (
+            {['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'].map((day) => (
               <div key={day} className="p-4 bg-slate-50 dark:bg-slate-700/40 rounded-2xl border border-slate-200 dark:border-slate-700 text-center">
                 <p className="font-black text-xs uppercase text-[#1F4A59] dark:text-sky-300 mb-3">{day}</p>
                 <div className="space-y-2 text-[11px] font-medium text-slate-700 dark:text-slate-300">
-                  <div className="p-2 bg-white dark:bg-slate-800 rounded-lg shadow-xs">08h-10h: Mathématiques</div>
-                  <div className="p-2 bg-white dark:bg-slate-800 rounded-lg shadow-xs">10h-12h: Physique-Chimie</div>
-                  <div className="p-2 bg-white dark:bg-slate-800 rounded-lg shadow-xs">13h-15h: Français / SVT</div>
+                  {studentTimetable.filter(t => t.day === day).sort((a,b) => a.startTime.localeCompare(b.startTime)).map(t => (
+                    <div key={t.id} className="p-2 bg-white dark:bg-slate-800 rounded-lg shadow-xs">{t.startTime}–{t.endTime} : {subjects.find(s => s.id === t.subjectId)?.name || 'Matière non renseignée'}</div>
+                  ))}
+                  {!studentTimetable.some(t => t.day === day) && <p>Aucun cours enregistré.</p>}
                 </div>
               </div>
             ))}
@@ -983,182 +885,19 @@ const ParentDashboard: React.FC<ParentDashboardProps> = ({
         </div>
       )}
 
-      {/* PARENT SETTINGS & SECURITY MODAL */}
       {showSettingsModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-2xl w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-5 my-8">
-            <div className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-[#1F4A59]/10 text-[#1F4A59] dark:text-sky-400 rounded-xl">
-                  <Settings className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-black text-base text-slate-900 dark:text-slate-100 uppercase tracking-tight">
-                    Paramètres du Compte Parent & Sécurité
-                  </h3>
-                  <p className="text-xs text-slate-500">Personnalisez vos canaux de notification et règles d'accès.</p>
-                </div>
-              </div>
-
-              <button 
-                onClick={() => setShowSettingsModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {settingsSavedSuccess && (
-              <div className="p-3 bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center justify-between animate-fade-in">
-                <span>✓ Vos paramètres parent et préférences de sécurité ont été mis à jour !</span>
-                <button onClick={() => setSettingsSavedSuccess(false)} className="text-[10px] underline">OK</button>
-              </div>
-            )}
-
-            <div className="space-y-5 text-xs">
-              {/* Type de Compte Parent */}
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
-                <h4 className="font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2">
-                  <UserIcon className="w-4 h-4 text-[#1F4A59]" />
-                  <span>Profil & Type de Compte Parent</span>
-                </h4>
-                <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                    Statut / Type de Responsabilité Parentale
-                  </label>
-                  <select 
-                    value={accountType} 
-                    onChange={(e) => setAccountType(e.target.value as any)} 
-                    className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl font-bold"
-                  >
-                    <option value="principal">Parent Principal (Père / Mère)</option>
-                    <option value="tuteur">Tuteur / Tutrice Légale</option>
-                    <option value="representant">Représentant Légal d'Établissement</option>
-                    <option value="mandate">Parent Mandaté / Délégué</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Canaux de Notification */}
-              <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
-                <h4 className="font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2">
-                  <BellIcon className="w-4 h-4 text-[#1F4A59]" />
-                  <span>Canaux de Notifications Instantanées</span>
-                </h4>
-
-                <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-2">Canal Prioritaire Réception</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {[
-                      { id: 'whatsapp', label: 'WhatsApp' },
-                      { id: 'sms', label: 'SMS Direct' },
-                      { id: 'push', label: 'Push App' },
-                      { id: 'email', label: 'E-mail' },
-                    ].map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setPreferredChannel(item.id as any)}
-                        className={`p-2 rounded-xl border font-bold transition-all cursor-pointer text-center ${
-                          preferredChannel === item.id 
-                            ? 'bg-[#1F4A59] text-white border-[#1F4A59]' 
-                            : 'bg-slate-50 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-600'
-                        }`}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-700">
-                  <label className="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-700/40 rounded-xl cursor-pointer">
-                    <span className="font-bold text-slate-800 dark:text-slate-200">Alertes Encaissements & Reçus (RAF/Caisse)</span>
-                    <input type="checkbox" checked={notifyPayments} onChange={(e) => setNotifyPayments(e.target.checked)} className="rounded text-[#1F4A59]" />
-                  </label>
-                  <label className="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-700/40 rounded-xl cursor-pointer">
-                    <span className="font-bold text-slate-800 dark:text-slate-200">Alertes Notes & Bulletins (Directeur & Profs)</span>
-                    <input type="checkbox" checked={notifyGrades} onChange={(e) => setNotifyGrades(e.target.checked)} className="rounded text-[#1F4A59]" />
-                  </label>
-                  <label className="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-700/40 rounded-xl cursor-pointer">
-                    <span className="font-bold text-slate-800 dark:text-slate-200">Alertes Assiduité & Discipline (Surveillant Général)</span>
-                    <input type="checkbox" checked={notifyAbsences} onChange={(e) => setNotifyAbsences(e.target.checked)} className="rounded text-[#1F4A59]" />
-                  </label>
-                </div>
-              </div>
-
-              {/* Sécurité et Validation */}
-              <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
-                <h4 className="font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-emerald-600" />
-                  <span>Sécurité, Code PIN & Biométrie</span>
-                </h4>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="p-3 bg-slate-50 dark:bg-slate-700/40 rounded-xl space-y-2">
-                    <label className="flex items-center justify-between cursor-pointer font-bold text-slate-800 dark:text-slate-200">
-                      <span>Signature par Code PIN (4 chiffres)</span>
-                      <input type="checkbox" checked={enablePinSignature} onChange={(e) => setEnablePinSignature(e.target.checked)} className="rounded text-[#1F4A59]" />
-                    </label>
-                    {enablePinSignature && (
-                      <input 
-                        type="password" 
-                        maxLength={4}
-                        value={pinCode} 
-                        onChange={(e) => setPinCode(e.target.value.replace(/\D/g, ''))}
-                        className="w-full p-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-center font-mono font-bold tracking-widest text-xs"
-                      />
-                    )}
-                  </div>
-
-                  <div className="p-3 bg-slate-50 dark:bg-slate-700/40 rounded-xl space-y-2">
-                    <label className="flex items-center justify-between cursor-pointer font-bold text-slate-800 dark:text-slate-200">
-                      <span>Connexion Biométrique (Face ID / Empreinte)</span>
-                      <input type="checkbox" checked={enableBiometrics} onChange={(e) => setEnableBiometrics(e.target.checked)} className="rounded text-[#1F4A59]" />
-                    </label>
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-slate-100 dark:border-slate-700 space-y-2">
-                  <label className="flex items-center justify-between cursor-pointer font-bold text-slate-800 dark:text-slate-200">
-                    <span>Accès Délégué Co-Parent / Tuteur Secondaire</span>
-                    <input type="checkbox" checked={allowCoParentAccess} onChange={(e) => setAllowCoParentAccess(e.target.checked)} className="rounded text-[#1F4A59]" />
-                  </label>
-                  {allowCoParentAccess && (
-                    <input 
-                      type="email" 
-                      value={coParentEmail}
-                      onChange={(e) => setCoParentEmail(e.target.value)}
-                      placeholder="Adresse e-mail du co-parent..."
-                      className="w-full p-2 bg-slate-50 dark:bg-slate-700/60 border border-slate-300 dark:border-slate-600 rounded-xl font-medium"
-                    />
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => setShowSettingsModal(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl cursor-pointer"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSettingsSavedSuccess(true);
-                  setTimeout(() => {
-                    setSettingsSavedSuccess(false);
-                    setShowSettingsModal(false);
-                  }, 1200);
-                }}
-                className="px-5 py-2 bg-[#1F4A59] hover:bg-[#285d70] text-white font-black text-xs rounded-xl shadow-md cursor-pointer"
-              >
-                Enregistrer Préférences
-              </button>
-            </div>
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full space-y-4">
+            <h3 className="font-bold">Préférences d’affichage</h3>
+            <p className="text-sm text-slate-600">Cette préférence est enregistrée sur cet appareil pour votre compte.</p>
+            <select className="w-full border p-2 rounded" value={viewMode} onChange={e => setViewMode(e.target.value as any)}>
+              <option value="simplified">Fil chronologique</option><option value="detailed">Formulaire de transmission</option>
+            </select>
+            <button className="bg-[#1F4A59] text-white rounded px-4 py-2" onClick={() => {
+              try { localStorage.setItem('educo-parent-view-' + currentUser.id, viewMode); setShowSettingsModal(false); }
+              catch { showAppFeedback('Impossible d’enregistrer la préférence sur cet appareil.', 'error'); }
+            }}>Enregistrer</button>
+            <button className="ml-2" onClick={() => setShowSettingsModal(false)}>Fermer</button>
           </div>
         </div>
       )}

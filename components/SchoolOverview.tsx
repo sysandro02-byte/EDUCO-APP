@@ -82,7 +82,7 @@ const SchoolOverview: React.FC<SchoolOverviewProps> = ({
               <ShieldCheck className="w-3.5 h-3.5" /> Espace Administrateur Système
             </span>
             <span className="text-xs text-slate-300">
-              {schoolSettings?.name || "Educo"} - Année : {schoolSettings?.academicYear || schoolSettings?.currentYear || '2025-2026'}
+              {schoolSettings?.name || "Educo"} - Année : {schoolSettings?.academicYear || schoolSettings?.currentYear || ''}
             </span>
           </div>
           <h2 className="text-2xl font-bold tracking-tight">Centre de Contrôle de l'Application</h2>

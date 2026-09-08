@@ -31,11 +31,11 @@ interface FinanceManagerDashboardProps {
     currentUserRole: string;
     classes: Class[];
     personnel: Personnel[];
-    handlePaySalary: (personnelId: number, paymentData: SalaryPaymentData) => Transaction | null;
+    handlePaySalary: (personnelId: number, paymentData: SalaryPaymentData) => Promise<Transaction | null>;
     handleSaveExpense: (description: string, amount: number, category: string, justification?: File) => void;
     setActivePage: (page: string) => void;
     handleSaveUser: (user: User) => void | Promise<void>;
-    handleSaveSinglePayment: (paymentData: SinglePaymentData) => Transaction | null;
+    handleSaveSinglePayment: (paymentData: SinglePaymentData) => Promise<Transaction | null>;
     fees: Fee[];
     schoolSettings: SchoolSettings;
     rafSettings: RafSettings;
@@ -128,20 +128,22 @@ const FinanceManagerDashboard: React.FC<FinanceManagerDashboardProps> = ({
         setIsRegistrationModalOpen(false);
     };
 
-    const handleSaveAndShowReceipt = (paymentData: SinglePaymentData) => {
-        const newTransaction = handleSaveSinglePayment(paymentData);
+    const handleSaveAndShowReceipt = async (paymentData: SinglePaymentData) => {
+        const newTransaction = await handleSaveSinglePayment(paymentData);
         if (newTransaction) {
             setTransactionForReceipt(newTransaction);
             window.setTimeout(() => setPaymentModalState('receipt'), 0);
+            return newTransaction;
         } else {
             setPaymentModalState('closed');
             alert("Erreur lors de l'enregistrement du paiement.");
+            return null;
         }
     };
     
-    const onSaveSalary = (salaryData: SalaryPaymentModalData) => {
+    const onSaveSalary = async (salaryData: SalaryPaymentModalData) => {
       const appSalaryData = { netAmount: salaryData.netAmount, details: { primes: salaryData.primes, deductions: salaryData.deductions }};
-      const newTransaction = handlePaySalary(salaryData.personnel.id!, appSalaryData);
+      const newTransaction = await handlePaySalary(salaryData.personnel.id!, appSalaryData);
       if (newTransaction) {
           setPayslipData({ 
               personnel: salaryData.personnel, 
