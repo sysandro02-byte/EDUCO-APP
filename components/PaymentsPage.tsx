@@ -7,6 +7,7 @@ import { SearchIcon, PlusCircleIcon, PrinterIcon, FileDownloadIcon, UsersIcon } 
 import { Transaction, SchoolSettings, SinglePaymentData } from '../App';
 import { User } from './UserForm';
 import { Class } from './ClassForm';
+import { Fee } from './FeeForm';
 import { generateReceiptPdf } from '../utils/receiptPdfGenerator';
 import { 
   ChevronDown, 
@@ -36,8 +37,10 @@ interface PaymentsPageProps {
   transactions: Transaction[];
   users: User[];
   classes: Class[];
+  fees?: Fee[];
   schoolSettings: SchoolSettings;
   isCaisseOpen: boolean;
+  cashierSettings?: any;
 }
 
 const isDateInPeriod = (dateStr: string | undefined, period: PeriodFilter): boolean => {
@@ -82,8 +85,10 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({
   transactions, 
   users, 
   classes, 
+  fees = [],
   schoolSettings, 
-  isCaisseOpen 
+  isCaisseOpen,
+  cashierSettings
 }) => {
   const [paymentModalState, setPaymentModalState] = useState<'closed' | 'form' | 'receipt'>('closed');
   const [transactionForReceipt, setTransactionForReceipt] = useState<Transaction | null>(null);
@@ -1073,11 +1078,14 @@ const PaymentsPage: React.FC<PaymentsPageProps> = ({
           <PaymentForm
             users={users}
             classes={classes}
+            transactions={transactions}
+            fees={fees}
             payments={payments}
             onSave={handleSaveAndShowReceipt}
             onCancel={() => setPaymentModalState('closed')}
             currency={currency}
             currentUserRole={currentUserRole}
+            cashierSettings={cashierSettings}
           />
         )}
         {paymentModalState === 'receipt' && transactionForReceipt && (

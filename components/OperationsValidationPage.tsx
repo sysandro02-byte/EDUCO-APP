@@ -18,7 +18,7 @@ const OperationsValidationPage: React.FC<OperationsValidationPageProps> = ({
 }) => {
   const pendingTransactions = transactions.filter(t => t.status === 'En attente');
   const validatedTransactions = transactions.filter(t => t.status === 'Approuvé' || t.status === 'Rejeté').slice(0, 10);
-  const canValidate = currentUserRole === 'Responsable des finances' || currentUserRole === 'Promoteur' || currentUserRole === 'Admin';
+  const canValidate = currentUserRole === 'Responsable des finances' || currentUserRole === 'Directeur Général' || currentUserRole === 'Admin';
   const currency = schoolSettings?.currency || 'FCFA';
 
   return (
@@ -30,7 +30,7 @@ const OperationsValidationPage: React.FC<OperationsValidationPageProps> = ({
             <h4 className="font-bold text-amber-900 text-sm">Mode Consultation - Accès restreint</h4>
             <p className="text-amber-800 text-xs mt-1">
               En tant que <strong>{currentUserRole}</strong>, vous pouvez consulter la liste des opérations. 
-              <strong> Seuls le Responsable Administratif et Financier (RAF) et le Directeur Général (DG / Promoteur)</strong> ont l'autorisation légitime d'approuver ou rejeter les opérations financières.
+              <strong> Seuls le Responsable Administratif et Financier (RAF) et le Directeur Général (DG)</strong> peuvent approuver ou rejeter les opérations financières. Le promoteur consulte uniquement l'historique.
             </p>
           </div>
         </div>
@@ -43,7 +43,7 @@ const OperationsValidationPage: React.FC<OperationsValidationPageProps> = ({
             <div>
               <h4 className="font-bold text-emerald-900 text-sm">Espace d'Approbation RAF & DG</h4>
               <p className="text-emerald-700 text-xs mt-0.5">
-                Vous êtes connecté en tant que <strong>{currentUserRole}</strong>. Vous pouvez valider ou rejeter les opérations de la caisse. Tout accord génère une notification au RAF, au DG et à la Caisse.
+                Vous êtes connecté en tant que <strong>{currentUserRole}</strong>. Une seule validation suffit : dès qu'une opération est traitée, elle bascule dans l'historique pour les autres responsables.
               </p>
             </div>
           </div>

@@ -439,6 +439,12 @@ const UserForm: React.FC<UserFormProps> = ({
       if (isStudent && !finalData.studentId) {
         finalData.studentId = buildStudentMatricule({ schoolAcronym: getSchoolAcronym() });
       }
+      if (isStudent && !finalData.id) {
+        finalData.isAccountActivated = false;
+        finalData.activatedBy = '';
+        finalData.activatedAt = '';
+        finalData.status = 'Inactif';
+      }
       if (!isStudent && !finalData.id && !finalData.matricule) {
         finalData.matricule = finalData.studentId || buildStaffMatricule({ schoolAcronym: getSchoolAcronym(), role: finalData.role });
         finalData.studentId = finalData.matricule;

@@ -27,6 +27,18 @@ export const AdminAIManagerPage: React.FC<AdminAIManagerPageProps> = ({ schools 
   const [selectedModel, setSelectedModel] = useState<'gemini-2.5-flash' | 'gemini-1.5-pro' | 'groq-llama-3'>('gemini-2.5-flash');
   const [temperature, setTemperature] = useState<number>(0.7);
   const [globalAiEnabled, setGlobalAiEnabled] = useState(true);
+  const [chatbotConfig, setChatbotConfig] = useState(() => {
+    try {
+      return {
+        enabled: true,
+        name: 'Luna',
+        allowAccountSettings: true,
+        ...(JSON.parse(localStorage.getItem('EDUCO_AI_CHATBOT_CONFIG') || '{}')),
+      };
+    } catch {
+      return { enabled: true, name: 'Luna', allowAccountSettings: true };
+    }
+  });
   const [schoolsList, setSchoolsList] = useState<any[]>(schools);
 
   useEffect(() => {
@@ -115,6 +127,7 @@ export const AdminAIManagerPage: React.FC<AdminAIManagerPageProps> = ({ schools 
   };
 
   const handleSaveConfig = () => {
+    localStorage.setItem('EDUCO_AI_CHATBOT_CONFIG', JSON.stringify(chatbotConfig));
     setSaveStatus('✅ Configuration globale de l\'intelligence artificielle enregistrée et déployée avec succès !');
     setTimeout(() => setSaveStatus(null), 3500);
   };
@@ -153,6 +166,47 @@ export const AdminAIManagerPage: React.FC<AdminAIManagerPageProps> = ({ schools 
           <span>{saveStatus}</span>
         </div>
       )}
+
+      <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+        <h2 className="text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
+          <Bot className="w-4 h-4 text-purple-500" />
+          <span>Chatbot flottant global</span>
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <label className="flex items-start gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 bg-slate-50 dark:bg-slate-800/40">
+            <input
+              type="checkbox"
+              checked={chatbotConfig.enabled}
+              onChange={e => setChatbotConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+              className="mt-1 rounded text-purple-600"
+            />
+            <span>
+              <span className="block text-xs font-black text-slate-800 dark:text-slate-100">Activer pour tous les comptes</span>
+              <span className="block text-[11px] text-slate-500">Affiche le bouton IA flottant sur l'application.</span>
+            </span>
+          </label>
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Nom affiché</label>
+            <input
+              value={chatbotConfig.name}
+              onChange={e => setChatbotConfig(prev => ({ ...prev, name: e.target.value }))}
+              className="w-full rounded-xl border-slate-300 dark:border-slate-700 dark:bg-slate-800 text-sm"
+            />
+          </div>
+          <label className="flex items-start gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 bg-slate-50 dark:bg-slate-800/40">
+            <input
+              type="checkbox"
+              checked={chatbotConfig.allowAccountSettings}
+              onChange={e => setChatbotConfig(prev => ({ ...prev, allowAccountSettings: e.target.checked }))}
+              className="mt-1 rounded text-purple-600"
+            />
+            <span>
+              <span className="block text-xs font-black text-slate-800 dark:text-slate-100">Autoriser l'aide aux réglages</span>
+              <span className="block text-[11px] text-slate-500">Toujours avec accord du propriétaire du compte.</span>
+            </span>
+          </label>
+        </div>
+      </div>
 
       {/* 4 Overview Statistics Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

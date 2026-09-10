@@ -919,7 +919,7 @@ export async function fetchSurveyReport(surveyId: number) {
   }
 }
 
-export async function broadcastSurvey(surveyId: number, data: { channel?: string; customMessage?: string }) {
+export async function broadcastSurvey(surveyId: number, data: { channel?: string; customMessage?: string; audience?: string }) {
   try {
     const headers = await getAuthHeaders();
     const res = await fetch(getApiUrl(`/api/surveys/${surveyId}/broadcast`), {

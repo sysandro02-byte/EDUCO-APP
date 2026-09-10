@@ -319,6 +319,65 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
 
   const canManageUsers = ['Admin', 'Co-admin', 'Promoteur'].includes(currentUserRole);
   const canGenerateBadges = ['Admin', 'Co-admin', 'Promoteur', 'Caissière', 'Responsable des finances', 'Directeur des Etudes'].includes(currentUserRole);
+  const canActivateStudentAccount = ['Caissière', 'Responsable des finances', 'Directeur des Etudes'].includes(currentUserRole);
+
+  const getTeacherClassNames = (user: User) => {
+    const assigned = classes.filter((cls: any) =>
+      String(cls.teacherId ?? cls.teacher_id ?? '') === String(user.id ?? '')
+      || String(cls.teacherName ?? '').toLowerCase() === String(user.name || '').toLowerCase()
+    );
+    if (assigned.length > 0) return assigned.map((cls: any) => cls.name).filter(Boolean);
+    return user.class ? [user.class] : [];
+  };
+
+  const renderAssignmentDetails = (user: User) => {
+    const role = getDisplayRole(user.role);
+    if (role === 'Élève') {
+      return (
+        <div className="space-y-1.5 text-xs">
+          <span className="inline-flex items-center gap-1.5 font-black text-slate-800 dark:text-slate-200 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2.5 py-1 rounded-xl">
+            <School className="w-3.5 h-3.5 text-amber-600" />
+            {user.class || 'Classe non assignée'}
+          </span>
+          <div className="flex flex-wrap gap-1.5 text-[10px] font-bold">
+            <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">Matricule: {user.studentId || user.matricule || 'N/A'}</span>
+            <span className="px-2 py-0.5 rounded-lg bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300">{user.registrationType || user.enrollmentType || 'Inscription'}</span>
+            <span className="px-2 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300">{user.regime || 'Régime non défini'}</span>
+          </div>
+          {(user.parentName || user.guardian) && (
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">Tuteur: {user.parentName || user.guardian}</p>
+          )}
+        </div>
+      );
+    }
+    if (role === 'Enseignant') {
+      const teacherClasses = getTeacherClassNames(user);
+      return (
+        <div className="space-y-1.5 text-xs">
+          <span className="inline-flex items-center gap-1.5 font-black text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 px-2.5 py-1 rounded-xl">
+            <GraduationCap className="w-3.5 h-3.5 text-emerald-600" />
+            {teacherClasses.length > 0 ? `${teacherClasses.length} classe(s)` : 'Aucune classe'}
+          </span>
+          <div className="flex flex-wrap gap-1">
+            {teacherClasses.length > 0 ? teacherClasses.slice(0, 4).map((className) => (
+              <span key={className} className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-[10px] font-bold text-slate-600 dark:text-slate-300">{className}</span>
+            )) : (
+              <span className="text-slate-400 text-xs italic">Non assigné</span>
+            )}
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-1 text-xs">
+        <span className="inline-flex items-center gap-1.5 font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-2.5 py-1 rounded-xl">
+          <Briefcase className="w-3.5 h-3.5 text-[#1F4A59] dark:text-sky-400" />
+          {role}
+        </span>
+        <p className="text-[10px] text-slate-400">{user.studentId || user.matricule || user.contact || 'Service administratif'}</p>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6 animate-fade-in relative">
@@ -586,16 +645,9 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
                     </td>
                   )}
 
-                  {/* Class / Extra Details */}
+                  {/* Role-specific assignment details */}
                   <td className="py-4 px-6">
-                    {user.class ? (
-                      <span className="inline-flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700/60 px-2.5 py-1 rounded-xl">
-                        <School className="w-3.5 h-3.5 text-[#1F4A59] dark:text-sky-400" />
-                        <span>{user.class}</span>
-                      </span>
-                    ) : (
-                      <span className="text-slate-400 text-xs italic">Non assigné</span>
-                    )}
+                    {renderAssignmentDetails(user)}
                   </td>
 
                   {/* Interactive Status Toggle */}
@@ -637,17 +689,19 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
                   {/* Action Toolbar */}
                   <td className="py-4 px-6 text-right">
                     <div className="flex items-center justify-end gap-1.5">
-                      {user.role === 'Élève' && ['Promoteur', 'Directeur Général', 'Directeur des Etudes', 'Admin', 'Co-admin'].includes(currentUserRole) && onToggleActivateStudent && (
+                      {getDisplayRole(user.role) === 'Élève' && canActivateStudentAccount && onToggleActivateStudent && (() => {
+                        const studentAccountActive = Boolean(user.isAccountActivated) || getDisplayStatus(user.status) === 'Actif';
+                        return (
                         <button
                           onClick={() => onToggleActivateStudent(user.id!)}
                           className={`px-3 py-1 rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 transition-all cursor-pointer ${
-                            user.isAccountActivated
+                            studentAccountActive
                               ? 'bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950/80 dark:hover:bg-emerald-900 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700'
                               : 'bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-md font-extrabold animate-pulse'
                           }`}
-                          title={user.isAccountActivated ? "Compte élève activé (Cliquer pour désactiver)" : "Cliquer pour ACTIVER le compte de cet élève"}
+                          title={studentAccountActive ? "Compte élève activé (Cliquer pour désactiver)" : "Cliquer pour ACTIVER le compte de cet élève"}
                         >
-                          {user.isAccountActivated ? (
+                          {studentAccountActive ? (
                             <>
                               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                               <span>Compte Activé</span>
@@ -659,7 +713,8 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
                             </>
                           )}
                         </button>
-                      )}
+                        );
+                      })()}
 
                       <button 
                         onClick={() => setInspectingUser(user)}

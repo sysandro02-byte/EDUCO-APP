@@ -40,6 +40,7 @@ interface FinanceManagerDashboardProps {
     fees: Fee[];
     schoolSettings: SchoolSettings;
     rafSettings: RafSettings;
+    cashierSettings?: any;
     communicationSettings?: any;
     onSaveCommunicationSettings?: (settings: any) => void;
 }
@@ -47,7 +48,7 @@ interface FinanceManagerDashboardProps {
 const FinanceManagerDashboard: React.FC<FinanceManagerDashboardProps> = ({ 
     transactions, payments, budget = 0, budgetObject, onUpdateBudget, currentUserRole,
     classes, personnel, handlePaySalary, handleSaveExpense, setActivePage,
-    handleSaveUser, handleSaveSinglePayment, fees, users, schoolSettings, rafSettings
+    handleSaveUser, handleSaveSinglePayment, fees, users, schoolSettings, rafSettings, cashierSettings
 }) => {
     const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
     const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
@@ -309,12 +310,14 @@ const FinanceManagerDashboard: React.FC<FinanceManagerDashboardProps> = ({
                     <PaymentForm
                         users={users}
                         payments={payments}
+                        transactions={transactions}
                         onSave={handleSaveAndShowReceipt}
                         onCancel={() => setPaymentModalState('closed')}
                         currency={currency}
                         classes={classes}
                         fees={fees}
                         currentUserRole={currentUserRole}
+                        cashierSettings={cashierSettings}
                     />
                 )}
                 {paymentModalState === 'receipt' && transactionForReceipt && <Receipt transaction={transactionForReceipt} onClose={() => setPaymentModalState('closed')} schoolSettings={schoolSettings} />}

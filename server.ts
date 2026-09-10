@@ -236,7 +236,9 @@ const mapSupabaseClass = (c: any) => c ? ({
   level: c.level || c.section,
   section: c.section || c.level,
   capacity: c.capacity,
-  teacherId: c.teacher_id || c.teacherId
+  maxStudents: c.capacity,
+  teacherId: c.teacher_id || c.teacherId,
+  tuitionFee: Number(c.tuition_fee || c.tuitionFee || 0)
 }) : null;
 
 const mapSupabaseFee = (f: any) => f ? ({
@@ -246,7 +248,8 @@ const mapSupabaseFee = (f: any) => f ? ({
   title: f.title || f.name,
   amount: Number(f.amount || 0),
   dueDate: f.due_date || f.dueDate,
-  type: f.type
+  type: f.type,
+  class: f.class || f.className || f.class_name
 }) : null;
 
 const mapSupabasePersonnel = (p: any) => p ? ({
@@ -375,6 +378,13 @@ const orderByCreatedDesc = (items: any[]) => [...items].sort((a, b) => {
 const getRequestUser = async (req: AuthRequest) => (
   req.user?.role || req.user?.schoolId ? req.user : await getUserByUid(req.user!.uid)
 );
+
+const getRequestUserId = async (req: AuthRequest) => {
+  const dbUser = await getRequestUser(req);
+  const rawUserId = dbUser?.id ?? req.user?.id;
+  const userId = Number(rawUserId);
+  return Number.isInteger(userId) && userId > 0 ? userId : null;
+};
 
 const requirePlatformAdmin = async (req: AuthRequest, res: any) => {
   const dbUser = await getRequestUser(req);
@@ -1277,6 +1287,29 @@ async function startServer() {
         status: 'registered',
       };
 
+      const selectedClassRows = Object.entries(schoolValues.levels || {}).flatMap(([cycleKey, cycleValue]: [string, any]) => {
+        const cycleLabels: Record<string, string> = {
+          garderie: 'Garderie',
+          prescolaire: 'Préscolaire',
+          primaire: 'Primaire',
+          secondaireCollege: 'Collège',
+          secondaireLycee: 'Lycée',
+        };
+
+        if (cycleKey === 'garderie' && cycleValue === true) {
+          return [{ name: 'Garderie', level: cycleLabels[cycleKey] || 'Garderie' }];
+        }
+
+        if (!cycleValue || typeof cycleValue !== 'object') return [];
+
+        return Object.entries(cycleValue)
+          .filter(([, isSelected]) => Boolean(isSelected))
+          .map(([className]) => ({
+            name: className,
+            level: cycleLabels[cycleKey] || cycleKey,
+          }));
+      });
+
       let newSchool: any;
       try {
         [newSchool] = await db.insert(schools).values(schoolValues).returning();
@@ -1397,6 +1430,34 @@ async function startServer() {
           }
         } catch (sbSyncErr) {
           console.warn('Supabase school registration sync warning:', sbSyncErr);
+        }
+      }
+
+      if (selectedClassRows.length > 0) {
+        try {
+          const classValues = selectedClassRows.map(row => ({
+            schoolId: newSchool.id,
+            name: row.name,
+            level: row.level,
+            capacity: 30,
+          }));
+          await db.insert(classes).values(classValues);
+        } catch (classDbErr) {
+          if (!supabaseAdmin) {
+            console.warn('Initial class creation warning:', classDbErr);
+          } else {
+            const { error: sbClassError } = await supabaseAdmin.from('classes').insert(
+              selectedClassRows.map(row => ({
+                school_id: newSchool.id,
+                name: row.name,
+                level: row.level,
+                capacity: 30,
+              }))
+            );
+            if (sbClassError) {
+              console.warn('Supabase initial class creation warning:', sbClassError);
+            }
+          }
         }
       }
 
@@ -2894,9 +2955,20 @@ async function startServer() {
 
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
-      const { data, error } = await supabaseAdmin.from('classes').select('*').eq('school_id', dbUser.schoolId);
+      const [{ data, error }, { data: feeRows, error: feeError }] = await Promise.all([
+        supabaseAdmin.from('classes').select('*').eq('school_id', dbUser.schoolId),
+        supabaseAdmin.from('fees').select('*').eq('school_id', dbUser.schoolId),
+      ]);
       if (error) throw error;
-      res.json((data || []).map(mapSupabaseClass));
+      if (feeError) throw feeError;
+      res.json((data || []).map((row: any) => {
+        const mapped = mapSupabaseClass(row);
+        const classFee = (feeRows || []).find((fee: any) =>
+          String(fee.type || '').toLowerCase() === 'tuition'
+          && String(fee.name || '').toLowerCase().includes(String(row.name || '').toLowerCase())
+        );
+        return { ...mapped, tuitionFee: Number(classFee?.amount || 0) };
+      }));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -2922,7 +2994,29 @@ async function startServer() {
         : supabaseAdmin.from('classes').insert([payload]);
       const { data, error } = await query.select('*').single();
       if (error) throw error;
-      res.json(mapSupabaseClass(data));
+      const tuitionFee = Number(req.body.tuitionFee || req.body.tuition_fee || 0);
+      if (tuitionFee > 0) {
+        const feeName = `Frais d'écolage - ${data.name}`;
+        const { data: existingFee } = await supabaseAdmin
+          .from('fees')
+          .select('id')
+          .eq('school_id', dbUser.schoolId)
+          .eq('name', feeName)
+          .maybeSingle();
+        const feePayload = {
+          school_id: dbUser.schoolId,
+          name: feeName,
+          amount: tuitionFee,
+          type: 'tuition',
+          due_date: null,
+        };
+        if (existingFee?.id) {
+          await supabaseAdmin.from('fees').update(feePayload).eq('id', existingFee.id).eq('school_id', dbUser.schoolId).throwOnError();
+        } else {
+          await supabaseAdmin.from('fees').insert([feePayload]).throwOnError();
+        }
+      }
+      res.json({ ...mapSupabaseClass(data), tuitionFee });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -3074,6 +3168,57 @@ async function startServer() {
     }
   });
 
+  app.post('/api/personnel/delete', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const dbUser = await getRequestUser(req);
+      if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
+
+      const personnelId = Number(req.body.id);
+      if (!Number.isFinite(personnelId) || personnelId <= 0) {
+        return res.status(400).json({ error: 'Identifiant personnel invalide.' });
+      }
+
+      const supabaseAdmin = getSupabaseAdmin(req);
+      if (supabaseAdmin) {
+        const { data: existing, error: findError } = await supabaseAdmin
+          .from('personnel')
+          .select('id,user_id')
+          .eq('id', personnelId)
+          .eq('school_id', dbUser.schoolId)
+          .maybeSingle();
+        if (findError) throw findError;
+        if (!existing?.id) return res.status(404).json({ error: 'Membre du personnel introuvable.' });
+
+        const { error: deletePersonnelError } = await supabaseAdmin
+          .from('personnel')
+          .delete()
+          .eq('id', personnelId)
+          .eq('school_id', dbUser.schoolId);
+        if (deletePersonnelError) throw deletePersonnelError;
+
+        if (existing.user_id) {
+          await supabaseAdmin
+            .from('users')
+            .delete()
+            .eq('id', Number(existing.user_id))
+            .eq('school_id', dbUser.schoolId);
+        }
+
+        return res.json({ success: true });
+      }
+
+      const [existing] = await db.select().from(personnel).where(and(eq(personnel.id, personnelId), eq(personnel.schoolId, dbUser.schoolId)));
+      if (!existing) return res.status(404).json({ error: 'Membre du personnel introuvable.' });
+      await db.delete(personnel).where(and(eq(personnel.id, personnelId), eq(personnel.schoolId, dbUser.schoolId)));
+      if (existing.userId) {
+        await db.delete(users).where(and(eq(users.id, existing.userId), eq(users.schoolId, dbUser.schoolId)));
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Grades Endpoints
   app.get('/api/grades', requireAuth, async (req: AuthRequest, res) => {
     try {
@@ -3177,9 +3322,16 @@ async function startServer() {
       if (!text) return res.status(400).json({ error: 'Le message est obligatoire.' });
       const targetSchoolId = /parent|élève|eleve/i.test(dbUser.role) ? dbUser.schoolId : (req.body.targetSchoolId || req.body.schoolId || dbUser.schoolId);
       const targetRoles = Array.isArray(req.body.roles) && req.body.roles.length > 0 ? req.body.roles : null;
+      const recipientIds = Array.isArray(req.body.recipientIds)
+        ? req.body.recipientIds.map((id: any) => Number(id)).filter((id: number) => Number.isSafeInteger(id) && id > 0)
+        : [];
 
       let usersQuery = supabaseAdmin.from('users').select('*').eq('school_id', Number(targetSchoolId));
-      if (targetRoles) usersQuery = usersQuery.in('role', targetRoles);
+      if (recipientIds.length > 0) {
+        usersQuery = usersQuery.in('id', recipientIds);
+      } else if (targetRoles) {
+        usersQuery = usersQuery.in('role', targetRoles);
+      }
       const { data: recipients, error: recipientsError } = await usersQuery;
       if (recipientsError) throw recipientsError;
 
@@ -3205,14 +3357,15 @@ async function startServer() {
 
   app.get('/api/notifications', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getRequestUser(req);
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
+      const userId = await getRequestUserId(req);
+      if (!userId) return res.status(401).json({ success: false, error: 'Utilisateur introuvable.' });
 
       const { data, error } = await supabaseAdmin
         .from('notifications')
         .select('*')
-        .eq('user_id', dbUser?.id || req.user?.id)
+        .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .limit(100);
       if (error) throw error;
@@ -3287,15 +3440,16 @@ async function startServer() {
 
   app.post('/api/notifications/:id/read', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getRequestUser(req);
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
+      const userId = await getRequestUserId(req);
+      if (!userId) return res.status(401).json({ success: false, error: 'Utilisateur introuvable.' });
 
       const { data, error } = await supabaseAdmin
         .from('notifications')
         .update({ is_read: true })
         .eq('id', Number(req.params.id))
-        .eq('user_id', dbUser?.id || req.user?.id)
+        .eq('user_id', userId)
         .select('*')
         .maybeSingle();
       if (error) throw error;
@@ -3309,14 +3463,15 @@ async function startServer() {
 
   app.post('/api/notifications/read-all', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getRequestUser(req);
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
+      const userId = await getRequestUserId(req);
+      if (!userId) return res.status(401).json({ success: false, error: 'Utilisateur introuvable.' });
 
       const { error } = await supabaseAdmin
         .from('notifications')
         .update({ is_read: true })
-        .eq('user_id', dbUser?.id || req.user?.id);
+        .eq('user_id', userId);
       if (error) throw error;
 
       res.json({ success: true });
@@ -3328,15 +3483,16 @@ async function startServer() {
 
   app.delete('/api/notifications/:id', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getRequestUser(req);
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
+      const userId = await getRequestUserId(req);
+      if (!userId) return res.status(401).json({ success: false, error: 'Utilisateur introuvable.' });
 
       const { error } = await supabaseAdmin
         .from('notifications')
         .delete()
         .eq('id', Number(req.params.id))
-        .eq('user_id', dbUser?.id || req.user?.id);
+        .eq('user_id', userId);
       if (error) throw error;
 
       res.json({ success: true });
@@ -3348,14 +3504,15 @@ async function startServer() {
 
   app.delete('/api/notifications', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const dbUser = await getRequestUser(req);
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) return res.status(503).json({ success: false, error: 'Supabase non configuré.' });
+      const userId = await getRequestUserId(req);
+      if (!userId) return res.status(401).json({ success: false, error: 'Utilisateur introuvable.' });
 
       const { error } = await supabaseAdmin
         .from('notifications')
         .delete()
-        .eq('user_id', dbUser?.id || req.user?.id);
+        .eq('user_id', userId);
       if (error) throw error;
 
       res.json({ success: true });
@@ -3754,6 +3911,22 @@ async function startServer() {
         school = schoolResult[0];
       }
       const schoolIdentifier = school?.identifier || `EDUCO-SCH-${dbUser.schoolId}`;
+      const promoterName = String(
+        dbUser?.name ||
+        school?.promoterName ||
+        school?.promoter_name ||
+        req.user?.name ||
+        dbUser?.email ||
+        'Promoteur'
+      ).trim() || 'Promoteur';
+      const promoterContact = String(
+        dbUser?.email ||
+        school?.promoterEmail ||
+        school?.promoter_email ||
+        school?.promoterContact ||
+        school?.promoter_contact ||
+        ''
+      ).trim() || null;
 
       let newRequest: any;
       if (supabaseAdmin) {
@@ -3761,8 +3934,8 @@ async function startServer() {
           school_id: dbUser.schoolId,
           school_identifier: schoolIdentifier,
           school_name: school?.name || 'Établissement',
-          promoter_name: dbUser.name,
-          promoter_contact: dbUser.email,
+          promoter_name: promoterName,
+          promoter_contact: promoterContact,
           requested_plan: requestedPlan || 'standard',
           requested_months: Number(requestedMonths) || 1,
           status: 'pending',
@@ -3774,8 +3947,8 @@ async function startServer() {
           schoolId: dbUser.schoolId,
           schoolIdentifier,
           schoolName: school?.name || 'Établissement',
-          promoterName: dbUser.name,
-          promoterContact: dbUser.email,
+          promoterName,
+          promoterContact,
           requestedPlan: requestedPlan || 'standard',
           requestedMonths: Number(requestedMonths) || 1,
           status: 'pending',
@@ -5477,10 +5650,18 @@ async function startServer() {
     }
   });
 
+  const surveyBroadcastRoleMap: Record<string, string[]> = {
+    parents: ['Parent', 'Parent/Tuteur', 'Tuteur'],
+    teachers: ['Enseignant', 'Teacher', 'Professeur', 'Directeur des Etudes', 'DE', 'Directeur du Primaire'],
+    administration: ['Promoteur', 'Directeur Général', 'Directeur', 'Responsable des finances', 'RAF', 'Caissière', 'Secrétaire', 'Comptable'],
+  };
+
   app.post('/api/surveys/:id/broadcast', requireAuth, async (req: AuthRequest, res) => {
     try {
       const surveyId = Number(req.params.id);
+      const dbUser = await getRequestUser(req);
       const { channel, customMessage } = req.body; // 'whatsapp' | 'email' | 'all'
+      const requestedAudience = String(req.body.audience || req.body.targetAudience || 'all').trim();
       
       const supabaseAdmin = getSupabaseAdmin(req);
       let survey: any = null;
@@ -5497,16 +5678,79 @@ async function startServer() {
         return res.status(404).json({ error: 'Sondage introuvable.' });
       }
 
-      // Return formatted WhatsApp Link and broadcast payload
+      const audience = requestedAudience === 'all'
+        ? 'all'
+        : surveyBroadcastRoleMap[requestedAudience]
+        ? requestedAudience
+        : String(survey.targetAudience || 'all');
+      const schoolId = survey.schoolId || dbUser?.schoolId;
+      const surveyUrl = `${req.protocol}://${req.get('host')}/?survey=${survey.id}`;
+      const audienceLabel = audience === 'parents'
+        ? 'parents et tuteurs'
+        : audience === 'teachers'
+        ? 'corps enseignant'
+        : audience === 'administration'
+        ? 'personnel administratif'
+        : 'parents, enseignants et administration';
+
+      const notificationTitle = `Sondage à compléter : ${survey.title}`;
+      const notificationMessage = customMessage || survey.description || `Merci de participer au sondage "${survey.title}". Votre avis aide la direction à prendre une décision éclairée.`;
+      const selectedRoles = audience === 'all'
+        ? Array.from(new Set(Object.values(surveyBroadcastRoleMap).flat()))
+        : surveyBroadcastRoleMap[audience] || [];
+
+      let recipients: any[] = [];
+      if (supabaseAdmin) {
+        let usersQuery = supabaseAdmin
+          .from('users')
+          .select('id, email, name, role, school_id')
+          .in('role', selectedRoles);
+        if (schoolId) usersQuery = usersQuery.eq('school_id', Number(schoolId));
+        const { data, error } = await usersQuery;
+        if (error) throw error;
+        recipients = data || [];
+
+        const rows = recipients.map((user: any) => ({
+          user_id: user.id,
+          title: notificationTitle,
+          message: notificationMessage,
+          type: 'Sondage',
+          is_read: false,
+          link: `/?survey=${survey.id}`,
+        }));
+        if (rows.length > 0) {
+          const { error: notificationError } = await supabaseAdmin.from('notifications').insert(rows);
+          if (notificationError) throw notificationError;
+        }
+      } else {
+        const schoolUsers = schoolId
+          ? await db.select().from(users).where(eq(users.schoolId, Number(schoolId)))
+          : await db.select().from(users);
+        recipients = schoolUsers.filter((user: any) => selectedRoles.includes(String(user.role || '')));
+        if (recipients.length > 0) {
+          await db.insert(notifications).values(recipients.map((user: any) => ({
+            userId: user.id,
+            title: notificationTitle,
+            message: notificationMessage,
+            type: 'Sondage',
+            link: `/?survey=${survey.id}`,
+            isRead: false,
+          })));
+        }
+      }
+
       const encodedMsg = encodeURIComponent(
-        `🏫 *${survey.title}*\n\nChers parents,\n${customMessage || survey.description || 'Votre avis compte pour la réussite de nos élèves ! Merci de bien vouloir répondre à ce court sondage.'}\n\n👉 *Participez directement ici :* ${req.protocol}://${req.get('host')}/?survey=${survey.id}\n\n_Direction de l'Établissement_`
+        `🏫 *${survey.title}*\n\nChers membres de la communauté éducative,\n${notificationMessage}\n\n👉 *Participez directement ici :* ${surveyUrl}\n\n_Direction de l'Établissement_`
       );
 
       res.json({
         success: true,
-        message: `Diffusion générée pour le sondage "${survey.title}".`,
+        message: `Diffusion envoyée au public ${audienceLabel}.`,
         whatsappShareUrl: `https://api.whatsapp.com/send?text=${encodedMsg}`,
-        simulatedCount: 154,
+        sent: recipients.length,
+        recipients: recipients.length,
+        audience,
+        channel: channel || 'all',
       });
     } catch (error: any) {
       console.error('Survey Broadcast Error:', error);

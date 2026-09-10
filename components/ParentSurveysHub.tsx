@@ -173,8 +173,11 @@ const ParentSurveysHub: React.FC = () => {
   // Broadcast modal state
   const [broadcastModalSurvey, setBroadcastModalSurvey] = useState<Survey | null>(null);
   const [whatsappLink, setWhatsappLink] = useState('');
-  const [broadcastChannel, setBroadcastChannel] = useState<'whatsapp' | 'email'>('whatsapp');
+  const [broadcastChannel, setBroadcastChannel] = useState<'whatsapp' | 'email' | 'all'>('all');
+  const [broadcastAudience, setBroadcastAudience] = useState<'all' | 'parents' | 'teachers' | 'administration'>('all');
   const [customBroadcastNote, setCustomBroadcastNote] = useState('');
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
+  const [broadcastResult, setBroadcastResult] = useState<any | null>(null);
 
   // Form State for creating survey
   const [newSurvey, setNewSurvey] = useState<{
@@ -418,10 +421,51 @@ const ParentSurveysHub: React.FC = () => {
 
   const handleOpenBroadcastModal = (survey: Survey) => {
     setBroadcastModalSurvey(survey);
+    setBroadcastChannel('all');
+    setBroadcastAudience('all');
+    setCustomBroadcastNote(survey.description || '');
+    setBroadcastResult(null);
     const msg = encodeURIComponent(
       `🏫 *${survey.title}*\n\nChers parents,\n${survey.description || 'Votre avis compte pour la réussite de nos élèves ! Merci de bien vouloir répondre à ce court sondage.'}\n\n👉 *Participez directement ici :* ${window.location.origin}/?survey=${survey.id}\n\n_Direction de l'Établissement_`
     );
     setWhatsappLink(`https://api.whatsapp.com/send?text=${msg}`);
+  };
+
+  const getBroadcastMessage = (survey: Survey) => {
+    const audienceIntro = broadcastAudience === 'parents'
+      ? 'Chers parents et tuteurs'
+      : broadcastAudience === 'teachers'
+      ? 'Chers enseignants'
+      : broadcastAudience === 'administration'
+      ? 'Chers membres de l administration'
+      : 'Chers membres de la communaute educative';
+
+    return `${survey.title}\n\n${audienceIntro},\n${customBroadcastNote || survey.description || 'Votre avis compte pour la reussite de nos eleves. Merci de repondre a ce court sondage.'}\n\nParticipez directement ici : ${window.location.origin}/?survey=${survey.id}\n\nDirection de l etablissement`;
+  };
+
+  const handleBroadcastSurvey = async () => {
+    if (!broadcastModalSurvey) return;
+    setIsBroadcasting(true);
+    setBroadcastResult(null);
+    try {
+      const res = await broadcastSurvey(broadcastModalSurvey.id, {
+        channel: broadcastChannel,
+        audience: broadcastAudience,
+        customMessage: customBroadcastNote,
+      });
+      if (res?.success) {
+        setBroadcastResult(res);
+        if (res.whatsappShareUrl) setWhatsappLink(res.whatsappShareUrl);
+        showToast(`${res.sent || 0} notification(s) envoyee(s) pour ce sondage.`);
+      } else {
+        showToast(res?.error || 'Impossible de diffuser le sondage.');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erreur lors de la diffusion du sondage.');
+    } finally {
+      setIsBroadcasting(false);
+    }
   };
 
   const handleOpenVoteTester = (survey: Survey) => {
@@ -1149,15 +1193,15 @@ const ParentSurveysHub: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL : DIFFUSION MULTICANALE (WHATSAPP / EMAIL)                          */}
+      {/* MODAL : DIFFUSION MULTICANALE (WHATSAPP / EMAIL / NOTIFICATIONS)          */}
       {/* ========================================================================= */}
       {broadcastModalSurvey && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden space-y-4 p-6 animate-scaleIn">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden space-y-4 p-6 animate-scaleIn">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-3">
               <div className="flex items-center gap-2">
                 <Share2 className="w-5 h-5 text-emerald-500" />
-                <h3 className="text-base font-black text-slate-900 dark:text-slate-100">Diffusion Immédiate aux Parents</h3>
+                <h3 className="text-base font-black text-slate-900 dark:text-slate-100">Diffusion immediate du sondage</h3>
               </div>
               <button
                 onClick={() => setBroadcastModalSurvey(null)}
@@ -1168,26 +1212,66 @@ const ParentSurveysHub: React.FC = () => {
             </div>
 
             <p className="text-xs text-slate-600 dark:text-slate-300">
-              Partagez le lien du sondage <strong>"{broadcastModalSurvey.title}"</strong> dans les groupes WhatsApp des parents ou envoyez une notification mail.
+              Envoyez le sondage <strong>"{broadcastModalSurvey.title}"</strong> aux parents, au corps enseignant et au personnel administratif. Une notification interne est creee pour chaque compte eligible.
             </p>
 
-            {/* WhatsApp Share Box */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Audience</label>
+                <select
+                  value={broadcastAudience}
+                  onChange={(e) => setBroadcastAudience(e.target.value as any)}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-2 px-3 text-xs font-bold text-slate-800 dark:text-slate-100"
+                >
+                  <option value="all">Parents + enseignants + administration</option>
+                  <option value="parents">Parents et tuteurs</option>
+                  <option value="teachers">Corps enseignant</option>
+                  <option value="administration">Personnel administratif</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Canal</label>
+                <select
+                  value={broadcastChannel}
+                  onChange={(e) => setBroadcastChannel(e.target.value as any)}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-2 px-3 text-xs font-bold text-slate-800 dark:text-slate-100"
+                >
+                  <option value="all">Notification + lien WhatsApp</option>
+                  <option value="whatsapp">Lien WhatsApp uniquement</option>
+                  <option value="email">Notification interne</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Message d'accompagnement</label>
+              <textarea
+                rows={3}
+                value={customBroadcastNote}
+                onChange={(e) => setCustomBroadcastNote(e.target.value)}
+                placeholder="Ajoutez une consigne courte pour les destinataires..."
+                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-xs text-slate-800 dark:text-slate-200 resize-none"
+              />
+            </div>
+
             <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-300 dark:border-emerald-800 space-y-3">
               <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-bold text-xs">
                 <MessageSquare className="w-4 h-4" />
-                <span>Message Prêt pour WhatsApp :</span>
+                <span>Message pret pour WhatsApp :</span>
               </div>
               <textarea
                 readOnly
-                rows={4}
-                value={`🏫 *${broadcastModalSurvey.title}*\nChers parents, votre avis compte pour nous. Répondez en 1 minute ici :\n👉 ${window.location.origin}/?survey=${broadcastModalSurvey.id}`}
+                rows={6}
+                value={getBroadcastMessage(broadcastModalSurvey)}
                 className="w-full bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-slate-200 resize-none font-mono"
               />
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <button
+                  type="button"
                   onClick={() => {
-                    navigator.clipboard.writeText(`🏫 *${broadcastModalSurvey.title}*\nChers parents, votre avis compte pour nous. Répondez en 1 minute ici :\n👉 ${window.location.origin}/?survey=${broadcastModalSurvey.id}`);
-                    showToast("Message WhatsApp copié dans le presse-papier !");
+                    navigator.clipboard.writeText(getBroadcastMessage(broadcastModalSurvey));
+                    showToast("Message WhatsApp copie dans le presse-papier !");
                   }}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 border border-emerald-300 text-emerald-800 dark:text-emerald-300 rounded-lg text-xs font-bold cursor-pointer"
                 >
@@ -1207,20 +1291,23 @@ const ParentSurveysHub: React.FC = () => {
               </div>
             </div>
 
-            {/* Email Broadcast Simulation */}
-            <div className="p-4 bg-sky-50 dark:bg-sky-950/40 rounded-xl border border-sky-300 dark:border-sky-800 flex items-center justify-between">
+            <div className="p-4 bg-sky-50 dark:bg-sky-950/40 rounded-xl border border-sky-300 dark:border-sky-800 space-y-3">
               <div className="flex items-center gap-2 text-sky-800 dark:text-sky-300 font-bold text-xs">
                 <Mail className="w-4 h-4" />
-                <span>Diffusion par E-mail aux 154 familles enregistrées</span>
+                <span>Notification interne aux comptes selectionnes</span>
               </div>
+              {broadcastResult && (
+                <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                  {broadcastResult.sent || 0} destinataire(s) notifie(s). Audience: {broadcastResult.audience || broadcastAudience}.
+                </p>
+              )}
               <button
-                onClick={() => {
-                  showToast("E-mail envoyé avec succès aux 154 parents d'élèves !");
-                  setBroadcastModalSurvey(null);
-                }}
-                className="px-3 py-1.5 bg-[#1F4A59] text-white text-xs font-bold rounded-lg cursor-pointer"
+                type="button"
+                onClick={handleBroadcastSurvey}
+                disabled={isBroadcasting}
+                className="w-full px-3 py-2 bg-[#1F4A59] text-white text-xs font-black rounded-lg cursor-pointer disabled:opacity-50"
               >
-                Envoyer par Mail
+                {isBroadcasting ? 'Diffusion en cours...' : 'Envoyer aux destinataires'}
               </button>
             </div>
 

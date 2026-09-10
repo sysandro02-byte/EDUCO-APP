@@ -38,6 +38,7 @@ interface SchoolOverviewProps {
   grades?: any[];
   schoolSettings?: any;
   setActivePage?: (page: string) => void;
+  currentUserRole?: string | null;
 }
 
 const SchoolOverview: React.FC<SchoolOverviewProps> = ({ 
@@ -52,6 +53,7 @@ const SchoolOverview: React.FC<SchoolOverviewProps> = ({
   grades = [],
   schoolSettings,
   setActivePage,
+  currentUserRole,
 }) => {
   const [dbTestResult, setDbTestResult] = useState<any>(null);
   const [isTestingDb, setIsTestingDb] = useState(false);
@@ -91,6 +93,7 @@ const SchoolOverview: React.FC<SchoolOverviewProps> = ({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+            {currentUserRole === 'Admin' && (
             <button
                 onClick={() => setIsSupabaseModalOpen(true)}
                 className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-black text-xs transition-all shadow-md rounded-xl cursor-pointer"
@@ -98,6 +101,7 @@ const SchoolOverview: React.FC<SchoolOverviewProps> = ({
                 <Database className="w-4 h-4 text-slate-950" />
                 <span>⚡ Console Base de Données</span>
             </button>
+            )}
 
             <button 
                 onClick={() => setActivePage && setActivePage('Paramètres')}

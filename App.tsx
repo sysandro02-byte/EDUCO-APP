@@ -2,7 +2,7 @@ import { simulateBrevoSend } from "./utils/communications";
 import { saveSchoolOperation, requestSchoolApi } from './src/services/api';
 
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import AdminSpecialLoginPage from './components/AdminSpecialLoginPage';
 import Sidebar from './components/Sidebar';
 import LoginPage from './components/LoginPage';
@@ -103,6 +103,7 @@ import AdminFinancialSurveillancePage from './components/AdminFinancialSurveilla
 import AdminRevenuesExpensesPage from './components/AdminRevenuesExpensesPage';
 import AdminBroadcastMessagingPage from './components/AdminBroadcastMessagingPage';
 import AdminAIManagerPage from './components/AdminAIManagerPage';
+import FloatingAIChatbot from './components/FloatingAIChatbot';
 import AdminDiagnosticPage from './components/AdminDiagnosticPage';
 
 export interface Personnel {
@@ -191,6 +192,8 @@ export interface SinglePaymentData {
     };
     isLargeFamily?: boolean;
     familyNameOrSiblings?: string;
+    familyTotalFee?: number;
+    largeFamilyDiscountPercent?: number;
     examClass?: string;
     classeAnterieure?: string;
     isAncienEleve?: boolean;
@@ -518,6 +521,9 @@ const App: React.FC = () => {
       }
 
       if (loggedUser) {
+        if (loggedUser.role === 'Admin') {
+          loggedUser = { ...loggedUser, schoolId: null, school_id: null, schoolName: 'EDUCO APP' };
+        }
         sessionStorage.setItem('EDUCO_SESSION_ACTIVE', 'true');
         setInactivityNotice(null);
         localStorage.setItem('EDUCO_CURRENT_USER', JSON.stringify(loggedUser));
@@ -699,6 +705,8 @@ const App: React.FC = () => {
   const [reportCardComments, setReportCardComments] = useState<ReportCardComments[]>([]);
   const [financialEvents, setFinancialEvents] = useState<FinancialEvent[]>([]);
   const [businessSyncError, setBusinessSyncError] = useState('');
+  const [welcomeModal, setWelcomeModal] = useState<{ isOpen: boolean; title: string; message: string; guide?: boolean }>({ isOpen: false, title: '', message: '' });
+  const seenMessageIdsRef = useRef<Set<string>>(new Set());
 
   // State for cashier's operational hours
   const [isCaisseOpen, setIsCaisseOpen] = useState(true);
@@ -1023,7 +1031,10 @@ const App: React.FC = () => {
         return true;
       } catch (e) {
         console.warn('Business data sync warning:', e);
-        if (!cancelled) setBusinessSyncError('Les dernières données ne peuvent pas être chargées. Vérifiez la connexion puis réessayez.');
+        const hasUsableLocalData = users.length > 0 || classes.length > 0 || transactions.length > 0 || payments.length > 0;
+        if (!cancelled) {
+          setBusinessSyncError(hasUsableLocalData ? '' : 'Les données initiales ne peuvent pas être chargées pour le moment. Réessayez si la page reste vide.');
+        }
         return false;
       }
     };
@@ -1044,6 +1055,33 @@ const App: React.FC = () => {
       window.removeEventListener('educo:refresh-data', refreshRequested);
     };
   }, [loggedInRole, currentUser]);
+
+  const isUrgentNotification = useCallback((item: any) => {
+    const content = `${item?.type || ''} ${item?.title || ''} ${item?.message || ''}`.toLowerCase();
+    return /urgent|urgence|alerte|danger|rejet|dette|dépassement|depassement|anomalie|erreur|souci|probl[eè]me/.test(content);
+  }, []);
+
+  const playNotificationSound = useCallback((urgent = false) => {
+    try {
+      const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextCtor) return;
+      const ctx = new AudioContextCtor();
+      const gain = ctx.createGain();
+      gain.gain.value = 0.04;
+      gain.connect(ctx.destination);
+      [0, urgent ? 0.16 : 0].forEach((offset, index) => {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = urgent ? (index === 0 ? 880 : 660) : 620;
+        osc.connect(gain);
+        osc.start(ctx.currentTime + offset);
+        osc.stop(ctx.currentTime + offset + 0.11);
+      });
+      setTimeout(() => ctx.close(), urgent ? 500 : 260);
+    } catch {
+      // Browsers may block audio before a user gesture; the visual alert still applies.
+    }
+  }, []);
 
   // Dynamic Supabase notifications for the bell + modal preview for Admin broadcasts
   useEffect(() => {
@@ -1067,17 +1105,28 @@ const App: React.FC = () => {
           const freshAdminMessages = normalized.filter((n: any) =>
             !previousIds.has(String(n.id)) &&
             !n.read &&
-            String(n.type || '').toLowerCase().includes('message admin')
+            (
+              String(n.type || '').toLowerCase().includes('message admin')
+              || /promoteur|directeur général|directeur general|admin/.test(`${n.title || ''} ${n.message || ''}`.toLowerCase())
+            )
           );
+
+          const freshUnread = normalized.filter((n: any) => !previousIds.has(String(n.id)) && !n.read);
+          if (freshUnread.length > 0) {
+            playNotificationSound(freshUnread.some(isUrgentNotification));
+          }
 
           if (freshAdminMessages.length > 0) {
             const latest = freshAdminMessages[0];
             setAppAlert({
               isOpen: true,
-              title: latest.title || 'Message Admin',
+              title: latest.title || 'Message prioritaire',
               message: latest.message || 'Vous avez reçu un nouveau message administratif.',
-              type: 'info',
+              type: isUrgentNotification(latest) ? 'warning' : 'info',
             });
+            if (/message|messagerie|discussion/.test(`${latest.type || ''} ${latest.title || ''} ${latest.message || ''}`.toLowerCase())) {
+              setIsChatOpen(true);
+            }
           }
 
           return JSON.stringify(prev) === JSON.stringify(normalized) ? prev : normalized;
@@ -1096,7 +1145,7 @@ const App: React.FC = () => {
       clearInterval(interval);
       window.removeEventListener('focus', onFocus);
     };
-  }, [currentUser, loggedInRole]);
+  }, [currentUser, loggedInRole, isUrgentNotification, playNotificationSound]);
 
   // Auto-persist entire application state locally whenever data changes
   useEffect(() => {
@@ -1171,6 +1220,76 @@ const App: React.FC = () => {
       link,
     });
   }, [loggedInRole]);
+
+  const hasCriticalAlert = useMemo(() => {
+    const hasUrgentUnread = notifications.some(n => !n.read && isUrgentNotification(n));
+    const hasRejectedOrProblemTransaction = transactions.some(t =>
+      t.status === 'Rejeté' || /anomalie|erreur|souci|probl[eè]me|dette/.test(`${t.description || ''} ${t.notes || ''}`.toLowerCase())
+    );
+    const hasBudgetOverflow = Boolean(budget?.categories?.some((category: any) => {
+      const spent = transactions
+        .filter(t => t.type === 'Dépense' && t.status === 'Approuvé' && t.category === category.name)
+        .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      return Number(category.amount || 0) > 0 && spent > Number(category.amount || 0);
+    }));
+    return Boolean(businessSyncError || hasUrgentUnread || hasRejectedOrProblemTransaction || hasBudgetOverflow);
+  }, [notifications, transactions, budget, businessSyncError, isUrgentNotification]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const userKey = currentUser.id || currentUser.email || currentUser.name || 'user';
+    const welcomeKey = `EDUCO_WELCOME_${userKey}_${todayKey}`;
+    const guideKey = `EDUCO_GUIDE_SEEN_${userKey}`;
+
+    if (!localStorage.getItem(welcomeKey)) {
+      localStorage.setItem(welcomeKey, '1');
+      const isNewAccount = !localStorage.getItem(guideKey);
+      if (isNewAccount) localStorage.setItem(guideKey, '1');
+      setWelcomeModal({
+        isOpen: true,
+        title: isNewAccount ? `Bienvenue ${currentUser.name || ''}` : `Bon retour ${currentUser.name || ''}`,
+        message: isNewAccount
+          ? "Votre compte vient d'être préparé. Le guide vous accompagne sur les premières actions importantes selon votre rôle."
+          : "Ravi de vous revoir aujourd'hui. Vos notifications, messages et alertes importantes sont prêts dans votre espace.",
+        guide: isNewAccount,
+      });
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    const incoming = (messages || []).filter((msg: any) => {
+      const id = String(msg.id || msg.timestamp || `${msg.senderId || ''}_${msg.text || msg.message || ''}`);
+      if (seenMessageIdsRef.current.has(id)) return false;
+      const isMine = String(msg.senderId || msg.fromId || '') === String(currentUserId);
+      const isForMe = !msg.recipientId || String(msg.recipientId) === String(currentUserId);
+      return !isMine && isForMe;
+    });
+    if (incoming.length === 0) return;
+
+    incoming.forEach((msg: any) => {
+      const id = String(msg.id || msg.timestamp || `${msg.senderId || ''}_${msg.text || msg.message || ''}`);
+      seenMessageIdsRef.current.add(id);
+    });
+
+    const important = incoming.find((msg: any) => {
+      const sender = `${msg.senderRole || msg.role || msg.senderName || ''}`.toLowerCase();
+      const text = `${msg.title || ''} ${msg.text || msg.message || ''}`.toLowerCase();
+      return /promoteur|directeur général|directeur general|admin/.test(sender) || /urgent|urgence|important|immédiat|immediat/.test(text);
+    });
+
+    playNotificationSound(Boolean(important));
+    if (important) {
+      setIsChatOpen(true);
+      setAppAlert({
+        isOpen: true,
+        title: 'Message prioritaire',
+        message: important.text || important.message || 'Un message prioritaire vient d’arriver.',
+        type: 'warning',
+      });
+    }
+  }, [messages, currentUserId, playNotificationSound]);
 
   const addActivityLog = useCallback(async (action: string, details?: string, currentPageName?: string) => {
     if (!loggedInRole) return;
@@ -1585,28 +1704,33 @@ const App: React.FC = () => {
     }
   };
 
-  const handleToggleStudentAccountActivation = (studentIdOrUserId: number | string) => {
-    const authorizedRoles = ['Promoteur', 'Directeur Général', 'Directeur des Etudes', 'Admin', 'Co-admin'];
+  const handleToggleStudentAccountActivation = async (studentIdOrUserId: number | string) => {
+    const authorizedRoles = ['Caissière', 'Responsable des finances', 'Directeur des Etudes'];
     if (!authorizedRoles.includes(loggedInRole)) {
-      alert("Accès refusé : Seuls le Promoteur, le Directeur Général et le Directeur des Études ont le droit d'activer les comptes d'élèves.");
+      alert("Accès refusé : Seuls la Caissière, le RAF et le Directeur des Études peuvent activer les comptes d'élèves.");
       return;
     }
 
-    setUsers(prevUsers => prevUsers.map(u => {
-      if (u.id === studentIdOrUserId || u.studentId === String(studentIdOrUserId) || (typeof studentIdOrUserId === 'number' && u.id === studentIdOrUserId)) {
-        const nextState = !u.isAccountActivated;
-        const statusMsg = nextState ? "activé" : "désactivé";
-        alert(`Le compte de l'élève "${u.name}" a été ${statusMsg} avec succès par le ${loggedInRole}.`);
-        addActivityLog('Activation Compte Élève', `Compte de ${u.name} ${statusMsg} par ${loggedInRole}`);
-        return {
-          ...u,
-          isAccountActivated: nextState,
-          activatedBy: loggedInRole,
-          activatedAt: new Date().toISOString()
-        };
-      }
-      return u;
-    }));
+    const student = users.find(u => u.id === studentIdOrUserId || u.studentId === String(studentIdOrUserId));
+    if (!student) return;
+    const nextState = !(student.isAccountActivated || String(student.status || '').toLowerCase() === 'actif' || String(student.status || '').toLowerCase() === 'active');
+    const updatedStudent = {
+      ...student,
+      status: nextState ? 'Actif' : 'Inactif',
+      isAccountActivated: nextState,
+      activatedBy: loggedInRole,
+      activatedAt: nextState ? new Date().toISOString() : ''
+    };
+
+    setUsers(prevUsers => prevUsers.map(u => u.id === student.id ? updatedStudent : u));
+    try {
+      await saveUserToDb(updatedStudent);
+    } catch (error) {
+      console.warn('Activation élève non persistée immédiatement:', error);
+    }
+    const statusMsg = nextState ? "activé" : "désactivé";
+    alert(`Le compte de l'élève "${student.name}" a été ${statusMsg} avec succès par le ${loggedInRole}.`);
+    addActivityLog('Activation Compte Élève', `Compte de ${student.name} ${statusMsg} par ${loggedInRole}`);
   };
 
   const handleSaveUser = async (userToSave: User) => {
@@ -1794,7 +1918,7 @@ const App: React.FC = () => {
               name: studentName,
               role: 'Élève',
               email: `${studentName.toLowerCase().replace(/\s+/g, '.')}@school.edu`,
-              status: 'Actif',
+              status: 'Inactif',
               studentId: studentMatricule,
               class: studentClass,
               dob: paymentData.newStudentData.dob || '',
@@ -1806,7 +1930,7 @@ const App: React.FC = () => {
               guardian: paymentData.newStudentData.parentTuteur || paymentData.parentTuteur || '',
               avatar: paymentData.newStudentData.avatar || '',
               familyId: paymentData.isLargeFamily ? Date.now() : undefined,
-              isAccountActivated: false, // Compte à activer par Promoteur / DG / DE
+              isAccountActivated: false, // Compte à activer par Caissière / RAF / DE
               enrollmentType: 'Inscription',
               registrationType: 'Inscription',
               ...({
@@ -2161,8 +2285,8 @@ const App: React.FC = () => {
   };
   
   const handleUpdateTransactionStatus = async (transactionId: string, status: 'Approuvé' | 'Rejeté') => {
-      if (!['Responsable des finances', 'Promoteur', 'Directeur Général', 'Admin'].includes(loggedInRole)) {
-          alert("Seul le Responsable Administratif et Financier (RAF), le Directeur Général (DG / Promoteur) ou l'Administrateur est habilité à valider ou rejeter les opérations. La caissière n'a pas ce droit.");
+      if (!['Responsable des finances', 'Directeur Général', 'Admin'].includes(loggedInRole)) {
+          alert("Seul le Responsable Administratif et Financier (RAF) ou le Directeur Général est habilité à valider ou rejeter les opérations.");
           return;
       }
       try {
@@ -2171,7 +2295,7 @@ const App: React.FC = () => {
       } catch (error: any) { alert('Erreur : ' + error.message); return; }
       const currentUserProfile = currentUser;
       const approverName = currentUserProfile?.name || 'Responsable';
-      const approverTitle = loggedInRole === 'Promoteur' ? 'Directeur Général (DG)' : loggedInRole;
+      const approverTitle = loggedInRole === 'Directeur Général' ? 'Directeur Général (DG)' : loggedInRole;
       const approvedByText = `${approverName} (${approverTitle})`;
 
       let updatedTransaction: Transaction | undefined;
@@ -2281,7 +2405,7 @@ const App: React.FC = () => {
 
       if (!budget) return;
       const currentUserProfile = currentUser;
-      const isRAFOrDG = loggedInRole === 'Responsable des finances' || loggedInRole === 'Promoteur' || loggedInRole === 'Admin';
+      const isRAFOrDG = loggedInRole === 'Responsable des finances' || loggedInRole === 'Directeur Général' || loggedInRole === 'Admin';
       const autoApprovalLimit = rafSettings?.alerts?.approvalThresholdAmount ?? 50000;
       const isUnderThreshold = amount <= autoApprovalLimit;
 
@@ -2290,7 +2414,7 @@ const App: React.FC = () => {
 
       if (isRAFOrDG) {
         status = 'Approuvé';
-        approvedBy = `${currentUserProfile?.name || 'Responsable'} (${loggedInRole === 'Promoteur' ? 'Directeur Général (DG)' : loggedInRole})`;
+        approvedBy = `${currentUserProfile?.name || 'Responsable'} (${loggedInRole === 'Directeur Général' ? 'Directeur Général (DG)' : loggedInRole})`;
       } else if (isUnderThreshold) {
         status = 'Approuvé';
         approvedBy = `Décaissement Direct Caissière (<= ${autoApprovalLimit.toLocaleString()} ${schoolSettings?.currency || 'FCFA'})`;
@@ -2447,7 +2571,7 @@ const App: React.FC = () => {
   };
 
   const handleDeletePersonnel = async (personnelId: number) => {
-    try { await requestSchoolApi("/api/records/personnel/delete", { id: personnelId }); }
+    try { await requestSchoolApi("/api/personnel/delete", { id: personnelId }); }
     catch (error: any) { alert("Erreur : " + error.message); return; }
     const personToDelete = personnel.find(p => p.id === personnelId);
     if (personToDelete) {
@@ -2514,6 +2638,14 @@ const App: React.FC = () => {
     try {
       const saved = await requestSchoolApi('/api/classes', { ...record, id: record.id || undefined });
       setClasses(prev => [...prev.filter(row => String(row.id) !== String(saved.id)), { ...record, ...saved }]);
+      const tuitionFee = Number((saved as any).tuitionFee || (record as any).tuitionFee || 0);
+      if (tuitionFee > 0) {
+        const feeName = `Frais d'écolage - ${saved.name || record.name}`;
+        setFees(prev => [
+          ...prev.filter((fee: any) => String(fee.name || '') !== feeName),
+          { id: Date.now(), name: feeName, title: feeName, amount: tuitionFee, type: 'tuition', class: saved.name || record.name } as any
+        ]);
+      }
       addActivityLog('Enregistrement classes', String(saved.id));
     } catch (error: any) { alert('Erreur : ' + error.message); }
   };
@@ -2529,10 +2661,14 @@ const App: React.FC = () => {
   };
 
   const handleSaveFee = async (record: Fee) => {
+    const previous = fees.find(f => String(f.id) === String(record.id) || (f.class === record.class && f.type === record.type));
     try {
       const saved = await requestSchoolApi('/api/fees', { ...record, id: record.id || undefined });
       setFees(prev => [...prev.filter(row => String(row.id) !== String(saved.id)), { ...record, ...saved }]);
-      addActivityLog('Enregistrement fees', String(saved.id));
+      addActivityLog(
+        previous ? 'Modification tarif' : 'Création tarif',
+        `Auteur: ${currentUser?.name || loggedInRole || 'Utilisateur'} (${loggedInRole}) | Classe/Service: ${record.class || 'Général'} | Type: ${record.type} | Ancien: ${Number(previous?.amount || 0).toLocaleString()} | Nouveau: ${Number(record.amount || 0).toLocaleString()} ${schoolSettings?.currency || 'FCFA'}`
+      );
     } catch (error: any) { alert('Erreur : ' + error.message); }
   };
 
@@ -3071,6 +3207,10 @@ const App: React.FC = () => {
           currentUser={currentUser!}
           schoolSettings={schoolSettings}
           users={users}
+          payments={payments}
+          students={users.filter(u => u.role === 'Élève')}
+          classes={classes}
+          currency={schoolSettings?.currency || 'FCFA'}
         />
       );
     }
@@ -3217,6 +3357,7 @@ const App: React.FC = () => {
               transactions={transactions}
               grades={grades}
               classes={classes}
+              currentUserRole={loggedInRole}
             />
           );
         }
@@ -3299,6 +3440,7 @@ const App: React.FC = () => {
                   fees={fees}
                   schoolSettings={schoolSettings}
                   rafSettings={rafSettings}
+                  cashierSettings={cashierSettings}
                   communicationSettings={communicationSettings || initialCommunicationSettings}
                   onSaveCommunicationSettings={handleSaveCommunicationSettings}
                 />
@@ -3387,6 +3529,7 @@ const App: React.FC = () => {
               attendance={attendance}
               schoolSettings={schoolSettings}
               setActivePage={setActivePage}
+              currentUserRole={loggedInRole}
             />
           </div>
         );
@@ -3415,8 +3558,10 @@ const App: React.FC = () => {
                   transactions={transactions}
                   users={users}
                   classes={classes}
+                  fees={fees}
                   schoolSettings={schoolSettings}
                   isCaisseOpen={isCaisseOpen}
+                  cashierSettings={cashierSettings}
                />;
       case 'Personnel':
         return <PersonnelPage
@@ -3580,6 +3725,7 @@ const App: React.FC = () => {
                   onOpenSubscriptionModal={() => setIsSubscriptionModalOpen(true)}
                />;
       case 'Console Supabase':
+        if (loggedInRole !== 'Admin') return renderLockedGuard('Console Base de Données');
         return <AdminSupabaseConsole />;
       case 'Sauvegardes & BD':
         return <AdminBackupsPage 
@@ -3591,6 +3737,7 @@ const App: React.FC = () => {
       case 'Présences par Établissement':
         return <AdminAttendanceAnalyticsPage />;
       case 'Diagnostic Supabase':
+        if (loggedInRole !== 'Admin') return renderLockedGuard('Tableau de Bord & Diagnostic Supabase');
         return <AdminDiagnosticPage />;
       case 'Surveillance Finances':
         return <AdminFinancialSurveillancePage />;
@@ -3759,7 +3906,9 @@ const App: React.FC = () => {
                 title="Statut Base de Données"
               >
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span className="text-[11px]">{loggedInRole === 'Admin' || loggedInRole === 'Co-admin' ? 'Supabase & PostgreSQL' : 'Base de Données En Ligne'}</span>
+                {(loggedInRole === 'Admin' || loggedInRole === 'Co-admin') && (
+                  <span className="text-[11px]">Supabase & PostgreSQL</span>
+                )}
               </div>
 
               {/* License Quick Button for Admin */}
@@ -3986,6 +4135,18 @@ const App: React.FC = () => {
           />
         )}
 
+        {currentUser && (
+          <FloatingAIChatbot
+            currentUser={currentUser}
+            currentUserRole={loggedInRole}
+            schoolSettings={schoolSettings}
+            transactions={transactions}
+            users={users}
+            payments={payments}
+            hasCriticalAlert={hasCriticalAlert}
+          />
+        )}
+
         <MobileQuickSearchModal
           isOpen={isMobileSearchOpen}
           onClose={() => setIsMobileSearchOpen(false)}
@@ -4002,6 +4163,27 @@ const App: React.FC = () => {
           title={appAlert.title}
           message={appAlert.message}
           type={appAlert.type}
+        />
+
+        <AlertDialogModal
+          isOpen={welcomeModal.isOpen}
+          onClose={() => setWelcomeModal(prev => ({ ...prev, isOpen: false }))}
+          title={welcomeModal.title}
+          type="success"
+          buttonText={welcomeModal.guide ? 'Commencer' : 'Continuer'}
+          message={
+            <div className="space-y-3 text-left">
+              <p>{welcomeModal.message}</p>
+              {welcomeModal.guide && (
+                <div className="rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 p-4 space-y-2 text-xs">
+                  <p className="font-black text-slate-800 dark:text-slate-100">Guide de démarrage</p>
+                  <p>1. Consultez vos notifications et messages prioritaires.</p>
+                  <p>2. Vérifiez votre profil, vos droits et les modules disponibles.</p>
+                  <p>3. Utilisez Luna en bas à droite pour demander une synthèse ou une aide contextuelle.</p>
+                </div>
+              )}
+            </div>
+          }
         />
 
         {passkeyPromptUser && (

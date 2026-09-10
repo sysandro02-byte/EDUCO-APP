@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { User } from './UserForm';
 import { Class } from './ClassForm';
 import { Fee } from './FeeForm';
@@ -27,10 +27,12 @@ interface PaymentFormProps {
   onCancel: () => void;
   payments: StudentPaymentInfo[];
   users: User[];
+  transactions?: Transaction[];
   currency: string;
   classes?: Class[];
   fees?: Fee[];
   currentUserRole?: string;
+  cashierSettings?: any;
 }
 
 const OptionButton: React.FC<{ label: string; active: boolean; onClick: () => void; className?: string; icon?: React.ReactNode }> = ({ label, active, onClick, className, icon }) => (
@@ -49,7 +51,7 @@ const OptionButton: React.FC<{ label: string; active: boolean; onClick: () => vo
 );
 
 const PaymentForm: React.FC<PaymentFormProps> = ({ 
-    onSave, onCancel, payments, users, currency, classes = [], fees = [], currentUserRole 
+    onSave, onCancel, payments, users, transactions = [], currency, classes = [], fees = [], currentUserRole, cashierSettings 
 }) => {
     // Payment Mode: 'Frais Mensuels' | 'Inscription' | 'Réinscription' | 'Frais de dossier d\'examen'
     const [paymentType, setPaymentType] = useState<'Frais Mensuels' | 'Inscription' | 'Réinscription' | 'Frais de dossier d\'examen'>('Frais Mensuels');
@@ -82,6 +84,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
     const [isLargeFamily, setIsLargeFamily] = useState(false);
     const [familyNameOrSiblings, setFamilyNameOrSiblings] = useState('');
     const [registrationAmount, setRegistrationAmount] = useState('');
+    const [familyTotalFee, setFamilyTotalFee] = useState('');
 
     // --- NEW REQUESTED FIELDS FOR INSCRIPTION & RÉINSCRIPTION ---
     const [classeAnterieure, setClasseAnterieure] = useState('');
@@ -132,6 +135,32 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
             email: parentReceiptEmail || matchedParent?.email || '',
         };
     }, [paymentType, newStudentContact, selectedStudent, parentTuteur, users, parentReceiptEmail]);
+
+    const hasStudentAlreadyPaid = (student: User, type: 'monthly' | 'exam' | 'reenrollment') => {
+        const studentName = String(student.name || '').toLowerCase();
+        const studentClass = String(student.class || '').toLowerCase();
+        const currentMonth = paymentDate.slice(0, 7);
+
+        if (type === 'monthly') {
+            const paymentRecord = payments.find(p => Number(p.id) === Number(student.id));
+            if (paymentRecord && Number(paymentRecord.totalFees || 0) > 0 && Number(paymentRecord.amountPaid || 0) >= Number(paymentRecord.totalFees || 0)) {
+                return true;
+            }
+        }
+
+        return transactions.some((transaction: any) => {
+            if (transaction.status === 'Rejeté') return false;
+            const description = String(transaction.description || '').toLowerCase();
+            const sameStudent = description.includes(studentName) || String(transaction.studentId || '') === String(student.id);
+            const sameClass = !studentClass || description.includes(studentClass);
+            const transactionMonth = String(transaction.date || '').slice(0, 7);
+
+            if (!sameStudent) return false;
+            if (type === 'exam') return sameClass && /dossier d'?examen/.test(description);
+            if (type === 'reenrollment') return /réinscription|reinscription/.test(description);
+            return transactionMonth === currentMonth && /(mensuel|scolarité|scolarite|écolage|ecolage)/.test(description);
+        });
+    };
 
     // --- MATRICE DE CONTRÔLE FINANCIER (VALIDATION MATRIX) ---
     const validationRules = useMemo((): ControlRule[] => {
@@ -266,14 +295,41 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
         return validationRules.every(r => r.isValid || r.isWarningOnly);
     }, [validationRules]);
 
-    // List of exam classes
-    const examClasses = useMemo(() => {
-        const examFeeClasses = fees.filter(f => f.type === 'Frais de dossier d\'examen').map(f => f.class);
-        if (examFeeClasses.length > 0) {
-            return classes.filter(c => examFeeClasses.includes(c.name));
-        }
-        return classes.filter(c => c.name.includes('CM2') || c.name.includes('3ème') || c.level === 'Lycée' || c.level === 'Collège');
-    }, [classes, fees]);
+    const largeFamilyDiscountPercent = Number(cashierSettings?.largeFamilyDiscountPercent ?? cashierSettings?.limits?.largeFamilyDiscountPercent ?? 0) || 0;
+
+    const getClassDefaultFee = (className?: string) => {
+        const cleanClass = String(className || '').trim().toLowerCase();
+        if (!cleanClass) return 0;
+        const classRow: any = classes.find((c: any) => String(c.name || '').trim().toLowerCase() === cleanClass);
+        const feeRow: any = fees.find((f: any) => {
+            const feeClass = String(f.class || f.className || '').trim().toLowerCase();
+            const feeName = String(f.name || f.title || '').trim().toLowerCase();
+            return String(f.type || '').toLowerCase().includes('tuition') && (feeClass === cleanClass || feeName.includes(cleanClass));
+        });
+        return Number(classRow?.tuitionFee || feeRow?.amount || 0);
+    };
+
+    const selectedClassDefaultFee = getClassDefaultFee(paymentType === 'Réinscription' ? selectedStudent?.class : newStudentClass);
+    const suggestedDiscountedFee = selectedClassDefaultFee > 0 && isLargeFamily
+        ? Math.max(0, Math.round(selectedClassDefaultFee * (1 - largeFamilyDiscountPercent / 100)))
+        : selectedClassDefaultFee;
+    const actualRegistrationAmount = Number(familyTotalFee || registrationAmount || 0);
+    const effectiveReductionPercent = selectedClassDefaultFee > 0
+        ? Math.max(0, Math.round(((selectedClassDefaultFee - actualRegistrationAmount) / selectedClassDefaultFee) * 100))
+        : 0;
+
+    useEffect(() => {
+        if (!isLargeFamily || selectedClassDefaultFee <= 0 || registrationAmount) return;
+        setRegistrationAmount(String(suggestedDiscountedFee));
+        setFamilyTotalFee(String(suggestedDiscountedFee));
+    }, [isLargeFamily, selectedClassDefaultFee, suggestedDiscountedFee, registrationAmount]);
+
+    const configuredExamClassNames = useMemo(() => new Set(
+        fees.filter(f => f.type === 'Frais de dossier d\'examen').map(f => f.class)
+    ), [fees]);
+
+    // List of all classes, with configured exam classes identified in the selector.
+    const examClasses = useMemo(() => classes, [classes]);
 
     // Available students filtered by class and search
     const filteredStudents = useMemo(() => {
@@ -292,16 +348,19 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
             );
         }
 
+        list = list.filter(s => !hasStudentAlreadyPaid(s, paymentType === 'Réinscription' ? 'reenrollment' : 'monthly'));
+
         return list.sort((a, b) => a.name.localeCompare(b.name));
-    }, [users, filterClass, searchStudentTerm]);
+    }, [users, filterClass, searchStudentTerm, paymentType, transactions, payments, paymentDate]);
 
     // Students in selected exam class
     const examClassStudents = useMemo(() => {
         if (!selectedExamClass) return [];
         return (users || [])
             .filter(u => u.role === 'Élève' && u.class === selectedExamClass)
+            .filter(u => !hasStudentAlreadyPaid(u, 'exam'))
             .sort((a, b) => a.name.localeCompare(b.name));
-    }, [users, selectedExamClass]);
+    }, [users, selectedExamClass, transactions, payments, paymentDate]);
 
     // Update auto exam fee amount when exam class changes
     const handleExamClassChange = (className: string) => {
@@ -311,9 +370,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
         if (matchingFee) {
             setExamFeeAmount(matchingFee.amount.toString());
         } else {
-            if (className.includes('3ème')) setExamFeeAmount('15000');
-            else if (className.includes('CM2')) setExamFeeAmount('10000');
-            else setExamFeeAmount('20000');
+            setExamFeeAmount('');
         }
     };
 
@@ -397,6 +454,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
                 },
                 isLargeFamily,
                 familyNameOrSiblings: isLargeFamily ? familyNameOrSiblings : undefined,
+                familyTotalFee: isLargeFamily ? Number(familyTotalFee || amount) : undefined,
+                largeFamilyDiscountPercent: isLargeFamily ? (effectiveReductionPercent || largeFamilyDiscountPercent) : undefined,
             };
         } 
         else if (paymentType === 'Réinscription') {
@@ -427,6 +486,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
                 parentReceiptName: parentReceiptInfo.name,
                 isLargeFamily,
                 familyNameOrSiblings: isLargeFamily ? familyNameOrSiblings : undefined,
+                familyTotalFee: isLargeFamily ? Number(familyTotalFee || amount) : undefined,
+                largeFamilyDiscountPercent: isLargeFamily ? (effectiveReductionPercent || largeFamilyDiscountPercent) : undefined,
                 classeAnterieure,
                 isAncienEleve,
                 bilingue,
@@ -439,6 +500,10 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
         else if (paymentType === 'Frais de dossier d\'examen') {
             if (!selectedExamClass) {
                 alert("Veuillez d'abord sélectionner la classe d'examen.");
+                return null;
+            }
+            if (!configuredExamClassNames.has(selectedExamClass)) {
+                alert("Cette classe n'est pas configurée comme classe d'examen. Veuillez demander au Promoteur, DG, RAF ou Caissier de la configurer dans la tarification.");
                 return null;
             }
             if (!selectedExamStudentId) {
@@ -526,21 +591,35 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
     }, [pendingPaymentData, selectedStudent, users]);
 
     return (
-        <div className="bg-slate-50 p-0 rounded-xl overflow-hidden shadow-sm border border-gray-200">
+        <div className="bg-slate-50 p-0 rounded-2xl overflow-hidden shadow-xl border border-slate-200">
             {/* Header */}
-            <div className="bg-[#1F4A59] text-white p-5 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    <div className="p-2 bg-white/10 rounded-lg">
+            <div className="bg-gradient-to-br from-[#143843] via-[#1F4A59] to-slate-900 text-white p-6">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-white/10 rounded-2xl ring-1 ring-white/15">
                         <GraduationCapIcon className="w-7 h-7 text-emerald-300"/>
                     </div>
                     <div>
-                        <h2 className="text-xl font-bold tracking-tight">Guichet de Paiement & Encaissement Caisse</h2>
-                        <p className="text-xs text-slate-200 mt-0.5">Saisissez les informations puis affichez l'aperçu du reçu avant impression</p>
+                        <p className="text-[10px] uppercase tracking-[0.22em] text-emerald-200 font-black">Guichet sécurisé</p>
+                        <h2 className="text-2xl font-black tracking-tight">Paiement & Encaissement de Caisse</h2>
+                        <p className="text-xs text-slate-200 mt-1">Parcours guidé, contrôle automatique et aperçu du reçu avant validation.</p>
                     </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded-xl bg-white/10 px-3 py-2 ring-1 ring-white/10">
+                      <p className="text-[9px] uppercase text-slate-300 font-bold">Caisse</p>
+                      <p className="text-xs font-black text-emerald-200">Ouverte</p>
+                    </div>
+                    <div className="rounded-xl bg-white/10 px-3 py-2 ring-1 ring-white/10">
+                      <p className="text-[9px] uppercase text-slate-300 font-bold">Mode</p>
+                      <p className="text-xs font-black">{paymentMode}</p>
+                    </div>
+                    <div className="rounded-xl bg-white/10 px-3 py-2 ring-1 ring-white/10">
+                      <p className="text-[9px] uppercase text-slate-300 font-bold">Date</p>
+                      <p className="text-xs font-black">{paymentDate}</p>
+                    </div>
+                  </div>
                 </div>
-                <span className="text-xs bg-emerald-500/20 text-emerald-300 px-3 py-1 rounded-full border border-emerald-400/30 font-semibold hidden sm:inline-block">
-                   Caisse Ouverte
-                </span>
             </div>
 
             <form onSubmit={handleOpenPreviewModal} className="p-6 space-y-6">
@@ -549,7 +628,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
                     <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
                         1. Motif & Type de Versement
                     </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 rounded-2xl bg-white border border-slate-200 p-2 shadow-xs">
                         <OptionButton 
                             label="Frais Mensuels" 
                             active={paymentType === 'Frais Mensuels'} 
@@ -817,6 +896,25 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
                                         placeholder="Ex: Famille KOUASSI — Frères: Marc (6ème) & Pierre (CP1)"
                                         className="block w-full rounded-lg border-amber-300 text-sm focus:ring-amber-500 bg-white"
                                     />
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                                        <div>
+                                            <label className="block text-xs font-medium text-amber-900 mb-1">Prix par défaut classe</label>
+                                            <input readOnly value={`${selectedClassDefaultFee.toLocaleString('fr-FR')} ${currency}`} className="block w-full rounded-lg border-amber-200 bg-amber-100/60 text-xs font-bold text-amber-950" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-amber-900 mb-1">Prix total famille</label>
+                                            <input type="number" value={familyTotalFee} onChange={(e) => { setFamilyTotalFee(e.target.value); setRegistrationAmount(e.target.value); }} placeholder="Total famille" className="block w-full rounded-lg border-amber-300 text-xs font-bold focus:ring-amber-500 bg-white" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-amber-900 mb-1">Réduction appliquée</label>
+                                            <input readOnly value={`${effectiveReductionPercent || largeFamilyDiscountPercent}%`} className="block w-full rounded-lg border-amber-200 bg-amber-100/60 text-xs font-bold text-amber-950" />
+                                        </div>
+                                    </div>
+                                    {selectedClassDefaultFee > 0 && (
+                                        <p className="mt-2 text-[11px] text-amber-800 font-semibold">
+                                            Montant conseillé après réduction paramétrée : {suggestedDiscountedFee.toLocaleString('fr-FR')} {currency}.
+                                        </p>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -1013,6 +1111,25 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
                                         placeholder="Ex: Famille Martin — Frères: Jean & Paul"
                                         className="block w-full rounded-lg border-amber-300 text-sm focus:ring-amber-500 bg-white"
                                     />
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                                        <div>
+                                            <label className="block text-xs font-medium text-amber-900 mb-1">Prix par défaut classe</label>
+                                            <input readOnly value={`${selectedClassDefaultFee.toLocaleString('fr-FR')} ${currency}`} className="block w-full rounded-lg border-amber-200 bg-amber-100/60 text-xs font-bold text-amber-950" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-amber-900 mb-1">Prix total famille</label>
+                                            <input type="number" value={familyTotalFee} onChange={(e) => { setFamilyTotalFee(e.target.value); setRegistrationAmount(e.target.value); }} placeholder="Total famille" className="block w-full rounded-lg border-amber-300 text-xs font-bold focus:ring-amber-500 bg-white" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-amber-900 mb-1">Réduction appliquée</label>
+                                            <input readOnly value={`${effectiveReductionPercent || largeFamilyDiscountPercent}%`} className="block w-full rounded-lg border-amber-200 bg-amber-100/60 text-xs font-bold text-amber-950" />
+                                        </div>
+                                    </div>
+                                    {selectedClassDefaultFee > 0 && (
+                                        <p className="mt-2 text-[11px] text-amber-800 font-semibold">
+                                            Montant conseillé après réduction paramétrée : {suggestedDiscountedFee.toLocaleString('fr-FR')} {currency}.
+                                        </p>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -1152,10 +1269,15 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
                                 <option value="" disabled>-- Choisir la classe d'examen --</option>
                                 {examClasses.map(c => (
                                     <option key={c.id} value={c.name}>
-                                        🎓 {c.name} ({c.level})
+                                        {configuredExamClassNames.has(c.name) ? '🎓' : '—'} {c.name} ({c.level}) {configuredExamClassNames.has(c.name) ? '• dossier configuré' : '• non configurée examen'}
                                     </option>
                                 ))}
                             </select>
+                            {selectedExamClass && !configuredExamClassNames.has(selectedExamClass) && (
+                                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+                                    Cette classe est visible dans le guichet, mais elle n'est pas encore configurée comme classe d'examen. Configurez son frais de dossier dans la tarification avant l'encaissement.
+                                </p>
+                            )}
                         </div>
 
                         {/* Step 2: Select Student in Exam Class */}
@@ -1545,3 +1667,4 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
 };
 
 export default PaymentForm;
+

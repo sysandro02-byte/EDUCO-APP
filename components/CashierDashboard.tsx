@@ -1602,12 +1602,14 @@ const CashierDashboard: React.FC<CashierDashboardProps> = ({
           <PaymentForm
             users={users}
             payments={payments}
+            transactions={transactions}
             onSave={handleSaveAndShowReceipt}
             onCancel={() => setPaymentModalState('closed')}
             currency={currency}
             classes={classes}
             fees={fees}
             currentUserRole={currentUserRole}
+            cashierSettings={cashierSettings}
           />
         )}
         {paymentModalState === 'receipt' && transactionForReceipt && (

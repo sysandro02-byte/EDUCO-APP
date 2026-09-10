@@ -115,6 +115,7 @@ const SchoolStructurePage: React.FC<SchoolStructurePageProps> = ({
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nom de la Classe</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Niveau</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Effectif Max.</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Frais d'écolage</th>
                 <th className="relative px-6 py-3"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
@@ -124,6 +125,7 @@ const SchoolStructurePage: React.FC<SchoolStructurePageProps> = ({
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{cls.name}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cls.level}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cls.maxStudents}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-[#1F4A59]">{Number((cls as any).tuitionFee || 0).toLocaleString('fr-FR')} FCFA</td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-4">
                     <button onClick={() => handleEditClass(cls)} className="text-indigo-600 hover:text-indigo-900" title="Modifier la classe"><PencilIcon /></button>
                     <button onClick={() => handleDeleteClassClick(cls)} className="text-red-600 hover:text-red-900" title="Supprimer la classe"><TrashIcon /></button>

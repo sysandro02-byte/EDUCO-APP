@@ -7,7 +7,7 @@ import {
   Filter, AlertCircle, CheckSquare, Square, FileText, Share2,
   DollarSign, GraduationCap, Layers, ArrowRight, ExternalLink, Bookmark
 } from 'lucide-react';
-import { sendBrevoBulkMessages } from '../src/services/api';
+import { sendBrevoBulkMessages, sendMessageToDb } from '../src/services/api';
 
 export interface MessagingPermissions {
   internal: { [role: string]: boolean };
@@ -150,6 +150,9 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
   const [selectedChannel, setSelectedChannel] = useState<string>('general');
   const [selectedInterSchoolId, setSelectedInterSchoolId] = useState<string>('inter_school_global');
   const [searchQuery, setSearchQuery] = useState('');
+  const [internalSendMode, setInternalSendMode] = useState<'channel' | 'individual'>('channel');
+  const [selectedDirectRecipientId, setSelectedDirectRecipientId] = useState<string>('');
+  const [isSendingInternal, setIsSendingInternal] = useState(false);
 
   // -------------------------------------------------------------
   // BULK MESSAGING / BROADCAST STATE
@@ -451,6 +454,22 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
   });
 
   const [inputMessage, setInputMessage] = useState('');
+  const sameSchoolUsers = useMemo(() => {
+    const currentSchoolId = (currentUser as any)?.schoolId ?? (schoolSettings as any)?.id;
+    const currentSchoolName = String((currentUser as any)?.schoolName || schoolSettings?.name || '').toLowerCase();
+    return (users || [])
+      .filter((user) => String(user.id) !== String(currentUser.id))
+      .filter((user) => {
+        const userSchoolId = (user as any)?.schoolId;
+        const userSchoolName = String((user as any)?.schoolName || '').toLowerCase();
+        if (currentSchoolId && userSchoolId) return String(userSchoolId) === String(currentSchoolId);
+        if (currentSchoolName && userSchoolName) return userSchoolName === currentSchoolName;
+        return currentUser.role !== 'Admin';
+      })
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  }, [users, currentUser, schoolSettings]);
+
+  const selectedDirectRecipient = sameSchoolUsers.find((user) => String(user.id) === selectedDirectRecipientId);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto scroll to bottom
@@ -478,24 +497,61 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
     setTimeout(() => setToastMessage(null), 4000);
   };
 
-  const handleSendMessage = () => {
-    if (!inputMessage.trim()) return;
+  const channelRoleMap: Record<string, string[]> = {
+    general: ['Promoteur', 'Directeur Général', 'Directeur des Etudes', 'Directeur du Primaire', 'Responsable des finances', 'Surveillant Général', 'Caissière', 'Enseignant'],
+    teachers: ['Directeur des Etudes', 'Directeur du Primaire', 'Enseignant'],
+    admin: ['Promoteur', 'Directeur Général', 'Directeur des Etudes', 'Directeur du Primaire', 'Responsable des finances', 'Caissière'],
+    parents: ['Parent', 'Parent d\'élève', 'Parent/Tuteur'],
+  };
 
+  const handleSendMessage = async () => {
+    const text = inputMessage.trim();
+    if (!text || isSendingInternal) return;
+    if (activeTab === 'internal' && internalSendMode === 'individual' && !selectedDirectRecipientId) {
+      showToast('Veuillez sélectionner un compte destinataire du même établissement.');
+      return;
+    }
+
+    const channelId = activeTab === 'internal'
+      ? (internalSendMode === 'individual' ? `direct_${selectedDirectRecipientId}` : selectedChannel)
+      : selectedInterSchoolId;
     const newMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       type: activeTab === 'internal' ? 'internal' : 'inter_school',
-      schoolName: schoolName,
-      channelId: activeTab === 'internal' ? selectedChannel : selectedInterSchoolId,
+      schoolName,
+      channelId,
       senderId: currentUser.id,
       senderName: currentUser.name,
       senderRole: currentUser.role,
       senderAvatar: currentUser.avatar,
-      text: inputMessage.trim(),
+      text,
       timestamp: 'À l\'instant'
     };
 
-    setMessages(prev => [...prev, newMsg]);
-    setInputMessage('');
+    setIsSendingInternal(true);
+    try {
+      const payload: any = {
+        text,
+        title: `Message de ${currentUser.name}`,
+        channelId,
+        targetSchoolId: (currentUser as any)?.schoolId || (schoolSettings as any)?.id,
+      };
+      if (activeTab === 'internal' && internalSendMode === 'individual') {
+        payload.recipientIds = [Number(selectedDirectRecipientId)];
+      } else if (activeTab === 'internal') {
+        payload.roles = channelRoleMap[selectedChannel] || undefined;
+      }
+      const res = await sendMessageToDb(payload);
+      if (res && res.success === false) throw new Error(res.error || 'Message non envoyé.');
+      setMessages(prev => [...prev, newMsg]);
+      setInputMessage('');
+      showToast(internalSendMode === 'individual' && selectedDirectRecipient ? `Message envoyé à ${selectedDirectRecipient.name}.` : 'Message envoyé aux destinataires du canal.');
+    } catch (err: any) {
+      console.error('Internal message send error:', err);
+      showToast(err?.message || 'Impossible d’envoyer le message.');
+    } finally {
+      setIsSendingInternal(false);
+    }
   };
 
   // Channels for internal chat
@@ -1197,7 +1253,7 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
 
             {/* Messages Flow */}
             <div className="p-6 overflow-y-auto space-y-4 flex-1 bg-slate-50/30 dark:bg-slate-900/20">
-              {messages.filter(m => m.type === 'internal' && m.channelId === selectedChannel).map(msg => {
+              {messages.filter(m => m.type === 'internal' && m.channelId === (internalSendMode === 'individual' && selectedDirectRecipientId ? `direct_${selectedDirectRecipientId}` : selectedChannel)).map(msg => {
                 const isMe = String(msg.senderId) === String(currentUser.id);
                 return (
                   <div key={msg.id} className={`flex gap-3 ${isMe ? 'justify-end' : 'justify-start'}`}>
@@ -1228,7 +1284,39 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
             </div>
 
             {/* Input Box */}
-            <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 space-y-3">
+              <div className="grid grid-cols-1 lg:grid-cols-[180px_1fr] gap-2">
+                <div className="flex rounded-2xl bg-slate-100 dark:bg-slate-700 p-1 text-[11px] font-black">
+                  <button
+                    type="button"
+                    onClick={() => setInternalSendMode('channel')}
+                    className={`flex-1 px-3 py-2 rounded-xl transition-all ${internalSendMode === 'channel' ? 'bg-white dark:bg-slate-900 text-[#1F4A59] shadow-xs' : 'text-slate-500'}`}
+                  >
+                    Canal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInternalSendMode('individual')}
+                    className={`flex-1 px-3 py-2 rounded-xl transition-all ${internalSendMode === 'individual' ? 'bg-white dark:bg-slate-900 text-[#1F4A59] shadow-xs' : 'text-slate-500'}`}
+                  >
+                    Individuel
+                  </button>
+                </div>
+                {internalSendMode === 'individual' && (
+                  <select
+                    value={selectedDirectRecipientId}
+                    onChange={(e) => setSelectedDirectRecipientId(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-2xl text-xs font-bold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    <option value="">Selectionner un compte du meme etablissement</option>
+                    {sameSchoolUsers.map((user) => (
+                      <option key={String(user.id)} value={String(user.id)}>
+                        {user.name} - {user.role}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
               <form 
                 onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }}
                 className="flex items-center gap-2"
@@ -1237,12 +1325,12 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
                   type="text"
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
-                  placeholder={`Écrire dans #${internalChannels.find(c => c.id === selectedChannel)?.name}...`}
+                  placeholder={internalSendMode === 'individual' && selectedDirectRecipient ? `Ecrire a ${selectedDirectRecipient.name}...` : `Ecrire dans #${internalChannels.find(c => c.id === selectedChannel)?.name}...`}
                   className="flex-1 px-4 py-3 bg-slate-100 dark:bg-slate-700 border-none rounded-2xl text-xs font-medium text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500"
                 />
                 <button
                   type="submit"
-                  disabled={!inputMessage.trim()}
+                  disabled={!inputMessage.trim() || isSendingInternal || (internalSendMode === 'individual' && !selectedDirectRecipientId)}
                   className="p-3 bg-[#1F4A59] hover:bg-emerald-700 text-white rounded-2xl shadow-md transition-all cursor-pointer disabled:opacity-40"
                 >
                   <Send className="w-4 h-4" />
@@ -1473,3 +1561,4 @@ export const MessagingCenter: React.FC<MessagingCenterProps> = ({
 };
 
 export default MessagingCenter;
+

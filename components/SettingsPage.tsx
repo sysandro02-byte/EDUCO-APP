@@ -1296,6 +1296,21 @@ const RafRenderContent: React.FC<{
                                 </div>
                                 <span className="text-[11px] text-gray-400">Montant maximal pour un seul décaissement direct. 0 pour désactiver.</span>
                             </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700">Réduction famille nombreuse (%)</label>
+                                <input
+                                    type="number"
+                                    name="limits.largeFamilyDiscountPercent"
+                                    value={cashierData?.limits?.largeFamilyDiscountPercent ?? 0}
+                                    onChange={handleCashierFormChange}
+                                    className="mt-1 w-full input-style font-semibold text-amber-700"
+                                    min="0"
+                                    max="100"
+                                    step="1"
+                                />
+                                <span className="text-[11px] text-gray-400">Ce taux est proposé automatiquement lors des inscriptions ou réinscriptions en famille nombreuse.</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1326,6 +1341,7 @@ const RafSettingsPanel: React.FC<{
         maxDailyActions: 50,
         maxUnitRevenue: 1000000,
         maxUnitExpense: 100000,
+        largeFamilyDiscountPercent: 0,
     };
 
     const [cashierData, setCashierData] = useState({
@@ -1418,6 +1434,7 @@ const RafSettingsPanel: React.FC<{
                 maxDailyActions: parseInt(String(cashierData.limits?.maxDailyActions)) || 0,
                 maxUnitRevenue: parseFloat(String(cashierData.limits?.maxUnitRevenue)) || 0,
                 maxUnitExpense: parseFloat(String(cashierData.limits?.maxUnitExpense)) || 0,
+                largeFamilyDiscountPercent: Math.max(0, Math.min(100, parseFloat(String(cashierData.limits?.largeFamilyDiscountPercent)) || 0)),
             }
         };
         onSaveCashierSettings(cashierToSave);
@@ -1846,6 +1863,10 @@ const MyProfileCard: React.FC<{
     const [phone, setPhone] = useState(currentUser?.phone || '');
     const [avatar, setAvatar] = useState(currentUser?.avatar || '');
     const [savedNotice, setSavedNotice] = useState(false);
+    const [profileOtpStep, setProfileOtpStep] = useState<'idle' | 'verify'>('idle');
+    const [profileOtpCode, setProfileOtpCode] = useState('');
+    const [profileOtpBusy, setProfileOtpBusy] = useState(false);
+    const [profileOtpFeedback, setProfileOtpFeedback] = useState<{ text: string; error: boolean } | null>(null);
 
     React.useEffect(() => {
         if (currentUser) {
@@ -1879,23 +1900,67 @@ const MyProfileCard: React.FC<{
         }
     };
 
-    const handleSave = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (currentUser && onSaveUser) {
-            const updated = {
-                ...currentUser,
-                name,
-                email,
-                phone,
-                avatar
-            };
-            onSaveUser(updated);
-        }
+    const applyProfileSave = () => {
+        if (!currentUser || !onSaveUser) return;
+        const updated = {
+            ...currentUser,
+            name,
+            email,
+            phone,
+            avatar
+        };
+        onSaveUser(updated);
         if (onUpdateAvatar && avatar) {
             onUpdateAvatar(avatar);
         }
         setSavedNotice(true);
+        setProfileOtpStep('idle');
+        setProfileOtpCode('');
+        setProfileOtpFeedback(null);
         setTimeout(() => setSavedNotice(false), 3000);
+    };
+
+    const handleSave = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!currentUser?.email) {
+            applyProfileSave();
+            return;
+        }
+
+        setProfileOtpFeedback(null);
+        setProfileOtpBusy(true);
+        try {
+            if (profileOtpStep === 'idle') {
+                const response = await fetch(getApiUrl('/api/email/send-otp'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: currentUser.email, purpose: 'profile_update' }),
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok || !data.success) throw new Error(data.error || "Impossible d'envoyer le code OTP.");
+                setProfileOtpStep('verify');
+                setProfileOtpFeedback({ text: `Code OTP envoyé à ${currentUser.email}. Saisissez-le pour confirmer les modifications.`, error: false });
+                return;
+            }
+
+            if (profileOtpCode.length !== 6) {
+                setProfileOtpFeedback({ text: 'Saisissez le code OTP à 6 chiffres.', error: true });
+                return;
+            }
+
+            const response = await fetch(getApiUrl('/api/email/verify-otp'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: currentUser.email, otpCode: profileOtpCode, purpose: 'profile_update' }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.success) throw new Error(data.error || 'Code OTP invalide ou expiré.');
+            applyProfileSave();
+        } catch (error: any) {
+            setProfileOtpFeedback({ text: error?.message || 'Validation OTP impossible.', error: true });
+        } finally {
+            setProfileOtpBusy(false);
+        }
     };
 
     return (
@@ -1914,6 +1979,12 @@ const MyProfileCard: React.FC<{
                 <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     <span>Profil et photo de profil mis à jour avec succès !</span>
+                </div>
+            )}
+
+            {profileOtpFeedback && (
+                <div className={`p-3 rounded-xl text-xs font-bold border ${profileOtpFeedback.error ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+                    {profileOtpFeedback.text}
                 </div>
             )}
 
@@ -2003,9 +2074,19 @@ const MyProfileCard: React.FC<{
                 </div>
 
                 <div className="flex justify-end pt-1">
-                    <button type="submit" className="px-5 py-2.5 bg-[#1F4A59] hover:bg-[#183944] text-white font-black text-xs rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer">
+                    {profileOtpStep === 'verify' && (
+                        <input
+                            value={profileOtpCode}
+                            onChange={(e) => setProfileOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            placeholder="Code OTP"
+                            className="mr-3 w-32 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono tracking-widest text-slate-800 dark:text-slate-100 outline-none focus:border-[#1F4A59]"
+                        />
+                    )}
+                    <button type="submit" disabled={profileOtpBusy} className="px-5 py-2.5 bg-[#1F4A59] hover:bg-[#183944] disabled:opacity-60 text-white font-black text-xs rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer">
                         <CheckCircle2 className="w-4 h-4" />
-                        <span>Enregistrer les modifications</span>
+                        <span>{profileOtpBusy ? 'Validation...' : profileOtpStep === 'verify' ? 'Valider OTP & enregistrer' : 'Recevoir OTP & confirmer'}</span>
                     </button>
                 </div>
             </form>

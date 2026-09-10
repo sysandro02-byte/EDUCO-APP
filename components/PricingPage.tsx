@@ -23,8 +23,8 @@ const PricingPage: React.FC<PricingPageProps> = ({
   const [feeToDelete, setFeeToDelete] = useState<Fee | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
-  // Requirement 4: Seul le RAF et le DG (Promoteur) / Admin peuvent configurer les classes d'examen & leurs montants
-  const isRAFOrDG = currentUserRole === 'Responsable des finances' || currentUserRole === 'Promoteur' || currentUserRole === 'Admin';
+  const canConfigurePricing = ['Promoteur', 'Directeur Général', 'Responsable des finances', 'Caissière', 'Admin'].includes(currentUserRole || '');
+  const classesWithoutTuition = classes.filter(cls => !fees.some(f => f.class === cls.name && (f.type === 'Scolarité' || String(f.type || '').toLowerCase().includes('tuition'))));
 
   // Temporary local state for editing exam fees grid
   const [examFeesState, setExamFeesState] = useState<Record<string, { enabled: boolean; amount: number }>>(() => {
@@ -48,7 +48,7 @@ const PricingPage: React.FC<PricingPageProps> = ({
   const [examSaveSuccessMsg, setExamSaveSuccessMsg] = useState<string | null>(null);
 
   const handleToggleExamClass = (className: string) => {
-    if (!isRAFOrDG) return;
+    if (!canConfigurePricing) return;
     setExamFeesState(prev => ({
       ...prev,
       [className]: {
@@ -59,7 +59,7 @@ const PricingPage: React.FC<PricingPageProps> = ({
   };
 
   const handleExamAmountChange = (className: string, amount: number) => {
-    if (!isRAFOrDG) return;
+    if (!canConfigurePricing) return;
     setExamFeesState(prev => ({
       ...prev,
       [className]: {
@@ -70,8 +70,8 @@ const PricingPage: React.FC<PricingPageProps> = ({
   };
 
   const handleSaveExamFeesConfig = () => {
-    if (!isRAFOrDG) {
-      alert("Seul le RAF et le DG ont l'autorisation de modifier les montants des classes d'examen.");
+    if (!canConfigurePricing) {
+      alert("Seuls le Promoteur, le Directeur Général, le RAF, le Caissier ou l'Admin peuvent modifier la tarification.");
       return;
     }
 
@@ -199,7 +199,7 @@ const PricingPage: React.FC<PricingPageProps> = ({
             </div>
           </div>
 
-          {isRAFOrDG ? (
+          {canConfigurePricing ? (
             <button
               onClick={handleSaveExamFeesConfig}
               className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all shadow-md hover:shadow-lg"
@@ -210,17 +210,26 @@ const PricingPage: React.FC<PricingPageProps> = ({
           ) : (
             <div className="flex items-center gap-2 text-amber-700 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200 text-xs font-medium">
               <Lock className="w-4 h-4" />
-              <span>Lecture seule (Caissière)</span>
+              <span>Lecture seule</span>
             </div>
           )}
         </div>
 
         {/* Warning Badge if not RAF or DG */}
-        {!isRAFOrDG && (
+        {!canConfigurePricing && (
           <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3 text-xs text-amber-800">
             <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0" />
             <p>
-              <strong>Accès Restreint :</strong> Seuls le <strong>Responsable des Affaires Financières (RAF)</strong> et le <strong>Directeur Général (DG)</strong> ont la possibilité de sélectionner les classes d'examen et de définir leurs montants.
+              <strong>Accès Restreint :</strong> seuls les comptes autorisés peuvent sélectionner les classes d'examen et définir les montants.
+            </p>
+          </div>
+        )}
+
+        {classesWithoutTuition.length > 0 && (
+          <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-3 text-xs text-rose-800">
+            <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+            <p>
+              <strong>Tarification incomplète :</strong> {classesWithoutTuition.map(c => c.name).join(', ')} n'ont pas encore de frais d'écolage définis.
             </p>
           </div>
         )}
@@ -251,7 +260,7 @@ const PricingPage: React.FC<PricingPageProps> = ({
                       type="checkbox" 
                       checked={config.enabled} 
                       onChange={() => handleToggleExamClass(c.name)}
-                      disabled={!isRAFOrDG}
+                      disabled={!canConfigurePricing}
                       className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
                     />
                     <span className="font-bold text-sm text-gray-900">{c.name}</span>
@@ -270,7 +279,7 @@ const PricingPage: React.FC<PricingPageProps> = ({
                       type="number" 
                       value={config.amount} 
                       onChange={(e) => handleExamAmountChange(c.name, parseFloat(e.target.value) || 0)} 
-                      disabled={!isRAFOrDG}
+                      disabled={!canConfigurePricing}
                       min="0"
                       className="block w-full rounded-lg border-indigo-300 bg-white text-sm font-bold text-indigo-900 focus:ring-indigo-500 py-1.5 px-3 disabled:bg-gray-100 disabled:text-gray-500"
                     />

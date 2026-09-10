@@ -103,7 +103,13 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
   const userNotifications = useMemo(() => {
     return (notifications || [])
       .filter(n => !n.roles || n.roles.length === 0 || n.roles.includes(currentUserRole))
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      .sort((a, b) => {
+        const urgentA = isUrgent(a) ? 1 : 0;
+        const urgentB = isUrgent(b) ? 1 : 0;
+        if (urgentA !== urgentB) return urgentB - urgentA;
+        if (Number(!a.read) !== Number(!b.read)) return Number(!b.read) - Number(!a.read);
+        return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+      });
   }, [notifications, currentUserRole]);
 
   // Filtered by type
@@ -117,6 +123,10 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
 
   const unreadCount = useMemo(() => {
     return userNotifications.filter(n => !n.read).length;
+  }, [userNotifications]);
+
+  const urgentUnreadCount = useMemo(() => {
+    return userNotifications.filter(n => !n.read && isUrgent(n)).length;
   }, [userNotifications]);
 
   const getFilterCount = (filterName: string) => {
@@ -211,14 +221,21 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
     };
   };
 
+  function isUrgent(notification: NotificationItem) {
+    const content = `${notification.type || ''} ${notification.title || ''} ${notification.message || ''}`.toLowerCase();
+    return /urgent|urgence|alerte|danger|rejet|dette|dépassement|depassement|anomalie|erreur|souci|probl[eè]me/.test(content);
+  }
+
   return (
     <>
       {/* Bell Button */}
       <div className="relative" ref={dropdownRef}>
         <button
           onClick={handleToggle}
-          className={`relative p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer ${
-            unreadCount > 0 ? "animate-pulse" : ""
+          className={`relative p-2 rounded-xl transition-all cursor-pointer ${
+            urgentUnreadCount > 0
+              ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 animate-pulse ring-2 ring-rose-300'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
           aria-label="Notifications"
           title="Notifications & Alertes"
@@ -226,8 +243,8 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
           <Bell className="w-5 h-5" />
           {unreadCount > 0 && (
             <span className="absolute top-1 right-1 flex h-4 w-4">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-4 w-4 bg-rose-600 justify-center items-center text-white text-[9px] font-black">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${urgentUnreadCount > 0 ? 'bg-rose-500' : 'bg-amber-400'} opacity-75`}></span>
+              <span className={`relative inline-flex rounded-full h-4 w-4 ${urgentUnreadCount > 0 ? 'bg-rose-600' : 'bg-amber-500'} justify-center items-center text-white text-[9px] font-black`}>
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             </span>
@@ -300,13 +317,14 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
                 filteredNotifications.map((notification) => {
                   const meta = getTypeMeta(notification.type);
                   const IconComp = meta.icon;
+                  const urgent = isUrgent(notification);
 
                   return (
                     <div 
                       key={notification.id}
                       onClick={() => handleCardClick(notification)}
                       className={`group p-3.5 hover:bg-slate-100/80 dark:hover:bg-slate-700/50 cursor-pointer transition-colors flex items-start justify-between gap-3 ${
-                        !notification.read ? 'bg-sky-50/60 dark:bg-sky-950/20 font-medium' : ''
+                        urgent ? 'bg-rose-50/80 dark:bg-rose-950/25 border-l-4 border-rose-500' : (!notification.read ? 'bg-sky-50/60 dark:bg-sky-950/20 font-medium' : '')
                       }`}
                     >
                       <div className="flex items-start gap-2.5 flex-1 min-w-0">
@@ -319,6 +337,11 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
                             <span className={`text-[9px] font-black px-1.5 py-0.5 rounded border ${meta.bg}`}>
                               {meta.label}
                             </span>
+                            {urgent && (
+                              <span className="text-[9px] font-black px-1.5 py-0.5 rounded border bg-rose-100 text-rose-700 border-rose-300">
+                                Urgent
+                              </span>
+                            )}
                             {!notification.read && (
                               <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse" />
                             )}

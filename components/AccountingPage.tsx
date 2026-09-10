@@ -473,7 +473,7 @@ const AccountingPage: React.FC<AccountingPageProps> = ({
   const [importNotification, setImportNotification] = useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const isRAFOrDG = currentUserRole === 'Responsable des finances' || currentUserRole === 'Promoteur' || currentUserRole === 'Admin';
+  const isRAFOrDG = currentUserRole === 'Responsable des finances' || currentUserRole === 'Directeur Général' || currentUserRole === 'Admin';
   const currency = schoolSettings.currency;
 
   const handleSaveExpense = (description: string, amount: number, category: string, justification?: File, extra?: any) => {
@@ -785,6 +785,7 @@ const AccountingPage: React.FC<AccountingPageProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap w-full xl:w-auto">
+            {['Responsable des finances', 'Caissière', 'Directeur Général', 'Admin'].includes(currentUserRole || '') && (
             <button 
               onClick={() => {
                 if (currentUserRole === 'Caissière' && cashierSettings?.permissions?.allowStudentPayment === false) {
@@ -798,6 +799,8 @@ const AccountingPage: React.FC<AccountingPageProps> = ({
               <PlusCircleIcon className="w-4 h-4" /> 
               <span>Encaisser Recette</span>
             </button>
+            )}
+            {['Responsable des finances', 'Caissière', 'Directeur Général', 'Admin'].includes(currentUserRole || '') && (
             <button 
               onClick={() => {
                 if (currentUserRole === 'Caissière' && cashierSettings?.permissions?.allowGeneralExpense === false) {
@@ -811,6 +814,7 @@ const AccountingPage: React.FC<AccountingPageProps> = ({
               <PlusCircleIcon className="w-4 h-4" /> 
               <span>Décaisser Dépense</span>
             </button>
+            )}
             <button 
               onClick={handleExportCSV} 
               className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg transition-all shadow-xs cursor-pointer whitespace-nowrap" 

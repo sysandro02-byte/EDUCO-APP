@@ -90,7 +90,7 @@ const PersonnelPage: React.FC<PersonnelPageProps> = ({ personnel, transactions, 
     setIsAddOrEditModalOpen(false);
   };
   
-  const canManagePersonnel = currentUserRole === 'Admin' || currentUserRole === 'Responsable des finances';
+  const canManagePersonnel = currentUserRole === 'Admin' || currentUserRole === 'Responsable des finances' || currentUserRole === 'Directeur Général';
   const canPaySalary = currentUserRole === 'Admin' || currentUserRole === 'Caissière' || currentUserRole === 'Responsable des finances';
   const canGenerateBadges = ['Admin', 'Caissière', 'Responsable des finances', 'Directeur des Etudes'].includes(currentUserRole);
   const isCaisseClosedForCashier = currentUserRole === 'Caissière' && !isCaisseOpen;
