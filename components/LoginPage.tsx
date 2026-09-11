@@ -805,6 +805,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
             }
           </p>
           <div className="mt-6 flex justify-end gap-3">
+            {modalType === 'biometricError' && (
+              <button onClick={() => setModalType('none')} className="btn-primary">Utiliser le mot de passe</button>
+            )}
             <button onClick={() => setModalType('none')} className="btn-secondary">Fermer</button>
             {modalType === 'accountNotFound' && (
               <button onClick={() => { setModalType('none'); setIsRegistering(true); }} className="btn-primary">Créer un compte</button>

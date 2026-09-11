@@ -5,6 +5,7 @@ import './src/index.css';
 import './index.css';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { Analytics } from '@vercel/analytics/react';
+import PwaInstallPrompt from './components/PwaInstallPrompt';
 
 // Service Worker auto-update and cache buster strategy
 if ('serviceWorker' in navigator) {
@@ -39,7 +40,7 @@ const root = ReactDOM.createRoot(rootElement);
 root.render(
   <GoogleOAuthProvider clientId={(import.meta as any).env.VITE_GOOGLE_CLIENT_ID || 'dummy-client-id'}>
     <App />
+    <PwaInstallPrompt />
     <Analytics />
   </GoogleOAuthProvider>
 );
-

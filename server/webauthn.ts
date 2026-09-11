@@ -206,10 +206,10 @@ export function createWebAuthnRouter(getSupabaseAdmin?: (req?: any) => any, db?:
   // Helper to save credential to DB / Supabase / Local File
   async function saveCredential(cred: StoredCredential, supabaseAdmin?: any) {
     saveLocalCredential(cred); // Always save locally as fallback
+    let durableSaveSucceeded = false;
 
     if (supabaseAdmin) {
-      try {
-        await supabaseAdmin.from('webauthn_credentials').insert([{
+      const { error } = await supabaseAdmin.from('webauthn_credentials').upsert([{
           user_id: cred.userId,
           user_email: cred.userEmail,
           credential_id: cred.credentialId,
@@ -218,10 +218,9 @@ export function createWebAuthnRouter(getSupabaseAdmin?: (req?: any) => any, db?:
           device_name: cred.deviceName,
           device_type: cred.deviceType,
           transports: cred.transports || []
-        }]);
-      } catch (err) {
-        console.warn('Supabase insert webauthn credential notice:', err);
-      }
+        }], { onConflict: 'credential_id' });
+      if (error) throw new Error(`La clé biométrique n’a pas pu être sauvegardée durablement : ${error.message}`);
+      durableSaveSucceeded = true;
     }
 
     if (db && webauthnCredentialsTable) {
@@ -236,9 +235,16 @@ export function createWebAuthnRouter(getSupabaseAdmin?: (req?: any) => any, db?:
           deviceType: cred.deviceType,
           transports: cred.transports || []
         }).onConflictDoNothing();
+        durableSaveSucceeded = true;
       } catch (err) {
-        console.warn('Drizzle insert webauthn credential notice:', err);
+        if (!durableSaveSucceeded) throw err;
       }
+    }
+
+    // Local storage is only an acceptable fallback for a local development
+    // server. Production passkeys must survive a Render instance restart.
+    if (!durableSaveSucceeded && process.env.NODE_ENV === 'production') {
+      throw new Error('Aucun stockage persistant n’est configuré pour la clé biométrique.');
     }
   }
 
@@ -299,7 +305,9 @@ export function createWebAuthnRouter(getSupabaseAdmin?: (req?: any) => any, db?:
           transports: c.transports as any
         })),
         authenticatorSelection: {
-          residentKey: 'preferred',
+          // A discoverable credential lets the same-device login work even
+          // before an e-mail is entered in the form.
+          residentKey: 'required',
           userVerification: 'preferred',
           authenticatorAttachment: 'platform' // Empreinte, Face ID, Windows Hello
         }
@@ -401,17 +409,20 @@ export function createWebAuthnRouter(getSupabaseAdmin?: (req?: any) => any, db?:
 
       if (targetEmail) {
         const userCreds = await findUserCredentials(targetEmail, supabaseAdmin);
+        if (userCreds.length === 0) {
+          return res.status(404).json({
+            code: 'PASSKEY_NOT_REGISTERED',
+            error: 'Aucune clé biométrique active n’est enregistrée pour ce compte. Connectez-vous avec votre mot de passe puis activez la biométrie sur cet appareil.'
+          });
+        }
         allowCredentials = userCreds.map(c => ({
           id: c.credentialId,
           transports: c.transports as any
         }));
       } else {
-        // Global passkey search fallback
-        const local = getLocalCredentials().filter(c => !c.revokedAt);
-        allowCredentials = local.map(c => ({
-          id: c.credentialId,
-          transports: c.transports as any
-        }));
+        // Empty allowCredentials intentionally invokes discoverable passkeys.
+        // The credential is then resolved from durable storage at verification.
+        allowCredentials = [];
       }
 
       const options = await generateAuthenticationOptions({
@@ -478,7 +489,10 @@ export function createWebAuthnRouter(getSupabaseAdmin?: (req?: any) => any, db?:
       }
 
       if (!credential) {
-        return res.status(400).json({ error: 'Aucune clé biométrique enregistrée ne correspond à cet appareil.' });
+        return res.status(400).json({
+          code: 'PASSKEY_NOT_FOUND',
+          error: 'Cette clé biométrique n’est plus reconnue par le serveur. Connectez-vous avec votre mot de passe, puis enregistrez à nouveau cet appareil.'
+        });
       }
 
       // Correlate the assertion with the exact options request. Picking the

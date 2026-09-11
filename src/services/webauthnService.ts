@@ -164,8 +164,8 @@ export function mapWebAuthnError(err: any): string {
   if (name === 'SecurityError' || message.includes('SecurityError')) {
     return 'La biométrie doit être ouverte depuis une adresse HTTPS. En développement, utilisez http://localhost plutôt qu’une adresse IP locale.';
   }
-  if (message.includes('No biometric credential') || message.includes('Aucune clé')) {
-    return 'Aucune clé biométrique enregistrée ne correspond à cet appareil pour ce compte.';
+  if (/PASSKEY_NOT_REGISTERED|PASSKEY_NOT_FOUND|No biometric credential|Aucune clé/i.test(message)) {
+    return 'Aucune clé biométrique active n’est disponible pour ce compte sur cet appareil. Connectez-vous avec votre mot de passe, puis activez la biométrie dans votre profil.';
   }
 
   return message || 'L\'authentification biométrique n\'a pas pu être vérifiée. Veuillez réessayer ou utiliser votre mot de passe.';
@@ -255,7 +255,7 @@ export async function loginWithWebAuthn(
 
     const optionsData = await readApiJson(optionsRes);
     if (!optionsRes.ok || !optionsData.options) {
-      throw new Error(optionsData.error || 'Impossible d\'initialiser la biométrie.');
+      throw new Error(`${optionsData.code ? `${optionsData.code}: ` : ''}${optionsData.error || 'Impossible d\'initialiser la biométrie.'}`);
     }
 
     // 2. Trigger browser WebAuthn prompt (Touch ID / Face ID / Windows Hello)
@@ -270,7 +270,7 @@ export async function loginWithWebAuthn(
 
     const verifyData = await readApiJson(verifyRes);
     if (!verifyRes.ok || !verifyData.verified) {
-      throw new Error(verifyData.error || 'Authentification biométrique non reconnue.');
+      throw new Error(`${verifyData.code ? `${verifyData.code}: ` : ''}${verifyData.error || 'Authentification biométrique non reconnue.'}`);
     }
 
     return {

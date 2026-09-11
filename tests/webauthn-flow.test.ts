@@ -29,7 +29,7 @@ test('login options are JSON and each attempt gets its own challenge id', async 
         'x-forwarded-host': 'educo-test.vercel.app',
         'x-forwarded-proto': 'https',
       },
-      body: JSON.stringify({ email: 'test@example.com' }),
+      body: JSON.stringify({}),
     });
 
     const [firstResponse, secondResponse] = await Promise.all([requestOptions(), requestOptions()]);
@@ -40,6 +40,20 @@ test('login options are JSON and each attempt gets its own challenge id', async 
     assert.ok(first.challengeId);
     assert.ok(second.challengeId);
     assert.notEqual(first.challengeId, second.challengeId);
+  });
+});
+
+test('an account without a registered passkey gets a recoverable response', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/auth/webauthn/login/options`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'no-passkey@example.com' }),
+    });
+    const body = await response.json() as any;
+    assert.equal(response.status, 404);
+    assert.equal(body.code, 'PASSKEY_NOT_REGISTERED');
+    assert.match(body.error, /mot de passe/i);
   });
 });
 
