@@ -103,18 +103,34 @@ function updateLocalDeviceName(id: string, newName: string): boolean {
 export function createWebAuthnRouter(getSupabaseAdmin?: (req?: any) => any, db?: any, webauthnCredentialsTable?: any) {
   const router = Router();
 
+  // A passkey is bound to the public browser domain (the WebAuthn RP ID), not
+  // to the Render host that processes the API request. Only accept a browser
+  // Origin when it is one of EDUCO's configured first-party origins; otherwise
+  // retain the request host as the safe fallback.
+  const trustedOrigins = new Set([
+    ...(process.env.CORS_ALLOWED_ORIGINS || process.env.PUBLIC_APP_URL || 'https://educo-app.vercel.app,https://educo.loukatech.com')
+      .split(',')
+      .map(origin => origin.trim().replace(/\/$/, ''))
+      .filter(Boolean),
+    (process.env.RENDER_EXTERNAL_URL || 'https://educo-app.onrender.com').replace(/\/$/, ''),
+  ]);
+
   // Utility to determine RP ID & Origin dynamically from request
   const getRpConfig = (req: Request) => {
     const forwardedHost = req.get('x-forwarded-host')?.split(',')[0]?.trim();
     const hostHeader = forwardedHost || req.get('host') || 'localhost:3000';
-    const hostname = hostHeader.split(':')[0]; // Strips port
     
     // Protocol detection
     const proto = req.get('x-forwarded-proto')?.split(',')[0]?.trim() || (req.secure ? 'https' : 'http');
-    const origin = `${proto}://${hostHeader}`;
+    const requestOrigin = req.get('origin')?.replace(/\/$/, '');
+    const origin = requestOrigin && trustedOrigins.has(requestOrigin)
+      ? requestOrigin
+      : `${proto}://${hostHeader}`;
+    const originUrl = new URL(origin);
     
     // RP ID must be domain without protocol/port
-    const rpID = hostname === 'localhost' || hostname === '127.0.0.1' ? 'localhost' : hostname;
+    const rpHostname = originUrl.hostname;
+    const rpID = rpHostname === 'localhost' || rpHostname === '127.0.0.1' ? 'localhost' : rpHostname;
     const rpName = 'EDUCO APP';
 
     return { rpID, origin, rpName };

@@ -549,7 +549,7 @@ async function startServer() {
   // explicit browser origins rather than falling back to a permissive CORS
   // policy.
   const configuredOrigins = [
-    process.env.CORS_ALLOWED_ORIGINS || process.env.PUBLIC_APP_URL || 'https://educo-app.vercel.app',
+    process.env.CORS_ALLOWED_ORIGINS || process.env.PUBLIC_APP_URL || 'https://educo-app.vercel.app,https://educo.loukatech.com',
     process.env.RENDER_EXTERNAL_URL || 'https://educo-app.onrender.com',
   ]
     .filter(Boolean)
