@@ -159,6 +159,21 @@ const mapSupabaseSchool = (school: any) => school ? ({
   createdAt: school.created_at || school.createdAt,
 }) : null;
 
+// Legacy establishments can predate the identifier column. Keep one stable
+// identifier everywhere (licensing, parent onboarding and school settings).
+const buildFallbackSchoolIdentifier = (schoolId: string | number) =>
+  `EDUCO-SCH-${String(schoolId).replace(/\D/g, '').padStart(4, '0')}`;
+
+const ensureSchoolIdentifier = async (school: any, supabaseAdmin?: any) => {
+  if (!school?.id) return school;
+  const identifier = String(school.identifier || '').trim() || buildFallbackSchoolIdentifier(school.id);
+  if (!school.identifier && supabaseAdmin) {
+    const { error } = await supabaseAdmin.from('schools').update({ identifier }).eq('id', school.id);
+    if (error) throw error;
+  }
+  return { ...school, identifier };
+};
+
 const mapSupabaseUser = (user: any) => user ? ({
   id: user.id,
   uid: user.uid,
@@ -1627,6 +1642,18 @@ async function startServer() {
               .limit(1)
               .maybeSingle();
             schoolObj = mapSupabaseSchool(sbSchool);
+            // A few historical schools have no stored identifier. Their
+            // deterministic fallback remains valid and is persisted on first use.
+            if (!schoolObj) {
+              const { data: allSupabaseSchools, error: allSchoolsError } = await supabaseAdmin
+                .from('schools')
+                .select('*');
+              if (allSchoolsError) throw allSchoolsError;
+              const matchedSchool = (allSupabaseSchools || []).find((candidate: any) =>
+                String(candidate.identifier || buildFallbackSchoolIdentifier(candidate.id)).toUpperCase() === formattedMatricule
+              );
+              schoolObj = await ensureSchoolIdentifier(mapSupabaseSchool(matchedSchool), supabaseAdmin);
+            }
           } else {
             console.warn('Postgres all schools lookup failed and Supabase fallback is unavailable:', dbAllSchoolsErr);
           }
@@ -1779,6 +1806,16 @@ async function startServer() {
               .limit(1)
               .maybeSingle();
             schoolObj = mapSupabaseSchool(sbSchool);
+            if (!schoolObj) {
+              const { data: allSupabaseSchools, error: allSchoolsError } = await supabaseAdmin
+                .from('schools')
+                .select('*');
+              if (allSchoolsError) throw allSchoolsError;
+              const matchedSchool = (allSupabaseSchools || []).find((candidate: any) =>
+                String(candidate.identifier || buildFallbackSchoolIdentifier(candidate.id)).toUpperCase() === matricule
+              );
+              schoolObj = await ensureSchoolIdentifier(mapSupabaseSchool(matchedSchool), supabaseAdmin);
+            }
           } else {
             console.warn('Postgres all schools lookup failed and Supabase fallback is unavailable:', dbAllSchoolsErr);
           }
@@ -2977,7 +3014,7 @@ async function startServer() {
       if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
       const { data, error } = await supabaseAdmin.from('schools').select('*').eq('id', dbUser.schoolId).limit(1).maybeSingle();
       if (error) throw error;
-      res.json(mapSupabaseSchool(data));
+      res.json(await ensureSchoolIdentifier(mapSupabaseSchool(data), supabaseAdmin));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -3000,7 +3037,7 @@ async function startServer() {
       };
       const { data, error } = await supabaseAdmin.from('schools').update(payload).eq('id', dbUser.schoolId).select('*').single();
       if (error) throw error;
-      res.json(mapSupabaseSchool(data));
+      res.json(await ensureSchoolIdentifier(mapSupabaseSchool(data), supabaseAdmin));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -3778,22 +3815,37 @@ async function startServer() {
           .select('*')
           .eq('id', dbUser.schoolId)
           .maybeSingle();
-        school = mapSupabaseSchool(sbSchool);
+        school = await ensureSchoolIdentifier(mapSupabaseSchool(sbSchool), supabaseAdmin);
       } else {
         const schoolResult = await db.select().from(schools).where(eq(schools.id, dbUser.schoolId)).limit(1);
         school = schoolResult[0];
       }
-      const schoolIdentifier = school?.identifier || `EDUCO-SCH-${dbUser.schoolId.toString().padStart(4, '0')}`;
+      const schoolIdentifier = school?.identifier || buildFallbackSchoolIdentifier(dbUser.schoolId);
 
       // Query active subscription for this school
       let subList: any[] = [];
       if (supabaseAdmin) {
-        const { data: sbSubs, error } = await supabaseAdmin
+        const { data: subscriptionsBySchoolId, error } = await supabaseAdmin
           .from('subscriptions')
           .select('*')
           .eq('school_id', dbUser.schoolId);
         if (error) throw error;
-        subList = (sbSubs || []).map(mapSupabaseSubscription).filter(Boolean)
+        // Older issued licences may have been saved before school_id was
+        // populated. Their scoped school identifier remains a safe fallback.
+        const identifierAliases = Array.from(new Set([
+          schoolIdentifier,
+          `EDUCO-SCH-${dbUser.schoolId}`,
+          buildFallbackSchoolIdentifier(dbUser.schoolId),
+        ]));
+        const { data: subscriptionsByIdentifier, error: identifierError } = await supabaseAdmin
+          .from('subscriptions')
+          .select('*')
+          .in('school_identifier', identifierAliases);
+        if (identifierError) throw identifierError;
+        const uniqueSubscriptions = new Map<string, any>();
+        [...(subscriptionsBySchoolId || []), ...(subscriptionsByIdentifier || [])]
+          .forEach((subscription: any) => uniqueSubscriptions.set(String(subscription.id), subscription));
+        subList = [...uniqueSubscriptions.values()].map(mapSupabaseSubscription).filter(Boolean)
           .sort((a: any, b: any) => new Date(b.endDate || 0).getTime() - new Date(a.endDate || 0).getTime());
       } else {
         subList = await db.select().from(subscriptions)
