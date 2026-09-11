@@ -68,6 +68,7 @@ interface PromoterDashboardProps {
   grades?: any[];
   schoolSettings?: any;
   financialEvents?: any[];
+  currentUser?: any;
   setActivePage?: (page: string) => void;
   onUpdateTransactionStatus?: (id: string, status: 'Approuvé' | 'Rejeté') => void;
   subscriptionInfo?: any;
@@ -90,6 +91,7 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
   grades = [],
   schoolSettings,
   financialEvents = [],
+  currentUser,
   setActivePage,
   onUpdateTransactionStatus,
   subscriptionInfo,
@@ -97,6 +99,11 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
   onOpenSubscriptionModal
 }) => {
   const currency = schoolSettings?.currency || 'FCFA';
+  const promoterName = String(currentUser?.name || 'Promoteur').trim();
+  const schoolName = String(schoolSettings?.name || 'votre établissement').trim();
+  const todayLabel = new Intl.DateTimeFormat('fr-FR', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+  }).format(new Date());
   const paymentAmount = (payment: any) => Number(payment.amountPaid ?? payment.amount_paid ?? payment.amount ?? 0) || 0;
   const paymentExpected = (payment: any) => Number(payment.totalFees ?? payment.total_fees ?? payment.expectedAmount ?? payment.expected_amount ?? 0) || 0;
   const isIncome = (transaction: any) => /revenu|income|recette/i.test(String(transaction.type || ''));
@@ -319,10 +326,13 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-              Tableau de Bord Stratégique & Trésorerie
+              Bonjour, {promoterName}
             </h1>
             <p className="text-xs sm:text-sm text-slate-200/90 leading-relaxed">
-              Console décisionnelle en temps réel : contrôle des flux d'encaissement, validation des charges de caisse, maîtrise du recouvrement et projection budgétaire.
+              Bienvenue dans l’accueil de <strong className="text-white">{schoolName}</strong>. Pilotez les encaissements, les priorités de caisse et la progression académique depuis une seule vue.
+            </p>
+            <p className="text-[11px] font-semibold text-slate-300 capitalize flex items-center gap-1.5">
+              <CalendarIcon className="w-3.5 h-3.5" /> {todayLabel}
             </p>
           </div>
 
@@ -387,6 +397,32 @@ export const PromoterDashboard: React.FC<PromoterDashboardProps> = ({
             </p>
           </div>
         </div>
+
+        {setActivePage && (
+          <div className="relative z-10 mt-5 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <button
+              onClick={() => setActivePage('Inscriptions & Élèves')}
+              className="text-left rounded-2xl border border-white/15 bg-white/8 hover:bg-white/15 px-4 py-3 transition-colors cursor-pointer"
+            >
+              <span className="flex items-center gap-2 text-xs font-extrabold text-white"><UserPlus className="w-4 h-4 text-emerald-300" /> Inscriptions</span>
+              <span className="mt-1 block text-[11px] text-slate-300">Gérer les élèves et nouvelles admissions</span>
+            </button>
+            <button
+              onClick={() => setActivePage('Opérations à valider')}
+              className="text-left rounded-2xl border border-white/15 bg-white/8 hover:bg-white/15 px-4 py-3 transition-colors cursor-pointer"
+            >
+              <span className="flex items-center gap-2 text-xs font-extrabold text-white"><CheckCircle2 className="w-4 h-4 text-amber-300" /> Décisions en attente</span>
+              <span className="mt-1 block text-[11px] text-slate-300">{pendingTxns.length} opération(s) à contrôler</span>
+            </button>
+            <button
+              onClick={() => setActivePage('Rapports Financiers')}
+              className="text-left rounded-2xl border border-white/15 bg-white/8 hover:bg-white/15 px-4 py-3 transition-colors cursor-pointer"
+            >
+              <span className="flex items-center gap-2 text-xs font-extrabold text-white"><FileText className="w-4 h-4 text-sky-300" /> Rapports</span>
+              <span className="mt-1 block text-[11px] text-slate-300">Consulter le bilan et la trésorerie</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Mode Licence Non Activée Announcement Card */}

@@ -845,19 +845,15 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Dark / Light Theme State with LocalStorage Persistence (Strict Light Mode Default)
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
-
-  useEffect(() => {
-    // Clear any residual dark mode class or setting
-    document.documentElement.classList.remove('dark');
-    document.documentElement.setAttribute('data-theme', 'light');
+  // Respect the saved preference first, then the operating-system preference.
+  // The former implementation always reset this value to light on every reload.
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     try {
-      localStorage.setItem('educo_theme', 'light');
-    } catch (e) {
-      console.warn('LocalStorage not available:', e);
-    }
-  }, []);
+      const saved = localStorage.getItem('educo_theme');
+      if (saved === 'light' || saved === 'dark') return saved;
+    } catch { /* localStorage can be unavailable in private contexts */ }
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
 
   useEffect(() => {
     if (theme === 'dark') {
@@ -2626,7 +2622,7 @@ const App: React.FC = () => {
     );
   };
   
-  const handleSendMessage = (text: string) => {
+  const handleSendMessage = (text: string, recipient?: User | null) => {
     const currentUser = users.find(u => u.id === currentUserId);
     if (!loggedInRole || !currentUser) return;
     
@@ -2636,14 +2632,19 @@ const App: React.FC = () => {
         senderRole: loggedInRole,
         avatar: currentUser?.avatar || '',
         text,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        recipientId: recipient?.id,
+        recipientName: recipient?.name,
+        channelId: recipient ? `direct_${recipient.id}` : 'general',
     };
     setMessages(prev => [...prev, newMessage]);
     sendMessageToDb({
       text,
       title: `Message de ${currentUser.name}`,
       targetSchoolId: (currentUser as any).schoolId || (schoolSettings as any)?.id,
-      roles: undefined
+      roles: undefined,
+      recipientIds: recipient?.id ? [Number(recipient.id)] : undefined,
+      channelId: recipient ? `direct_${recipient.id}` : 'general',
     }).catch((err) => console.warn('Message gardé localement, synchronisation Supabase échouée:', err));
   };
 
@@ -3484,6 +3485,7 @@ const App: React.FC = () => {
                   grades={grades}
                   financialEvents={financialEvents}
                   schoolSettings={schoolSettings}
+                  currentUser={currentUser}
                   setActivePage={setActivePage}
                   onUpdateTransactionStatus={handleUpdateTransactionStatus}
                   subscriptionInfo={subscriptionInfo}
@@ -4118,6 +4120,14 @@ const App: React.FC = () => {
                     avatar: currentUser?.avatar || '',
                     role: currentUser.role
                 }}
+                currentUserId={currentUser.id}
+                recipients={users.filter(user => {
+                  if (String(user.id) === String(currentUser.id)) return false;
+                  const currentSchoolId = (currentUser as any).schoolId;
+                  const candidateSchoolId = (user as any).schoolId;
+                  if (currentSchoolId && candidateSchoolId) return String(currentSchoolId) === String(candidateSchoolId);
+                  return Boolean((currentUser as any).schoolName && (user as any).schoolName && String((currentUser as any).schoolName).toLowerCase() === String((user as any).schoolName).toLowerCase());
+                })}
                 onSendMessage={handleSendMessage}
                 onClose={() => setIsChatOpen(false)}
             />

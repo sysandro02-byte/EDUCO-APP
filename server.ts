@@ -3407,6 +3407,12 @@ async function startServer() {
         ? req.body.recipientIds.map((id: any) => Number(id)).filter((id: number) => Number.isSafeInteger(id) && id > 0)
         : [];
 
+      // A direct conversation is always constrained to the sender's school.
+      // This prevents a crafted client request from addressing another school.
+      if (recipientIds.length > 0 && Number(targetSchoolId) !== Number(dbUser.schoolId)) {
+        return res.status(403).json({ error: 'Un message direct doit rester dans votre établissement.' });
+      }
+
       let usersQuery = supabaseAdmin.from('users').select('*').eq('school_id', Number(targetSchoolId));
       if (recipientIds.length > 0) {
         usersQuery = usersQuery.in('id', recipientIds);
@@ -5843,6 +5849,54 @@ async function startServer() {
   app.post('/api/ai/insights', requireAuth, async (req: AuthRequest, res) => {
     // Placeholder for AI insights logic
     res.json({ insights: "Les finances sont stables ce mois-ci." });
+  });
+
+  // Luna only receives a short, aggregated context supplied by the client.  It
+  // never receives student names, contacts, credentials or raw accounting rows.
+  app.post('/api/ai/chat', requireAuth, rateLimit('luna-chat', 30, 15 * 60 * 1000), async (req: AuthRequest, res) => {
+    try {
+      const message = String(req.body?.message || req.body?.prompt || '').trim();
+      if (!message || message.length > 2000) {
+        return res.status(400).json({ success: false, error: 'La question Luna doit contenir entre 1 et 2 000 caractères.' });
+      }
+
+      const requestedModel = String(req.body?.model || 'gemini-2.5-flash');
+      const model = requestedModel === 'gemini-1.5-pro' ? 'gemini-1.5-pro' : 'gemini-2.5-flash';
+      const rawTemperature = Number(req.body?.temperature);
+      const temperature = Number.isFinite(rawTemperature) ? Math.min(1, Math.max(0, rawTemperature)) : 0.4;
+      const rawContext = req.body?.context && typeof req.body.context === 'object' ? req.body.context : {};
+      const context = Object.entries(rawContext)
+        .filter(([key, value]) => /^[a-zA-ZÀ-ÿ0-9_ -]{1,48}$/.test(key) && ['string', 'number', 'boolean'].includes(typeof value))
+        .slice(0, 12)
+        .map(([key, value]) => `${key}: ${String(value).slice(0, 160)}`)
+        .join('\n');
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({ success: false, code: 'AI_NOT_CONFIGURED', error: 'Luna n’est pas encore reliée à un fournisseur IA.' });
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
+      const prompt = [
+        'Tu es Luna, l’assistante EDUCO d’une plateforme de gestion scolaire.',
+        'Réponds exclusivement en français, clairement et de manière concise.',
+        'N’invente aucune donnée. Ne demande ni ne révèle de mots de passe, tokens, données personnelles d’élèves ou informations bancaires.',
+        'Tu peux expliquer, résumer les indicateurs agrégés fournis et guider vers les écrans. Tu ne peux pas exécuter une action à la place de l’utilisateur.',
+        context ? `Contexte agrégé autorisé:\n${context}` : '',
+        `Question de l’utilisateur: ${message}`,
+      ].filter(Boolean).join('\n\n');
+      const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: { temperature, maxOutputTokens: 500 },
+      });
+      const reply = String(response.text || '').trim();
+      if (!reply) throw new Error('Réponse IA vide.');
+      return res.json({ success: true, reply, provider: 'gemini', model });
+    } catch (error: any) {
+      console.error('Luna AI Error:', error?.message || error);
+      return res.status(502).json({ success: false, error: 'Luna ne peut pas répondre pour le moment.' });
+    }
   });
 
   // Groq AI API Proxy

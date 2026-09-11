@@ -13,6 +13,14 @@ html.dark {
   color-scheme: dark;
 }
 
+html, body, #root {
+  min-height: 100%;
+}
+
+html, body, #root, button, input, select, textarea {
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
 body {
   background-color: #f1f5f9;
   color: #1e293b;
@@ -81,7 +89,13 @@ html.dark .text-slate-500 {
 
 html.dark .text-gray-400,
 html.dark .text-slate-400 {
-  color: #64748B !important;
+  color: #94A3B8 !important;
+}
+
+/* Keep secondary text readable on dark cards and in form hints. */
+html.dark .text-gray-300,
+html.dark .text-slate-300 {
+  color: #CBD5E1 !important;
 }
 
 html.dark .text-\[\#1F4A59\] {
@@ -169,4 +183,3 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .animate-fade-slide-up {
   animation: fadeSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { fetchAdminExportData } from '../src/services/api';
+import { askLuna, fetchAdminExportData } from '../src/services/api';
 import { 
   Sparkles, 
   Bot, 
@@ -103,18 +103,14 @@ export const AdminAIManagerPage: React.FC<AdminAIManagerPageProps> = ({ schools 
 
     try {
       // Call live Gemini / backend AI endpoint or fallback generator
-      const res = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: promptText,
-          model: selectedModel,
-          temperature: temperature
-        })
-      }).catch(() => null);
+      const data = await askLuna({
+        message: promptText,
+        model: selectedModel,
+        temperature,
+        context: { mode: 'test_administrateur' },
+      });
 
-      if (res && res.ok) {
-        const data = await res.json();
+      if (data?.success) {
         setAiResponse(data.reply || data.text || 'Réponse générée avec succès.');
       } else {
         setAiResponse("Le service IA est indisponible. Configurez une cle API valide avant utilisation.");
@@ -127,7 +123,12 @@ export const AdminAIManagerPage: React.FC<AdminAIManagerPageProps> = ({ schools 
   };
 
   const handleSaveConfig = () => {
-    localStorage.setItem('EDUCO_AI_CHATBOT_CONFIG', JSON.stringify(chatbotConfig));
+    localStorage.setItem('EDUCO_AI_CHATBOT_CONFIG', JSON.stringify({
+      ...chatbotConfig,
+      name: String(chatbotConfig.name || 'Luna').trim() || 'Luna',
+      model: selectedModel,
+      temperature,
+    }));
     setSaveStatus('✅ Configuration globale de l\'intelligence artificielle enregistrée et déployée avec succès !');
     setTimeout(() => setSaveStatus(null), 3500);
   };

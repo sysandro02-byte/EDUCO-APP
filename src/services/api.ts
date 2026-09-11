@@ -415,6 +415,26 @@ export async function sendMessageToDb(message: any) {
   }
 }
 
+/** Sends a privacy-preserving, aggregated request to the Luna assistant. */
+export async function askLuna(payload: {
+  message: string;
+  model?: string;
+  temperature?: number;
+  context?: Record<string, string | number | boolean>;
+}) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(getApiUrl('/api/ai/chat'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    return await safeJson(res, { success: false, error: 'Réponse Luna indisponible.' });
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Connexion à Luna indisponible.' };
+  }
+}
+
 export async function fetchNotificationsFromDb() {
   try {
     const headers = await getAuthHeaders();
