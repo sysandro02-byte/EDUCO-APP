@@ -544,8 +544,33 @@ async function startServer() {
   const preferredPort = Number(process.env.PORT || process.env.VITE_PORT || 3001);
   const PORT = await findAvailablePort(preferredPort);
 
-  app.use(cors({ origin: true, credentials: true }));
+  const configuredOrigins = (process.env.CORS_ALLOWED_ORIGINS || process.env.PUBLIC_APP_URL || 'https://educo-app.vercel.app')
+    .split(',').map(origin => origin.trim().replace(/\/$/, '')).filter(Boolean);
+  const isProduction = process.env.NODE_ENV === 'production';
+  app.use(cors({
+    origin(origin, callback) {
+      if (!origin || (!isProduction && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) || configuredOrigins.includes(origin.replace(/\/$/, ''))) {
+        return callback(null, true);
+      }
+      return callback(new Error('Origine non autorisée par la politique CORS.'));
+    },
+    credentials: true,
+  }));
   app.use(express.json({ limit: '8mb' }));
+
+  const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+  const rateLimit = (prefix: string, max: number, windowMs: number) => (req: any, res: any, next: any) => {
+    const key = `${prefix}:${req.ip || req.socket?.remoteAddress || 'unknown'}`;
+    const now = Date.now();
+    const bucket = rateBuckets.get(key);
+    if (!bucket || bucket.resetAt <= now) {
+      rateBuckets.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+    bucket.count += 1;
+    if (bucket.count > max) return res.status(429).json({ error: 'Trop de tentatives. Réessayez plus tard.' });
+    return next();
+  };
 
   // Enforce operational rights on the server as well as in the navigation.
   app.use('/api', (req: AuthRequest, res, next) => {
@@ -5858,7 +5883,7 @@ async function startServer() {
   const adminRoles = new Set(['Admin', 'Co-admin']);
 
   // UNIFIED LOGIN ENDPOINT (Supports Email/Password, Identifiers & Biometrics)
-  app.post(['/api/auth/login', '/api/users/login'], async (req, res) => {
+  app.post(['/api/auth/login', '/api/users/login'], rateLimit('login', 10, 15 * 60 * 1000), async (req, res) => {
     try {
       const { email, identifier, password, isBiometric, isAdminPortal } = req.body;
       const targetIdentifier = (email || identifier || '').trim().toLowerCase();
@@ -6218,7 +6243,7 @@ async function startServer() {
   // =========================================================================
 
   // 1. Send OTP Code Email (supports templateId with {{params.otpCode}} & responsive HTML)
-  app.post(['/api/email/send-otp', '/api/auth/send-otp', '/api/otp/send', '/api/send-otp'], async (req, res) => {
+  app.post(['/api/email/send-otp', '/api/auth/send-otp', '/api/otp/send', '/api/send-otp'], rateLimit('otp-send', 5, 10 * 60 * 1000), async (req, res) => {
     try {
       const { email, name, purpose, templateId, customApiKey } = req.body;
       if (!email || !email.includes('@')) {
@@ -6267,7 +6292,7 @@ async function startServer() {
   });
 
   // 2. Verify OTP Code
-  app.post(['/api/email/verify-otp', '/api/auth/verify-otp', '/api/otp/verify', '/api/verify-otp'], async (req, res) => {
+  app.post(['/api/email/verify-otp', '/api/auth/verify-otp', '/api/otp/verify', '/api/verify-otp'], rateLimit('otp-verify', 10, 10 * 60 * 1000), async (req, res) => {
     try {
       const { email, otpCode, purpose } = req.body;
       if (!email || !otpCode) {

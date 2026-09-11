@@ -22,9 +22,6 @@ const decodeJwtPayload = (token?: string | null): any | null => {
 const getSessionSecret = () => (
   process.env.AUTH_SESSION_SECRET
   || process.env.OTP_SIGNING_SECRET
-  || process.env.SUPABASE_SERVICE_ROLE_KEY
-  || process.env.SUPABASE_KEY
-  || process.env.DATABASE_URL
   || null
 );
 
@@ -61,14 +58,10 @@ const verifyLocalSessionToken = (token: string): any | null => {
 };
 
 const getSupabaseAuthClient = (req?: Request) => {
-  const requestKey = typeof req?.headers['x-supabase-key'] === 'string'
-    ? req.headers['x-supabase-key']
-    : undefined;
-  const requestUrl = typeof req?.headers['x-supabase-url'] === 'string'
-    ? req.headers['x-supabase-url']
-    : undefined;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || requestKey;
-  let url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || requestUrl;
+  // Never trust a project URL/key supplied by the browser: accepting it lets a
+  // token from an attacker-controlled Supabase project be treated as valid.
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  let url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   if (!url && key) {
     const ref = decodeJwtPayload(key)?.ref;
     if (ref) url = `https://${ref}.supabase.co`;
@@ -126,7 +119,13 @@ export const requireAuth = async (
         user_metadata: verified.user.user_metadata,
       };
     }
-    const lookupEmail = matched?.email || jwtPayload?.email || token.includes('@') ? (matched?.email || jwtPayload?.email || token) : '';
+    // Raw e-mail/UID bearer values are identities, not credentials. They are
+    // accepted only in an explicitly opted-in local development environment.
+    const allowInsecureLocalAuth = process.env.NODE_ENV !== 'production' && process.env.ALLOW_INSECURE_LOCAL_AUTH === 'true';
+    if (!matched && !jwtPayload && !allowInsecureLocalAuth) {
+      return res.status(401).json({ error: 'Accès non autorisé : session sécurisée requise.' });
+    }
+    const lookupEmail = matched?.email || jwtPayload?.email || (allowInsecureLocalAuth && token.includes('@') ? token : '');
     if (!matched && supabase && lookupEmail) {
       const { data: sbUser } = await supabase
         .from('users')
@@ -137,7 +136,7 @@ export const requireAuth = async (
       matched = mapSupabaseUser(sbUser) as any;
     }
 
-    if (!matched && isDbConfigured()) {
+    if (!matched && isDbConfigured() && allowInsecureLocalAuth) {
       const allUsers = await db.select().from(users).catch(() => []);
       matched = allUsers.find(u => u.uid === token || u.email === token || String(u.id) === token);
       
@@ -150,16 +149,6 @@ export const requireAuth = async (
           }
         } catch (jwtErr) {}
       }
-    }
-
-    if (!matched && jwtPayload && (jwtPayload.email || jwtPayload.sub)) {
-      const userEmail = jwtPayload.email || '';
-      matched = {
-        uid: jwtPayload.sub || token,
-        email: userEmail,
-        name: jwtPayload.user_metadata?.full_name || jwtPayload.user_metadata?.name || userEmail.split('@')[0] || 'Utilisateur',
-        role: jwtPayload.user_metadata?.role || 'Promoteur',
-      } as any;
     }
 
     if (!matched) {
