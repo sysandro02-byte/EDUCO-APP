@@ -129,6 +129,7 @@ export const AdminAIManagerPage: React.FC<AdminAIManagerPageProps> = ({ schools 
       model: selectedModel,
       temperature,
     }));
+    window.dispatchEvent(new Event('educo:luna-config'));
     setSaveStatus('✅ Configuration globale de l\'intelligence artificielle enregistrée et déployée avec succès !');
     setTimeout(() => setSaveStatus(null), 3500);
   };

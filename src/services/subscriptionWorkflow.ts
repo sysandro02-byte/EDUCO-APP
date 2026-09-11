@@ -13,6 +13,24 @@ export interface SchoolLike {
   identifier?: string | null;
 }
 
+/** Legacy imports have used both French and English labels for a paid licence. */
+export const normalizeSubscriptionStatus = (status?: SubscriptionStatus | null) => {
+  const value = String(status || '').trim().toLocaleLowerCase('fr-FR')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (['active', 'actif', 'paid', 'paye', 'approved', 'approuve', 'validated', 'valide'].includes(value)) return 'active';
+  if (['expired', 'expire', 'revoked', 'revoque'].includes(value)) return value;
+  return value || 'pending';
+};
+
+const resolveExpiryDate = (value?: string | Date | null) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  // A legacy YYYY-MM-DD end date means valid through that whole calendar day.
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) date.setHours(23, 59, 59, 999);
+  return date;
+};
+
 export const normalizeSchoolIdentifier = (identifier?: string | null) =>
   String(identifier || '').trim().toUpperCase();
 
@@ -28,17 +46,14 @@ export const calculateSubscriptionEndDate = (startDate: Date, months?: number | 
 };
 
 export const isSubscriptionExpired = (subscription: SubscriptionLike, now = new Date()) => {
-  if (!subscription?.endDate) return true;
-  const endDate = new Date(subscription.endDate);
-  return Number.isNaN(endDate.getTime())
-    || endDate.getTime() < now.getTime()
-    || subscription.status === 'expired'
-    || subscription.status === 'revoked';
+  const endDate = resolveExpiryDate(subscription?.endDate);
+  const status = normalizeSubscriptionStatus(subscription?.status);
+  return !endDate || endDate.getTime() < now.getTime() || status === 'expired' || status === 'revoque';
 };
 
 export const pickCurrentActiveSubscription = <T extends SubscriptionLike>(subscriptions: T[], now = new Date()) =>
   subscriptions
-    .filter((subscription) => subscription.status === 'active' && !isSubscriptionExpired(subscription, now))
+    .filter((subscription) => normalizeSubscriptionStatus(subscription.status) === 'active' && !isSubscriptionExpired(subscription, now))
     .sort((a, b) => new Date(b.endDate || 0).getTime() - new Date(a.endDate || 0).getTime())[0] || null;
 
 export const ensureActivationBelongsToSchool = (

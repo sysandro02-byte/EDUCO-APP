@@ -3211,7 +3211,9 @@ const App: React.FC = () => {
   // to resolve React error #525 (Invalid Hook call). This is a critical fix
   // for application stability.
   const RenderContent = () => {
-    const isSubscriptionActive = loggedInRole === 'Admin' || (subscriptionInfo?.isActive ?? false);
+    // Do not lock a paid school while its server-side entitlement is still loading.
+    // Once loading ends, only the API response can grant access.
+    const isSubscriptionActive = loggedInRole === 'Admin' || isSubscriptionLoading || (subscriptionInfo?.isActive ?? false);
 
     const renderLockedGuard = (name: string) => (
       <LockedFeatureGuard
