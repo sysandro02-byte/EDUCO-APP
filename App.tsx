@@ -1745,6 +1745,14 @@ const App: React.FC = () => {
   };
 
   const handleSaveUser = async (userToSave: User) => {
+    if ((userToSave as any).__profileOtpConfirmed) {
+      const { __profileOtpConfirmed, ...savedProfile } = userToSave as any;
+      setCurrentUser(current => current && String(current.id) === String(savedProfile.id) ? { ...current, ...savedProfile } : current);
+      setUsers(current => current.map(user => String(user.id) === String(savedProfile.id) ? { ...user, ...savedProfile } : user));
+      localStorage.setItem('EDUCO_CURRENT_USER', JSON.stringify(savedProfile));
+      addActivityLog('Modification sécurisée du profil', `Compte: ${savedProfile.email}`);
+      return;
+    }
     const isNewParent = userToSave.role === 'Parent' && !userToSave.id;
 
     try {

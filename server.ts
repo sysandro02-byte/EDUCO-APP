@@ -2174,6 +2174,9 @@ async function startServer() {
       const { name, email, role, status, avatar, phone, schoolId } = req.body;
       const canonicalRole = canonicalizeRole(role);
       const actor = await getRequestUser(req);
+      if (String(actor?.id || '') === String(targetUserId) && (name !== undefined || email !== undefined || avatar !== undefined || phone !== undefined)) {
+        return res.status(403).json({ error: 'Utilisez le parcours Profil sécurisé avec OTP pour modifier votre propre compte.' });
+      }
       if (canonicalRole === 'Admin') {
         return res.status(403).json({ error: 'Il ne peut exister qu’un seul compte Admin et ce rôle ne peut pas être attribué.' });
       }
@@ -6312,6 +6315,53 @@ async function startServer() {
     } catch (error: any) {
       console.error("Verify OTP Error:", error);
       res.status(500).json({ error: error.message || "Erreur lors de la validation de l'OTP" });
+    }
+  });
+
+  // Sensitive profile changes are confirmed server-side. The browser cannot
+  // bypass this flow by calling the generic user-management endpoint.
+  app.post('/api/profile/request-otp', requireAuth, rateLimit('profile-otp', 5, 10 * 60 * 1000), async (req: AuthRequest, res) => {
+    try {
+      const actor = await getRequestUser(req);
+      const email = normalizeEmail(actor?.email);
+      if (!email) return res.status(400).json({ error: 'Adresse e-mail du compte introuvable.' });
+      const otpCode = otpManager.generateOtp(email, 'profile_update' as any, { userId: actor.id });
+      const delivery = await sendOtpEmail({ email, name: actor.name, otpCode, purpose: 'general' as any });
+      if (!delivery.success) return res.status(503).json({ error: delivery.error || 'Impossible d’envoyer le code OTP.' });
+      return res.json({ success: true, expiresInSeconds: 600 });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || 'Demande OTP impossible.' });
+    }
+  });
+
+  app.put('/api/profile', requireAuth, rateLimit('profile-update', 10, 10 * 60 * 1000), async (req: AuthRequest, res) => {
+    try {
+      const actor = await getRequestUser(req);
+      const actorEmail = normalizeEmail(actor?.email);
+      if (!actorEmail || !req.body?.otpCode) return res.status(400).json({ error: 'Code OTP requis.' });
+      const verification = otpManager.verifyOtp(actorEmail, String(req.body.otpCode), 'profile_update' as any);
+      if (!verification.valid) return res.status(400).json({ error: verification.error || 'Code OTP invalide ou expiré.' });
+      const name = String(req.body.name || '').trim();
+      const email = normalizeEmail(req.body.email);
+      const phone = req.body.phone == null ? undefined : String(req.body.phone).trim();
+      const avatar = req.body.avatar == null ? undefined : String(req.body.avatar);
+      if (!name || !email) return res.status(400).json({ error: 'Nom et adresse e-mail valides requis.' });
+      const client = getSupabaseAdmin(req);
+      if (!client || !actor?.id) return res.status(503).json({ error: 'Service de profil indisponible.' });
+      if (email !== actorEmail) {
+        const duplicate = await ensureUniqueUserEmail({ req, email, excludeUserId: Number(actor.id) });
+        if (duplicate) return res.status(409).json({ error: buildDuplicateEmailMessage(email) });
+        if (actor.uid) {
+          const { error: authError } = await client.auth.admin.updateUserById(actor.uid, { email, email_confirm: true });
+          if (authError) throw authError;
+        }
+      }
+      const { data, error } = await client.from('users').update({ name, email, ...(phone !== undefined && { phone }), ...(avatar !== undefined && { avatar }) }).eq('id', actor.id).select('*').single();
+      if (error) throw error;
+      await writeFinancialAudit(req, { action: 'profile_updated', entityType: 'user', entityId: actor.id, oldValues: { name: actor.name, email: actorEmail }, newValues: { name, email } });
+      return res.json({ success: true, user: mapSupabaseUser(data) });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || 'Mise à jour du profil impossible.' });
     }
   });
 

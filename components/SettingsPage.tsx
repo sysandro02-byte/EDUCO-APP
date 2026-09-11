@@ -1900,14 +1900,16 @@ const MyProfileCard: React.FC<{
         }
     };
 
-    const applyProfileSave = () => {
+    const applyProfileSave = (confirmedUser?: User) => {
         if (!currentUser || !onSaveUser) return;
         const updated = {
             ...currentUser,
+            ...confirmedUser,
             name,
             email,
             phone,
-            avatar
+            avatar,
+            __profileOtpConfirmed: true,
         };
         onSaveUser(updated);
         if (onUpdateAvatar && avatar) {
@@ -1931,10 +1933,9 @@ const MyProfileCard: React.FC<{
         setProfileOtpBusy(true);
         try {
             if (profileOtpStep === 'idle') {
-                const response = await fetch(getApiUrl('/api/email/send-otp'), {
+                const response = await fetch(getApiUrl('/api/profile/request-otp'), {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: currentUser.email, purpose: 'profile_update' }),
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('EDUCO_USER_TOKEN') || ''}` },
                 });
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok || !data.success) throw new Error(data.error || "Impossible d'envoyer le code OTP.");
@@ -1948,14 +1949,14 @@ const MyProfileCard: React.FC<{
                 return;
             }
 
-            const response = await fetch(getApiUrl('/api/email/verify-otp'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: currentUser.email, otpCode: profileOtpCode, purpose: 'profile_update' }),
+            const response = await fetch(getApiUrl('/api/profile'), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('EDUCO_USER_TOKEN') || ''}` },
+                body: JSON.stringify({ name, email, phone, avatar, otpCode: profileOtpCode }),
             });
             const data = await response.json().catch(() => ({}));
             if (!response.ok || !data.success) throw new Error(data.error || 'Code OTP invalide ou expiré.');
-            applyProfileSave();
+            applyProfileSave(data.user);
         } catch (error: any) {
             setProfileOtpFeedback({ text: error?.message || 'Validation OTP impossible.', error: true });
         } finally {
