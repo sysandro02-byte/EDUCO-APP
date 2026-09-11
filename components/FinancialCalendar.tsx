@@ -1,5 +1,5 @@
 import { useGoogleLogin } from "@react-oauth/google";
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Download, Filter, Plus, RefreshCw } from 'lucide-react';
 import { FinancialEvent } from '../App';
 import Modal from './Modal';
@@ -7,8 +7,8 @@ import FinancialEventForm from './FinancialEventForm';
 
 interface FinancialCalendarProps {
   events: FinancialEvent[];
-  onSave: (event: FinancialEvent) => void;
-  onDelete: (eventId: string) => void;
+  onSave: (event: FinancialEvent) => void | Promise<unknown>;
+  onDelete: (event: FinancialEvent) => void | Promise<unknown>;
   currentUserRole: string;
 }
 
@@ -22,6 +22,16 @@ const typeMeta: Record<string, { label: string; chip: string; dot: string }> = {
 
 const formatIcsDate = (value: string) => value.replaceAll('-', '');
 
+const googleRecurrence = (event: FinancialEvent) => {
+  const frequency: Record<string, string> = {
+    daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', quarterly: 'MONTHLY;INTERVAL=3', yearly: 'YEARLY',
+  };
+  const rule = frequency[(event as any).recurrence || ''];
+  if (!rule) return undefined;
+  const until = (event as any).recurrenceEnd ? `;UNTIL=${formatIcsDate((event as any).recurrenceEnd)}T235959Z` : '';
+  return [`RRULE:FREQ=${rule}${until}`];
+};
+
 const FinancialCalendar: React.FC<FinancialCalendarProps> = ({ events, onSave, onDelete, currentUserRole }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -29,6 +39,7 @@ const FinancialCalendar: React.FC<FinancialCalendarProps> = ({ events, onSave, o
   const [typeFilter, setTypeFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [googleStatus, setGoogleStatus] = useState('');
+  const pendingGoogleDeletion = useRef<FinancialEvent | null>(null);
 
   const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
   const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
@@ -77,38 +88,79 @@ const FinancialCalendar: React.FC<FinancialCalendarProps> = ({ events, onSave, o
     setIsModalOpen(false);
   };
 
-  const syncableEvents = filteredEvents.filter((event: any) => event.googleSync !== false);
+  const syncableEvents = filteredEvents.filter((event: any) => event.googleSync === true);
 
   const login = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
       const token = tokenResponse.access_token;
-      let successCount = 0;
+      const deleting = pendingGoogleDeletion.current;
+      if (deleting) {
+        try {
+          const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(deleting.googleCalendarEventId || '')}`, {
+            method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+          });
+          // Google returns 410 when an event was already removed: this is also
+          // a successful, idempotent end state.
+          if (!response.ok && response.status !== 410) throw new Error(`Google Calendar a répondu ${response.status}`);
+          await onDelete(deleting);
+          setGoogleStatus('Échéance supprimée dans EDUCO et Google Calendar.');
+        } catch (error) {
+          console.error('Google Calendar deletion error:', error);
+          setGoogleStatus("La suppression Google a échoué : l'échéance est conservée dans EDUCO.");
+        } finally {
+          pendingGoogleDeletion.current = null;
+        }
+        return;
+      }
+      let createdCount = 0;
+      let updatedCount = 0;
+      let failedCount = 0;
       for (const event of syncableEvents) {
         const gEvent = {
           summary: event.title,
           description: (event as any).notes || '',
           start: { date: event.start },
           end: { date: event.end || event.start },
+          ...(googleRecurrence(event) && { recurrence: googleRecurrence(event) }),
           reminders: (event as any).reminderEnabled ? {
             useDefault: false,
             overrides: [{ method: 'popup', minutes: Number((event as any).reminderDaysBefore || 0) * 24 * 60 }]
           } : { useDefault: true },
         };
         try {
-          await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-             method: 'POST',
+          const existingGoogleId = (event as any).googleCalendarEventId;
+          const endpoint = existingGoogleId
+            ? `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(existingGoogleId)}`
+            : 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+          const response = await fetch(endpoint, {
+             method: existingGoogleId ? 'PUT' : 'POST',
              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
              body: JSON.stringify(gEvent)
           });
-          successCount++;
-        } catch(e) {
-          console.error(e);
+          if (!response.ok) throw new Error(`Google Calendar a répondu ${response.status}`);
+          const savedGoogleEvent = await response.json();
+          await onSave({ ...event, googleCalendarEventId: savedGoogleEvent.id, googleSyncedAt: new Date().toISOString() });
+          if (existingGoogleId) updatedCount++; else createdCount++;
+        } catch (e) {
+          console.error('Google Calendar sync error:', e);
+          failedCount++;
         }
       }
-      setGoogleStatus(`${successCount} événement(s) synchronisé(s) avec Google Calendar.`);
+      const details = [`${createdCount} créé(s)`, `${updatedCount} mis à jour`];
+      if (failedCount) details.push(`${failedCount} échec(s)`);
+      setGoogleStatus(`Synchronisation Google Calendar : ${details.join(' · ')}.`);
     },
     scope: 'https://www.googleapis.com/auth/calendar.events',
   });
+
+  const handleDeleteEvent = async (event: FinancialEvent) => {
+    if (!event.googleCalendarEventId) {
+      await onDelete(event);
+      return;
+    }
+    pendingGoogleDeletion.current = event;
+    login();
+  };
 
   const exportIcs = () => {
     const body = syncableEvents.map((event: any) => [
@@ -255,7 +307,7 @@ const FinancialCalendar: React.FC<FinancialCalendarProps> = ({ events, onSave, o
       </div>
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={selectedEvent ? "Modifier l'échéance" : "Ajouter une échéance"} size="lg">
-        <FinancialEventForm event={selectedEvent} onSave={handleSaveEvent} onDelete={onDelete} onCancel={() => setIsModalOpen(false)} />
+        <FinancialEventForm event={selectedEvent} onSave={handleSaveEvent} onDelete={handleDeleteEvent} onCancel={() => setIsModalOpen(false)} />
       </Modal>
     </div>
   );

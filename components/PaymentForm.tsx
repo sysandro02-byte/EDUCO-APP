@@ -324,12 +324,13 @@ const PaymentForm: React.FC<PaymentFormProps> = ({
         setFamilyTotalFee(String(suggestedDiscountedFee));
     }, [isLargeFamily, selectedClassDefaultFee, suggestedDiscountedFee, registrationAmount]);
 
-    const configuredExamClassNames = useMemo(() => new Set(
-        fees.filter(f => f.type === 'Frais de dossier d\'examen').map(f => f.class)
-    ), [fees]);
+    const configuredExamClassNames = useMemo(() => new Set([
+        ...classes.filter((schoolClass: any) => schoolClass.isExamClass).map(schoolClass => schoolClass.name),
+        ...fees.filter(f => f.type === 'Frais de dossier d\'examen').map(f => f.class),
+    ].filter(Boolean)), [classes, fees]);
 
     // List of all classes, with configured exam classes identified in the selector.
-    const examClasses = useMemo(() => classes, [classes]);
+    const examClasses = useMemo(() => classes.filter((schoolClass: any) => schoolClass.status !== 'inactive'), [classes]);
 
     // Available students filtered by class and search
     const filteredStudents = useMemo(() => {

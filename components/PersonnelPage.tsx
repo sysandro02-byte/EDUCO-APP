@@ -1,6 +1,6 @@
 
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import Modal from './Modal';
 import ConfirmDialog from './ConfirmDialog';
 import SalaryForm from './SalaryForm';
@@ -37,6 +37,8 @@ const PersonnelPage: React.FC<PersonnelPageProps> = ({ personnel, transactions, 
   const [personForBadge, setPersonForBadge] = useState<Personnel | null>(null);
   const [personnelToDelete, setPersonnelToDelete] = useState<Personnel | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
 
   const handlePayClick = (person: Personnel) => {
     setSelectedPersonnel(person);
@@ -94,6 +96,16 @@ const PersonnelPage: React.FC<PersonnelPageProps> = ({ personnel, transactions, 
   const canPaySalary = currentUserRole === 'Admin' || currentUserRole === 'Caissière' || currentUserRole === 'Responsable des finances';
   const canGenerateBadges = ['Admin', 'Caissière', 'Responsable des finances', 'Directeur des Etudes'].includes(currentUserRole);
   const isCaisseClosedForCashier = currentUserRole === 'Caissière' && !isCaisseOpen;
+  const normalize = (value: unknown) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr-FR');
+  const roles = useMemo(() => [...new Set(personnel.map(person => person.role).filter(Boolean))].sort(), [personnel]);
+  const filteredPersonnel = useMemo(() => {
+    const query = normalize(searchTerm);
+    return personnel.filter(person => {
+      const matchesRole = roleFilter === 'all' || person.role === roleFilter;
+      const haystack = [person.name, person.role, person.matricule, (person as any).email, (person as any).status].map(normalize).join(' ');
+      return matchesRole && (!query || haystack.includes(query));
+    });
+  }, [personnel, searchTerm, roleFilter]);
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
@@ -137,6 +149,17 @@ const PersonnelPage: React.FC<PersonnelPageProps> = ({ personnel, transactions, 
       </div>
       
       {activeTab === 'list' ? (
+        <>
+        <div className="mb-4 flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <input value={searchTerm} onChange={event => setSearchTerm(event.target.value)} placeholder="Rechercher par nom, rôle, matricule ou e-mail…" className="input-style pr-10" />
+            {searchTerm && <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500" aria-label="Effacer la recherche">Effacer</button>}
+          </div>
+          <select value={roleFilter} onChange={event => setRoleFilter(event.target.value)} className="input-style sm:w-56">
+            <option value="all">Tous les rôles</option>
+            {roles.map(role => <option key={role} value={role}>{role}</option>)}
+          </select>
+        </div>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
@@ -149,7 +172,7 @@ const PersonnelPage: React.FC<PersonnelPageProps> = ({ personnel, transactions, 
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {personnel.map((person) => (
+            {filteredPersonnel.map((person) => (
               <tr key={person.id}>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{person.name}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{person.role}</td>
@@ -184,9 +207,13 @@ const PersonnelPage: React.FC<PersonnelPageProps> = ({ personnel, transactions, 
                 </td>
               </tr>
             ))}
+            {filteredPersonnel.length === 0 && (
+              <tr><td colSpan={5} className="px-6 py-12 text-center text-sm text-slate-500">Aucun membre du personnel ne correspond à votre recherche.</td></tr>
+            )}
           </tbody>
         </table>
       </div>
+      </>
       ) : (
         <div className="pt-2">
           <SalaryAnalytics 

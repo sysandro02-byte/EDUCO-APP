@@ -238,7 +238,9 @@ const mapSupabaseClass = (c: any) => c ? ({
   capacity: c.capacity,
   maxStudents: c.capacity,
   teacherId: c.teacher_id || c.teacherId,
-  tuitionFee: Number(c.tuition_fee || c.tuitionFee || 0)
+  tuitionFee: Number(c.tuition_fee || c.tuitionFee || 0),
+  isExamClass: Boolean(c.is_exam_class ?? c.isExamClass),
+  status: c.status || 'active'
 }) : null;
 
 const mapSupabaseFee = (f: any) => f ? ({
@@ -386,6 +388,32 @@ const getRequestUserId = async (req: AuthRequest) => {
   return Number.isInteger(userId) && userId > 0 ? userId : null;
 };
 
+// Audit writes deliberately never make a completed business operation fail:
+// deployments apply the accompanying migration before the table is available.
+const writeFinancialAudit = async (req: AuthRequest, entry: {
+  action: string; entityType: string; entityId?: string | number; oldValues?: any; newValues?: any; reason?: string;
+}) => {
+  try {
+    const actor = await getRequestUser(req);
+    const client = getSupabaseAdmin(req);
+    if (!client || !actor) return;
+    const { error } = await client.from('financial_audit_logs').insert([{
+      school_id: actor.schoolId ?? actor.school_id ?? null,
+      actor_user_id: actor.id ?? null,
+      actor_role: canonicalizeRole(actor.role) || actor.role || 'Inconnu',
+      action: entry.action,
+      entity_type: entry.entityType,
+      entity_id: entry.entityId == null ? null : String(entry.entityId),
+      old_values: entry.oldValues ?? null,
+      new_values: entry.newValues ?? null,
+      reason: entry.reason ?? null,
+    }]);
+    if (error) console.warn('Financial audit not persisted:', error.message);
+  } catch (error: any) {
+    console.warn('Financial audit write failed:', error?.message || error);
+  }
+};
+
 const requirePlatformAdmin = async (req: AuthRequest, res: any) => {
   const dbUser = await getRequestUser(req);
   if (dbUser?.role !== 'Admin') {
@@ -523,8 +551,8 @@ async function startServer() {
   app.use('/api', (req: AuthRequest, res, next) => {
     const resource = req.path.split('/')[1];
     const writers: Record<string, string[]> = {
-      transactions: ['Promoteur', 'Directeur Général', 'Responsable des finances', 'Caissière'],
-      payments: ['Promoteur', 'Directeur Général', 'Responsable des finances', 'Caissière'],
+      transactions: ['Directeur Général', 'Responsable des finances', 'Caissière'],
+      payments: ['Directeur Général', 'Responsable des finances', 'Caissière'],
       classes: ['Promoteur', 'Directeur Général', 'Directeur des Etudes', 'Directeur du Primaire'],
       fees: ['Promoteur', 'Directeur Général', 'Responsable des finances'],
       personnel: ['Promoteur', 'Directeur Général', 'Responsable des finances'],
@@ -2724,6 +2752,13 @@ async function startServer() {
     try {
       const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
+      const role = canonicalizeRole(dbUser.role);
+      if (!['Responsable des finances', 'Directeur Général', 'Admin'].includes(role)) {
+        return res.status(403).json({ error: 'Seuls le RAF ou le Directeur Général peuvent valider une opération.' });
+      }
+      if (!['Approuvé', 'Rejeté'].includes(req.body.status)) {
+        return res.status(400).json({ error: 'Statut de validation invalide.' });
+      }
 
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
@@ -2739,6 +2774,7 @@ async function startServer() {
         })
         .eq('id', transactionId)
         .eq('school_id', dbUser.schoolId)
+        .eq('status', 'En attente')
         .select('*')
         .single();
       if (updateResult.error) {
@@ -2747,11 +2783,13 @@ async function startServer() {
           .update({ description: `(Status: ${req.body.status}) ${req.body.description || ''}` })
           .eq('id', transactionId)
           .eq('school_id', dbUser.schoolId)
+          .eq('status', 'En attente')
           .select('*')
           .single();
       }
       const { data, error } = updateResult;
       if (error) throw error;
+      await writeFinancialAudit(req, { action: `transaction_${String(req.body.status).toLowerCase()}`, entityType: 'transaction', entityId: transactionId, newValues: { status: req.body.status } });
       res.json(mapSupabaseTransaction(data));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -2986,7 +3024,9 @@ async function startServer() {
         name: req.body.name,
         level: req.body.level || req.body.section || null,
         capacity: req.body.capacity ? Number(req.body.capacity) : null,
-        teacher_id: req.body.teacherId || req.body.teacher_id || null
+        teacher_id: req.body.teacherId || req.body.teacher_id || null,
+        is_exam_class: Boolean(req.body.isExamClass ?? req.body.is_exam_class),
+        status: req.body.status === 'inactive' ? 'inactive' : 'active'
       };
 
       const query = (Number.isSafeInteger(Number(req.body.id)) && Number(req.body.id) > 0)
@@ -3053,11 +3093,14 @@ async function startServer() {
         type: req.body.type || req.body.category || null
       };
 
-      const query = (Number.isSafeInteger(Number(req.body.id)) && Number(req.body.id) > 0)
+      const isUpdate = Number.isSafeInteger(Number(req.body.id)) && Number(req.body.id) > 0;
+      const previous = isUpdate ? await supabaseAdmin.from('fees').select('*').eq('id', Number(req.body.id)).eq('school_id', dbUser.schoolId).maybeSingle() : { data: null };
+      const query = isUpdate
         ? supabaseAdmin.from('fees').update(payload).eq('id', Number(req.body.id)).eq('school_id', dbUser.schoolId)
         : supabaseAdmin.from('fees').insert([payload]);
       const { data, error } = await query.select('*').single();
       if (error) throw error;
+      await writeFinancialAudit(req, { action: isUpdate ? 'fee_updated' : 'fee_created', entityType: 'fee', entityId: data.id, oldValues: previous.data, newValues: data, reason: req.body.reason });
       res.json(mapSupabaseFee(data));
     } catch (error: any) {
       res.status(500).json({ error: error.message });

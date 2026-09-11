@@ -323,14 +323,24 @@ const unwrapCollection = (value: any, key: string, fallback: any[] = []) => {
 };
 
 export async function requestSchoolApi(path: string, body?: any, method?: 'GET' | 'POST' | 'PUT' | 'DELETE') {
-  const res = await fetch(getApiUrl(path), {
-    method: method || (body === undefined ? 'GET' : 'POST'),
-    headers: await getAuthHeaders(),
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-  const data = await safeJson(res, null);
-  if (!res.ok || !data || data.error) throw new Error(data?.error || 'Le serveur ne peut pas confirmer cette opération.');
-  return data;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await fetch(getApiUrl(path), {
+      method: method || (body === undefined ? 'GET' : 'POST'),
+      headers: await getAuthHeaders(),
+      signal: controller.signal,
+      ...(body !== undefined && { body: JSON.stringify(body) }),
+    });
+    const data = await safeJson(res, null);
+    if (!res.ok || !data || data.error) throw new Error(data?.error || `Le serveur ne peut pas confirmer cette opération (HTTP ${res.status}).`);
+    return data;
+  } catch (error: any) {
+    if (error?.name === 'AbortError') throw new Error(`Délai dépassé lors du chargement de ${path}.`);
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 export async function saveSchoolOperation(key: string, body: any) {
@@ -338,7 +348,13 @@ export async function saveSchoolOperation(key: string, body: any) {
 }
 
 export async function fetchSchoolOperationalData(role?: string) {
-  const operations = await requestSchoolApi('/api/operations');
+  // Operational preferences (calendar, timetable, local settings) must not
+  // make the whole school dashboard unavailable when an optional legacy table
+  // is missing or temporarily unavailable.
+  const operations = await requestSchoolApi('/api/operations').catch((error) => {
+    console.warn('Operational settings unavailable:', error);
+    return {};
+  });
   if (/parent|élève|eleve/i.test(role || '')) {
     const data = await requestSchoolApi('/api/admin/export-data');
     const students = data.students || [];

@@ -154,7 +154,18 @@ export interface FinancialEvent {
   start: string; // ISO string date
   end: string;   // ISO string date
   allDay?: boolean;
-  type?: 'payment' | 'deadline' | 'other';
+  type?: 'payment' | 'deadline' | 'meeting' | 'exam' | 'other';
+  category?: string;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+  recurrence?: 'none' | 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+  recurrenceEnd?: string;
+  reminderEnabled?: boolean;
+  reminderDaysBefore?: number;
+  notificationChannel?: string;
+  notes?: string;
+  googleSync?: boolean;
+  googleCalendarEventId?: string;
+  googleSyncedAt?: string;
 }
 
 export interface SalaryPaymentData {
@@ -2823,10 +2834,11 @@ const App: React.FC = () => {
     await persistOperation('reportCardComments', { value: comments }, setReportCardComments);
   };
   const handleSaveFinancialEvent = async (event: FinancialEvent) => {
-    await persistOperation('financialEvents', { value: event }, setFinancialEvents);
+    return persistOperation('financialEvents', { value: event }, setFinancialEvents);
   };
-  const handleDeleteFinancialEvent = async (id: string) => {
-    await persistOperation('financialEvents', { action: 'delete', id }, setFinancialEvents);
+  const handleDeleteFinancialEvent = async (event: FinancialEvent) => {
+    if (!event.id) return false;
+    return persistOperation('financialEvents', { action: 'delete', id: event.id }, setFinancialEvents);
   };
   const handleViewStudentProfile = (studentId: number) => {
     setViewingStudentId(studentId);

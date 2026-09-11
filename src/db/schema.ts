@@ -55,6 +55,8 @@ export const classes = pgTable('classes', {
   level: text('level'),
   capacity: integer('capacity'),
   teacherId: integer('teacher_id').references(() => users.id),
+  isExamClass: boolean('is_exam_class').default(false),
+  status: text('status').default('active'),
 });
 
 export const fees = pgTable('fees', {

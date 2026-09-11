@@ -6,7 +6,7 @@ import ConfirmDialog from './ConfirmDialog';
 interface FinancialEventFormProps {
   event: FinancialEvent | null;
   onSave: (event: FinancialEvent) => void;
-  onDelete: (eventId: string) => void;
+  onDelete: (event: FinancialEvent) => void | Promise<unknown>;
   onCancel: () => void;
 }
 
@@ -20,6 +20,7 @@ const FinancialEventForm: React.FC<FinancialEventFormProps> = ({ event, onSave, 
     type: 'deadline',
     priority: 'normal',
     recurrence: 'none',
+    recurrenceEnd: '',
     reminderEnabled: true,
     reminderDaysBefore: 2,
     notificationChannel: 'app',
@@ -37,6 +38,7 @@ const FinancialEventForm: React.FC<FinancialEventFormProps> = ({ event, onSave, 
         type: event.type || 'deadline',
         priority: (event as any).priority || 'normal',
         recurrence: (event as any).recurrence || 'none',
+        recurrenceEnd: (event as any).recurrenceEnd || '',
         reminderEnabled: (event as any).reminderEnabled ?? true,
         reminderDaysBefore: (event as any).reminderDaysBefore ?? 2,
         notificationChannel: (event as any).notificationChannel || 'app',
@@ -52,6 +54,7 @@ const FinancialEventForm: React.FC<FinancialEventFormProps> = ({ event, onSave, 
       type: 'deadline',
       priority: 'normal',
       recurrence: 'none',
+      recurrenceEnd: '',
       reminderEnabled: true,
       reminderDaysBefore: 2,
       notificationChannel: 'app',
@@ -78,7 +81,7 @@ const FinancialEventForm: React.FC<FinancialEventFormProps> = ({ event, onSave, 
 
   const confirmDelete = () => {
     if (event?.id) {
-      onDelete(event.id);
+      onDelete(event);
       onCancel();
     }
     setIsDeleteModalOpen(false);
@@ -140,11 +143,16 @@ const FinancialEventForm: React.FC<FinancialEventFormProps> = ({ event, onSave, 
               <label className="block text-xs font-black text-slate-600 uppercase mb-1">Répéter</label>
               <select name="recurrence" value={formData.recurrence} onChange={handleChange} className="input-style">
                 <option value="none">Ne pas répéter</option>
+                <option value="daily">Chaque jour</option>
                 <option value="weekly">Chaque semaine</option>
                 <option value="monthly">Chaque mois</option>
                 <option value="quarterly">Chaque trimestre</option>
                 <option value="yearly">Chaque année</option>
               </select>
+            </div>
+            <div>
+              <label className="block text-xs font-black text-slate-600 uppercase mb-1">Fin de répétition</label>
+              <input type="date" name="recurrenceEnd" value={formData.recurrenceEnd} onChange={handleChange} disabled={formData.recurrence === 'none'} min={formData.start} className="input-style disabled:bg-slate-100" />
             </div>
             <label className="flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-3 py-2 mt-5">
               <input type="checkbox" name="reminderEnabled" checked={formData.reminderEnabled} onChange={handleChange} className="rounded text-[#1F4A59]" />
@@ -162,6 +170,10 @@ const FinancialEventForm: React.FC<FinancialEventFormProps> = ({ event, onSave, 
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-black text-slate-600 uppercase mb-1">Catégorie</label>
+              <input name="category" value={formData.category || ''} onChange={handleChange} placeholder="Ex. Finance, administration…" className="input-style" />
+            </div>
             <div>
               <label className="block text-xs font-black text-slate-600 uppercase mb-1">Canal notification</label>
               <select name="notificationChannel" value={formData.notificationChannel} onChange={handleChange} className="input-style">

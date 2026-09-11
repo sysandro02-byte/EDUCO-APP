@@ -116,6 +116,7 @@ const SchoolStructurePage: React.FC<SchoolStructurePageProps> = ({
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Niveau</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Effectif Max.</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Frais d'écolage</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Statut</th>
                 <th className="relative px-6 py-3"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
@@ -126,6 +127,7 @@ const SchoolStructurePage: React.FC<SchoolStructurePageProps> = ({
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cls.level}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cls.maxStudents}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-[#1F4A59]">{Number((cls as any).tuitionFee || 0).toLocaleString('fr-FR')} FCFA</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-xs font-bold"><span className={`rounded-full px-2 py-1 ${(cls as any).isExamClass ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>{(cls as any).isExamClass ? 'Examen' : 'Standard'}</span>{(cls as any).status === 'inactive' && <span className="ml-2 text-rose-600">Inactive</span>}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-4">
                     <button onClick={() => handleEditClass(cls)} className="text-indigo-600 hover:text-indigo-900" title="Modifier la classe"><PencilIcon /></button>
                     <button onClick={() => handleDeleteClassClick(cls)} className="text-red-600 hover:text-red-900" title="Supprimer la classe"><TrashIcon /></button>
