@@ -544,8 +544,18 @@ async function startServer() {
   const preferredPort = Number(process.env.PORT || process.env.VITE_PORT || 3001);
   const PORT = await findAvailablePort(preferredPort);
 
-  const configuredOrigins = (process.env.CORS_ALLOWED_ORIGINS || process.env.PUBLIC_APP_URL || 'https://educo-app.vercel.app')
-    .split(',').map(origin => origin.trim().replace(/\/$/, '')).filter(Boolean);
+  // The API may also serve the built SPA on Render.  Its public URL is a
+  // first-party origin, so include the platform-provided URL alongside the
+  // explicit browser origins rather than falling back to a permissive CORS
+  // policy.
+  const configuredOrigins = [
+    process.env.CORS_ALLOWED_ORIGINS || process.env.PUBLIC_APP_URL || 'https://educo-app.vercel.app',
+    process.env.RENDER_EXTERNAL_URL || 'https://educo-app.onrender.com',
+  ]
+    .filter(Boolean)
+    .flatMap(origins => origins!.split(','))
+    .map(origin => origin.trim().replace(/\/$/, ''))
+    .filter(Boolean);
   const isProduction = process.env.NODE_ENV === 'production';
   app.use(cors({
     origin(origin, callback) {
