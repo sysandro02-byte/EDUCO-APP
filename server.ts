@@ -5913,7 +5913,12 @@ async function startServer() {
       }
 
       const requestedModel = String(req.body?.model || 'gemini-2.5-flash');
-      const model = requestedModel === 'gemini-1.5-pro' ? 'gemini-1.5-pro' : 'gemini-2.5-flash';
+      const usesGroq = requestedModel === 'groq-llama-3';
+      const model = usesGroq
+        ? 'llama-3.3-70b-versatile'
+        : requestedModel === 'gemini-1.5-pro'
+          ? 'gemini-1.5-pro'
+          : 'gemini-2.5-flash';
       const rawTemperature = Number(req.body?.temperature);
       const temperature = Number.isFinite(rawTemperature) ? Math.min(1, Math.max(0, rawTemperature)) : 0.4;
       const rawContext = req.body?.context && typeof req.body.context === 'object' ? req.body.context : {};
@@ -5923,12 +5928,11 @@ async function startServer() {
         .map(([key, value]) => `${key}: ${String(value).slice(0, 160)}`)
         .join('\n');
 
-      const apiKey = process.env.GEMINI_API_KEY;
+      const apiKey = usesGroq ? process.env.GROQ_API_KEY : process.env.GEMINI_API_KEY;
       if (!apiKey) {
-        return res.status(503).json({ success: false, code: 'AI_NOT_CONFIGURED', error: 'Luna n’est pas encore reliée à un fournisseur IA.' });
+        return res.status(503).json({ success: false, code: 'AI_NOT_CONFIGURED', error: `Luna n’est pas encore reliée à ${usesGroq ? 'Groq' : 'Gemini'}.` });
       }
 
-      const ai = new GoogleGenAI({ apiKey });
       const prompt = [
         'Tu es Luna, l’assistante EDUCO d’une plateforme de gestion scolaire.',
         'Réponds exclusivement en français, clairement et de manière concise.',
@@ -5937,14 +5941,20 @@ async function startServer() {
         context ? `Contexte agrégé autorisé:\n${context}` : '',
         `Question de l’utilisateur: ${message}`,
       ].filter(Boolean).join('\n\n');
-      const response = await ai.models.generateContent({
-        model,
-        contents: prompt,
-        config: { temperature, maxOutputTokens: 500 },
-      });
-      const reply = String(response.text || '').trim();
+      const reply = usesGroq
+        ? String((await new Groq({ apiKey }).chat.completions.create({
+            model,
+            messages: [{ role: 'user', content: prompt }],
+            temperature,
+            max_tokens: 500,
+          })).choices[0]?.message?.content || '').trim()
+        : String((await new GoogleGenAI({ apiKey }).models.generateContent({
+            model,
+            contents: prompt,
+            config: { temperature, maxOutputTokens: 500 },
+          })).text || '').trim();
       if (!reply) throw new Error('Réponse IA vide.');
-      return res.json({ success: true, reply, provider: 'gemini', model });
+      return res.json({ success: true, reply, provider: usesGroq ? 'groq' : 'gemini', model });
     } catch (error: any) {
       console.error('Luna AI Error:', error?.message || error);
       return res.status(502).json({ success: false, error: 'Luna ne peut pas répondre pour le moment.' });

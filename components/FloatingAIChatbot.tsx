@@ -56,7 +56,7 @@ const FloatingAIChatbot: React.FC<FloatingAIChatbotProps> = ({ currentUser, curr
   const localFallback = (question: string) => {
     if (/réglage|paramètre|parametre|config/i.test(question)) return ownerApproved && config.allowAccountSettings !== false ? 'Je peux vous guider dans les réglages. Les changements sensibles nécessitent toujours votre confirmation dans l’écran concerné.' : 'Je peux expliquer les réglages, mais leur modification nécessite l’accord explicite du propriétaire du compte.';
     if (/paiement|caisse|validation/i.test(question)) return `Il y a ${context.opérations_en_attente} opération(s) en attente. Les validations restent soumises aux droits de votre rôle.`;
-    return `Je fonctionne actuellement en mode d’aide local. Votre rôle est ${role} et ${context.élèves_actifs} élève(s) actif(s) sont comptabilisés. Configurez GEMINI_API_KEY sur le serveur pour activer les réponses génératives de Luna.`;
+    return `Je fonctionne actuellement en mode d’aide local. Votre rôle est ${role} et ${context.élèves_actifs} élève(s) actif(s) sont comptabilisés. Configurez la clé du fournisseur sélectionné (GROQ_API_KEY ou GEMINI_API_KEY) sur le serveur pour activer les réponses génératives de Luna.`;
   };
 
   const handleSend = async (suggestedMessage?: string) => {
