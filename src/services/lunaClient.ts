@@ -18,15 +18,17 @@ const hasReply = (response: any) => Boolean(response?.success && String(response
  * EDUCO historically defaulted to Gemini in the browser, which meant a valid
  * GROQ_API_KEY on Render was never used unless every browser had explicitly
  * saved the Groq model locally. We now prefer Groq when no model is stored and
- * transparently retry Groq when an old Gemini preference cannot answer.
+ * transparently retry the other provider when an old browser preference cannot
+ * answer because its server-side key is not configured.
  */
 export async function askLunaResilient(payload: LunaRequest) {
   const requestedModel = String(payload.model || '').trim();
   const primaryModel = requestedModel || GROQ_MODEL_ALIAS;
 
   const models = [primaryModel];
-  if (primaryModel !== GROQ_MODEL_ALIAS) models.push(GROQ_MODEL_ALIAS);
-  if (primaryModel === GROQ_MODEL_ALIAS && requestedModel && requestedModel !== GEMINI_MODEL) {
+  if (primaryModel !== GROQ_MODEL_ALIAS) {
+    models.push(GROQ_MODEL_ALIAS);
+  } else {
     models.push(GEMINI_MODEL);
   }
 
