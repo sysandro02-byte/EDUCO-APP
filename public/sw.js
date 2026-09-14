@@ -1,4 +1,4 @@
-const CACHE_NAME = 'educo-shell-v5';
+const CACHE_NAME = 'educo-shell-v6';
 const APP_SHELL = [
   '/', '/index.html', '/manifest.json', '/educo-icon.png',
   'https://cdn.tailwindcss.com',
@@ -50,10 +50,7 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
 
-  // Browser extensions and other custom protocols cannot be stored by Cache.
   if (!['http:', 'https:'].includes(url.protocol)) return;
-  // Only own EDUCO assets and explicitly listed CDN resources belong to this
-  // cache. Other third-party requests keep their normal browser behaviour.
   if (url.origin !== self.location.origin && !isShellUrl(url.href)) return;
   if (url.origin === self.location.origin && (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/'))) return;
 
@@ -62,18 +59,14 @@ self.addEventListener('fetch', (event) => {
     const cacheKey = event.request.mode === 'navigate' ? '/' : event.request;
     const cached = await cache.match(cacheKey);
 
-    if (cached) {
-      event.waitUntil(fetch(event.request).then(async (response) => {
-        if (isCacheable(response)) await cache.put(cacheKey, response.clone());
-      }).catch(() => undefined));
-      return cached;
-    }
-
+    // Prefer the current deployment whenever the network is available. This
+    // prevents an installed PWA from showing an old shell after a deployment.
     try {
-      const response = await fetch(event.request);
+      const response = await fetch(event.request, { cache: 'no-store' });
       if (isCacheable(response)) await cache.put(cacheKey, response.clone());
       return response;
     } catch (error) {
+      if (cached) return cached;
       if (event.request.mode === 'navigate') return (await cache.match('/')) || Response.error();
       throw error;
     }
