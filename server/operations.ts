@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Express } from 'express';
 import { canonicalizeRole } from '../src/services/userAccountWorkflow.ts';
+import { registerPushNotifications } from './push.ts';
 
 const direction = ['Promoteur', 'Directeur Général', 'Directeur des Etudes', 'Directeur du Primaire'];
 const finance = ['Promoteur', 'Directeur Général', 'Responsable des finances'];
@@ -48,6 +49,8 @@ export function mutateOperations(current: any, key: string, body: any) {
 // School settings already provide durable JSON storage. Compare-and-swap keeps
 // independent accounts from overwriting each other's changes, without a migration.
 export function registerOperations(app: Express, requireAuth: any, getUser: any, getClient: any) {
+  registerPushNotifications(app, requireAuth, getUser, getClient);
+
   app.post('/api/records/:table/delete', requireAuth, async (req, res) => {
     try {
       const table = String(req.params.table);
