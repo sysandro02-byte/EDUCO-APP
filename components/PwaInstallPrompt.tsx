@@ -68,6 +68,8 @@ export const PwaInstallPrompt: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
+    let syncedOnce = false;
+
     const checkPush = async () => {
       if (cancelled || !isInstalled()) return;
       setInstalled(true);
@@ -78,8 +80,13 @@ export const PwaInstallPrompt: React.FC = () => {
       if (permission === 'unsupported' || permission === 'denied') return;
 
       if (permission === 'granted') {
+        if (syncedOnce) {
+          setShowPushPrompt(false);
+          return;
+        }
         const synced = await syncExistingPushSubscription().catch(() => false);
         if (synced) {
+          syncedOnce = true;
           setShowPushPrompt(false);
           return;
         }
