@@ -7,16 +7,54 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { Analytics } from '@vercel/analytics/react';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
 
-// Cache the full current Vite build at installation. The worker is deliberately
-// registered here (instead of relying on a remote CDN) so installed EDUCO keeps
-// its layout when the device is offline.
+class AppErrorBoundary extends React.Component<React.PropsWithChildren, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown, info: React.ErrorInfo) {
+    console.error('[EDUCO] Erreur de rendu non récupérée :', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, fontFamily: 'sans-serif' }}>
+          <section style={{ maxWidth: 560, textAlign: 'center' }}>
+            <h1 style={{ fontSize: 24, marginBottom: 12 }}>EDUCO n’a pas pu afficher cette page</h1>
+            <p style={{ marginBottom: 20 }}>
+              Rechargez l’application. Si le problème persiste, videz le cache du site puis réessayez.
+            </p>
+            <button type="button" onClick={() => window.location.reload()} style={{ padding: '10px 16px', cursor: 'pointer' }}>
+              Recharger EDUCO
+            </button>
+          </section>
+        </main>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').then(registration => {
-      registration.update().catch(() => undefined);
-    }).catch(error => {
-      console.warn('Impossible d’activer le mode hors connexion :', error);
-    });
+  window.addEventListener('load', async () => {
+    if (import.meta.env.PROD) {
+      navigator.serviceWorker.register('/sw.js').then(registration => {
+        registration.update().catch(() => undefined);
+      }).catch(error => {
+        console.warn('Impossible d’activer le mode hors connexion :', error);
+      });
+      return;
+    }
+
+    // A previously installed production worker can intercept Vite assets and
+    // leave the AI Studio/local preview blank or stale. Development must stay
+    // entirely controlled by Vite.
+    const registrations = await navigator.serviceWorker.getRegistrations().catch(() => []);
+    await Promise.all(registrations.map(registration => registration.unregister()));
   });
 }
 
@@ -27,9 +65,13 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 
 root.render(
-  <GoogleOAuthProvider clientId={(import.meta as any).env.VITE_GOOGLE_CLIENT_ID || 'dummy-client-id'}>
-    <App />
-    <PwaInstallPrompt />
-    <Analytics />
-  </GoogleOAuthProvider>
+  <React.StrictMode>
+    <AppErrorBoundary>
+      <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || 'dummy-client-id'}>
+        <App />
+        <PwaInstallPrompt />
+        <Analytics />
+      </GoogleOAuthProvider>
+    </AppErrorBoundary>
+  </React.StrictMode>
 );
