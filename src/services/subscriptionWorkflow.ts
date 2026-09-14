@@ -17,7 +17,7 @@ export interface SchoolLike {
 export const normalizeSubscriptionStatus = (status?: SubscriptionStatus | null) => {
   const value = String(status || '').trim().toLocaleLowerCase('fr-FR')
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  if (['active', 'actif', 'paid', 'paye', 'approved', 'approuve', 'validated', 'valide'].includes(value)) return 'active';
+  if (['active', 'actif', 'activee', 'activated', 'paid', 'paye', 'approved', 'approuve', 'validated', 'valide', 'enabled'].includes(value)) return 'active';
   if (['expired', 'expire', 'revoked', 'revoque'].includes(value)) return value;
   return value || 'pending';
 };
@@ -48,7 +48,7 @@ export const calculateSubscriptionEndDate = (startDate: Date, months?: number | 
 export const isSubscriptionExpired = (subscription: SubscriptionLike, now = new Date()) => {
   const endDate = resolveExpiryDate(subscription?.endDate);
   const status = normalizeSubscriptionStatus(subscription?.status);
-  return !endDate || endDate.getTime() < now.getTime() || status === 'expired' || status === 'revoque';
+  return !endDate || endDate.getTime() < now.getTime() || status === 'expired' || status === 'revoque' || status === 'revoked';
 };
 
 export const pickCurrentActiveSubscription = <T extends SubscriptionLike>(subscriptions: T[], now = new Date()) =>
@@ -60,10 +60,23 @@ export const ensureActivationBelongsToSchool = (
   subscription: SubscriptionLike,
   school: SchoolLike,
 ) => {
-  const sameSchoolId = Number(subscription.schoolId) === Number(school.id);
-  const sameSchoolIdentifier = normalizeSchoolIdentifier(subscription.schoolIdentifier)
-    === normalizeSchoolIdentifier(school.identifier);
-  return sameSchoolId && sameSchoolIdentifier;
+  const subscriptionSchoolId = String(subscription.schoolId ?? '').trim();
+  const schoolId = String(school.id ?? '').trim();
+  const subscriptionIdentifier = normalizeSchoolIdentifier(subscription.schoolIdentifier);
+  const schoolIdentifier = normalizeSchoolIdentifier(school.identifier);
+
+  const sameSchoolId = Boolean(subscriptionSchoolId && schoolId)
+    && (Number.isFinite(Number(subscriptionSchoolId)) && Number.isFinite(Number(schoolId))
+      ? Number(subscriptionSchoolId) === Number(schoolId)
+      : subscriptionSchoolId === schoolId);
+  const sameSchoolIdentifier = Boolean(subscriptionIdentifier && schoolIdentifier)
+    && subscriptionIdentifier === schoolIdentifier;
+
+  // Older licences were sometimes issued before school_id was backfilled or
+  // before the identifier format was normalized/padded. A match on either
+  // stable school scope is sufficient; requiring both incorrectly rejected a
+  // licence that genuinely belonged to the current establishment.
+  return sameSchoolId || sameSchoolIdentifier;
 };
 
 export const buildIssuedSubscriptionStatus = (): SubscriptionStatus => 'pending';
