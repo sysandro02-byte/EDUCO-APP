@@ -9,6 +9,8 @@ const DEFAULT_DEV_API_TARGET = 'https://educo-app.onrender.com';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   const devApiTarget = (env.VITE_DEV_API_TARGET || DEFAULT_DEV_API_TARGET).replace(/\/$/, '');
+  const publicSupabaseUrl = env.VITE_SUPABASE_URL || env.SUPABASE_URL || '';
+  const publicSupabaseAnonKey = env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY || '';
 
   return {
     server: {
@@ -67,8 +69,12 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       'process.env.NODE_ENV': JSON.stringify(mode === 'production' ? 'production' : 'development'),
-      'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY || ''),
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || ''),
+      // Only public Supabase values are allowed into the browser bundle.
+      // AI provider keys remain server-only and are consumed by /api/ai/chat.
+      'process.env.VITE_SUPABASE_URL': JSON.stringify(publicSupabaseUrl),
+      'process.env.SUPABASE_URL': JSON.stringify(publicSupabaseUrl),
+      'process.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(publicSupabaseAnonKey),
+      'process.env.SUPABASE_ANON_KEY': JSON.stringify(publicSupabaseAnonKey),
     },
     resolve: {
       alias: {
