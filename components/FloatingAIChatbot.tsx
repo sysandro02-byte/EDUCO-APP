@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Bot, LoaderCircle, Send, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { User } from './UserForm';
 import { SchoolSettings } from '../App';
-import { askLuna } from '../src/services/api';
+import { askLunaResilient, DEFAULT_LUNA_MODEL } from '../src/services/lunaClient';
 
 interface FloatingAIChatbotProps {
   currentUser: User | null;
@@ -16,7 +16,18 @@ interface FloatingAIChatbotProps {
 
 type LunaConfig = { enabled?: boolean; name?: string; allowAccountSettings?: boolean; model?: string; temperature?: number; };
 const getStoredConfig = (): LunaConfig => {
-  try { return JSON.parse(localStorage.getItem('EDUCO_AI_CHATBOT_CONFIG') || '{}'); } catch { return {}; }
+  const defaults: LunaConfig = {
+    enabled: true,
+    name: 'Luna',
+    allowAccountSettings: true,
+    model: DEFAULT_LUNA_MODEL,
+    temperature: 0.7,
+  };
+  try {
+    return { ...defaults, ...JSON.parse(localStorage.getItem('EDUCO_AI_CHATBOT_CONFIG') || '{}') };
+  } catch {
+    return defaults;
+  }
 };
 
 const FloatingAIChatbot: React.FC<FloatingAIChatbotProps> = ({ currentUser, currentUserRole, schoolSettings, transactions = [], users = [], payments = [], hasCriticalAlert = false }) => {
@@ -38,8 +49,6 @@ const FloatingAIChatbot: React.FC<FloatingAIChatbotProps> = ({ currentUser, curr
     alerte_critique: hasCriticalAlert,
   }), [role, schoolSettings, users, payments, transactions, hasCriticalAlert]);
 
-  // Configuration is applied immediately when the administrator saves it in
-  // the same tab, and also follows cross-tab localStorage updates.
   useEffect(() => {
     const refreshConfig = () => setConfig(getStoredConfig());
     const onStorage = (event: StorageEvent) => {
@@ -56,7 +65,7 @@ const FloatingAIChatbot: React.FC<FloatingAIChatbotProps> = ({ currentUser, curr
   const localFallback = (question: string) => {
     if (/réglage|paramètre|parametre|config/i.test(question)) return ownerApproved && config.allowAccountSettings !== false ? 'Je peux vous guider dans les réglages. Les changements sensibles nécessitent toujours votre confirmation dans l’écran concerné.' : 'Je peux expliquer les réglages, mais leur modification nécessite l’accord explicite du propriétaire du compte.';
     if (/paiement|caisse|validation/i.test(question)) return `Il y a ${context.opérations_en_attente} opération(s) en attente. Les validations restent soumises aux droits de votre rôle.`;
-    return `Je fonctionne actuellement en mode d’aide local. Votre rôle est ${role} et ${context.élèves_actifs} élève(s) actif(s) sont comptabilisés. Configurez la clé du fournisseur sélectionné (GROQ_API_KEY ou GEMINI_API_KEY) sur le serveur pour activer les réponses génératives de Luna.`;
+    return `Je fonctionne actuellement en mode d’aide local. Votre rôle est ${role} et ${context.élèves_actifs} élève(s) actif(s) sont comptabilisés. Le serveur IA n’a pas répondu ; vérifiez la variable GROQ_API_KEY sur Render et redéployez le service si elle vient d’être ajoutée.`;
   };
 
   const handleSend = async (suggestedMessage?: string) => {
@@ -65,10 +74,20 @@ const FloatingAIChatbot: React.FC<FloatingAIChatbotProps> = ({ currentUser, curr
     setMessages(previous => [...previous, { from: 'user', text: trimmed }]);
     setMessage('');
     setIsSending(true);
-    const response = await askLuna({ message: trimmed, model: config.model, temperature: config.temperature, context });
-    const reply = response?.success && response.reply ? response.reply : localFallback(trimmed);
-    setMessages(previous => [...previous, { from: 'assistant', text: reply }]);
-    setIsSending(false);
+    try {
+      const response = await askLunaResilient({
+        message: trimmed,
+        model: config.model || DEFAULT_LUNA_MODEL,
+        temperature: config.temperature,
+        context,
+      });
+      const reply = response?.success && response.reply ? response.reply : localFallback(trimmed);
+      setMessages(previous => [...previous, { from: 'assistant', text: reply }]);
+    } catch {
+      setMessages(previous => [...previous, { from: 'assistant', text: localFallback(trimmed) }]);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   if (!isEnabled) return null;
