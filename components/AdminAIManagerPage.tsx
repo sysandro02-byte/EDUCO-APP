@@ -267,7 +267,7 @@ export const AdminAIManagerPage: React.FC<AdminAIManagerPageProps> = ({ schools 
                 {[
                   { id: 'gemini-2.5-flash', name: 'Google Gemini 2.5 Flash', desc: 'Recommandé : Vitesse instantanée & excellente rédaction pédagogique.' },
                   { id: 'gemini-1.5-pro', name: 'Google Gemini 1.5 Pro', desc: 'Raisonnement approfondi pour synthèses complexes.' },
-                  { id: 'groq-llama-3', name: 'Groq LLaMA 3.3 70B', desc: 'Moteur open-source ultra-performant à très faible latence.' }
+                  { id: 'groq-llama-3', name: 'Groq GPT-OSS 20B', desc: 'Moteur open-source rapide disponible pour cette connexion Groq.' }
                 ].map(m => (
                   <label
                     key={m.id}

@@ -5973,7 +5973,7 @@ async function startServer() {
       const requestedModel = String(req.body?.model || 'gemini-2.5-flash');
       const usesGroq = requestedModel === 'groq-llama-3';
       const model = usesGroq
-        ? 'llama-3.3-70b-versatile'
+        ? 'openai/gpt-oss-20b'
         : requestedModel === 'gemini-1.5-pro'
           ? 'gemini-1.5-pro'
           : 'gemini-2.5-flash';
@@ -6031,7 +6031,7 @@ async function startServer() {
       const groq = new Groq({ apiKey });
       const completion = await groq.chat.completions.create({
         messages: [{ role: 'user', content: prompt }],
-        model: 'llama-3.3-70b-versatile',
+        model: 'openai/gpt-oss-20b',
       });
       
       res.json({ text: completion.choices[0]?.message?.content || '' });
