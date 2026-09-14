@@ -1,4 +1,4 @@
-const CACHE_NAME = 'educo-shell-v6';
+const CACHE_NAME = 'educo-shell-v7';
 const APP_SHELL = [
   '/', '/index.html', '/manifest.json', '/educo-icon.png',
   'https://cdn.tailwindcss.com',
@@ -46,6 +46,60 @@ self.addEventListener('activate', (event) => {
   })());
 });
 
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { body: event.data ? event.data.text() : 'Vous avez une nouvelle notification EDUCO.' };
+  }
+
+  const title = String(payload.title || 'EDUCO');
+  const body = String(payload.body || payload.message || 'Vous avez une nouvelle notification EDUCO.');
+  const url = typeof payload.url === 'string' && payload.url.startsWith('/') ? payload.url : '/';
+  const tag = String(payload.tag || `educo-${Date.now()}`);
+
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    windows.forEach((client) => client.postMessage({ type: 'EDUCO_PUSH_RECEIVED', payload }));
+
+    await self.registration.showNotification(title, {
+      body,
+      icon: '/educo-icon.png',
+      badge: '/educo-icon.png',
+      tag,
+      renotify: true,
+      silent: false,
+      timestamp: Number(payload.timestamp || Date.now()),
+      data: { url, type: payload.type || 'info' },
+      actions: [{ action: 'open', title: 'Ouvrir EDUCO' }],
+      vibrate: [180, 80, 180],
+    });
+  })());
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetPath = typeof event.notification.data?.url === 'string'
+    && event.notification.data.url.startsWith('/')
+    ? event.notification.data.url
+    : '/';
+  const targetUrl = new URL(targetPath, self.location.origin).href;
+
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of windows) {
+      if (new URL(client.url).origin === self.location.origin) {
+        await client.focus();
+        if ('navigate' in client && client.url !== targetUrl) await client.navigate(targetUrl);
+        client.postMessage({ type: 'EDUCO_NOTIFICATION_OPENED', url: targetPath });
+        return;
+      }
+    }
+    if (self.clients.openWindow) await self.clients.openWindow(targetUrl);
+  })());
+});
+
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
@@ -59,8 +113,6 @@ self.addEventListener('fetch', (event) => {
     const cacheKey = event.request.mode === 'navigate' ? '/' : event.request;
     const cached = await cache.match(cacheKey);
 
-    // Prefer the current deployment whenever the network is available. This
-    // prevents an installed PWA from showing an old shell after a deployment.
     try {
       const response = await fetch(event.request, { cache: 'no-store' });
       if (isCacheable(response)) await cache.put(cacheKey, response.clone());
