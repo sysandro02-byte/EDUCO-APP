@@ -1180,7 +1180,8 @@ async function startServer() {
     }
   });
 
-  // Serve Service Worker & PWA Manifest files
+  // Render serves the source worker while Vercel serves public/sw.js. Both
+  // workers build the same complete offline cache during installation.
   app.get('/sw.js', (req, res) => {
     res.sendFile(path.join(process.cwd(), 'sw.js'));
   });

@@ -1,83 +1,69 @@
-const CACHE_NAME = 'educo-pwa-v2';
-
-// Assets that can be cached for offline fallback
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json'
+const CACHE_NAME = 'educo-shell-v4';
+const APP_SHELL = [
+  '/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png',
+  'https://cdn.tailwindcss.com',
+  'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap'
 ];
 
-// Install Event: force new service worker to take control immediately
+const isCacheable = (response) => response && (response.ok || response.type === 'opaque');
+
+async function cacheCurrentBuild() {
+  const cache = await caches.open(CACHE_NAME);
+  const response = await fetch('/', { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Application shell unavailable (${response.status})`);
+
+  await cache.put('/', response.clone());
+  await cache.put('/index.html', response.clone());
+  const html = await response.text();
+  const assetPaths = [...html.matchAll(/(?:src|href)=["']([^"']+)["']/g)]
+    .map((match) => match[1])
+    .filter((asset) => asset.startsWith('/assets/') || asset === '/index.css');
+  const urls = [...new Set([...APP_SHELL, ...assetPaths])];
+
+  await Promise.allSettled(urls.map(async (url) => {
+    const assetResponse = await fetch(url, { cache: 'no-store' });
+    if (isCacheable(assetResponse)) await cache.put(url, assetResponse);
+  }));
+}
+
 self.addEventListener('install', (event) => {
-  self.skipWaiting();
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS).catch((err) => console.warn('Cache prefetch warning:', err));
-    })
-  );
+  event.waitUntil(cacheCurrentBuild().then(() => self.skipWaiting()));
 });
 
-// Activate Event: purge ALL old caches (e.g. educo-pwa-v1) immediately
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME) {
-            console.log('Clearing old PWA cache:', key);
-            return caches.delete(key);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
-  );
+  event.waitUntil((async () => {
+    const cacheNames = await caches.keys();
+    await Promise.all(cacheNames
+      .filter((name) => name.startsWith('educo-') && name !== CACHE_NAME)
+      .map((name) => caches.delete(name)));
+    await self.clients.claim();
+  })());
 });
 
-// Fetch Event: Network-First strategy for HTML and JS scripts to guarantee updates!
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
+  if (url.origin === self.location.origin && (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/'))) return;
 
-  // 1. Bypass non-GET requests
-  if (event.request.method !== 'GET') {
-    return;
-  }
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    const cacheKey = event.request.mode === 'navigate' ? '/' : event.request;
+    const cached = await cache.match(cacheKey);
 
-  // 2. Bypass API requests completely (Network-Only) - NEVER cache API responses!
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/')) {
-    return;
-  }
+    if (cached) {
+      event.waitUntil(fetch(event.request).then(async (response) => {
+        if (isCacheable(response)) await cache.put(cacheKey, response.clone());
+      }).catch(() => undefined));
+      return cached;
+    }
 
-  // 3. For Navigation (index.html, page transitions): NETWORK FIRST
-  if (event.request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('.html')) {
-    event.respondWith(
-      fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const copy = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          }
-          return networkResponse;
-        })
-        .catch(() => {
-          // Offline fallback
-          return caches.match('/index.html') || caches.match('/');
-        })
-    );
-    return;
-  }
-
-  // 4. For JS/CSS/Assets: Network First with cache fallback (ensures fresh updates)
-  event.respondWith(
-    fetch(event.request)
-      .then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-          const copy = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-        }
-        return networkResponse;
-      })
-      .catch(() => {
-        return caches.match(event.request);
-      })
-  );
+    try {
+      const response = await fetch(event.request);
+      if (isCacheable(response)) await cache.put(cacheKey, response.clone());
+      return response;
+    } catch (error) {
+      if (event.request.mode === 'navigate') return (await cache.match('/')) || Response.error();
+      throw error;
+    }
+  })());
 });

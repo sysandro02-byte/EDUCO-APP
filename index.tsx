@@ -7,26 +7,15 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { Analytics } from '@vercel/analytics/react';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
 
-// Service Worker auto-update and cache buster strategy
+// Cache the full current Vite build at installation. The worker is deliberately
+// registered here (instead of relying on a remote CDN) so installed EDUCO keeps
+// its layout when the device is offline.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').then(reg => {
-      // Force update check on load
-      reg.update().catch(() => {});
-      
-      reg.addEventListener('updatefound', () => {
-        const installingWorker = reg.installing;
-        if (installingWorker) {
-          installingWorker.addEventListener('statechange', () => {
-            if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              console.log('Nouvelle version d\'EDUCO disponible. Actualisation automatique...');
-              window.location.reload();
-            }
-          });
-        }
-      });
-    }).catch(err => {
-      console.warn('Erreur enregistrement Service Worker:', err);
+    navigator.serviceWorker.register('/sw.js').then(registration => {
+      registration.update().catch(() => undefined);
+    }).catch(error => {
+      console.warn('Impossible d’activer le mode hors connexion :', error);
     });
   });
 }
