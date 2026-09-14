@@ -96,6 +96,11 @@ const PersonnelPage: React.FC<PersonnelPageProps> = ({ personnel, transactions, 
   const canPaySalary = currentUserRole === 'Admin' || currentUserRole === 'Caissière' || currentUserRole === 'Responsable des finances';
   const canGenerateBadges = ['Admin', 'Caissière', 'Responsable des finances', 'Directeur des Etudes'].includes(currentUserRole);
   const isCaisseClosedForCashier = currentUserRole === 'Caissière' && !isCaisseOpen;
+  const getSalary = (person: Personnel) => {
+    const amount = Number(person.baseSalary);
+    return Number.isFinite(amount) ? amount : 0;
+  };
+  const formatSalary = (person: Personnel) => getSalary(person).toLocaleString('fr-FR');
   const normalize = (value: unknown) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr-FR');
   const roles = useMemo(() => [...new Set(personnel.map(person => person.role).filter(Boolean))].sort(), [personnel]);
   const filteredPersonnel = useMemo(() => {
@@ -176,7 +181,7 @@ const PersonnelPage: React.FC<PersonnelPageProps> = ({ personnel, transactions, 
               <tr key={person.id}>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{person.name}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{person.role}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{person.baseSalary.toLocaleString()} {schoolSettings.currency}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatSalary(person)} {schoolSettings.currency}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{person.lastPaymentDate}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-4">
                    {canGenerateBadges && (
@@ -279,7 +284,7 @@ const PersonnelPage: React.FC<PersonnelPageProps> = ({ personnel, transactions, 
         title="Confirmation de suppression - Personnel"
         itemType="le membre du personnel"
         itemName={personnelToDelete ? `${personnelToDelete.name}` : undefined}
-        itemDetails={personnelToDelete ? `Poste / Rôle : ${personnelToDelete.role} ${personnelToDelete.matricule ? `• Matricule : ${personnelToDelete.matricule}` : ''} • Salaire de base : ${personnelToDelete.baseSalary.toLocaleString('fr-FR')} FCFA` : undefined}
+        itemDetails={personnelToDelete ? `Poste / Rôle : ${personnelToDelete.role} ${personnelToDelete.matricule ? `• Matricule : ${personnelToDelete.matricule}` : ''} • Salaire de base : ${formatSalary(personnelToDelete)} ${schoolSettings.currency || 'FCFA'}` : undefined}
         warningNote="Attention : La suppression de ce collaborateur retirera ses accès, sa fiche de paie et son historique de contrat. Cette action est irréversible."
         confirmText="Supprimer le membre"
         cancelText="Annuler"

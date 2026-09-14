@@ -298,7 +298,10 @@ const App: React.FC = () => {
                 name: row.name || sessionEmail.split('@')[0],
                 email: row.email || sessionEmail,
                 role: row.role || 'Admin',
-                schoolId: row.school_id || row.schoolId || 1,
+                // A licence belongs to an establishment. Never substitute a
+                // default school here: doing so can give a new account the
+                // entitlement of another establishment.
+                schoolId: row.school_id ?? row.schoolId ?? null,
                 status: row.status || 'active',
                 avatar: row.avatar,
                 permissions: row.permissions,
@@ -473,7 +476,7 @@ const App: React.FC = () => {
                     name: dbU.name || trimmedEmail.split('@')[0],
                     email: dbU.email || trimmedEmail,
                     role: dbU.role || 'Personnel',
-                    schoolId: dbU.school_id || dbU.schoolId || 1,
+                    schoolId: dbU.school_id ?? dbU.schoolId ?? null,
                     status: dbU.status || 'active',
                     avatar: dbU.avatar,
                     permissions: dbU.permissions,
@@ -1754,7 +1757,11 @@ const App: React.FC = () => {
     try {
       const userWithSchool = {
         ...userToSave,
-        schoolId: (userToSave as any).schoolId || currentUser?.schoolId || (schoolSettings as any)?.id,
+        // The authenticated creator's school is authoritative for every
+        // account type, including parents. Its active licence is therefore
+        // automatically shared by each created account.
+        schoolId: currentUser?.schoolId ?? (userToSave as any).schoolId ?? (schoolSettings as any)?.id,
+        licenseSchoolId: currentUser?.schoolId ?? (userToSave as any).schoolId ?? (schoolSettings as any)?.id,
         schoolName: (userToSave as any).schoolName || (currentUser as any)?.schoolName || schoolSettings?.name,
       };
       const result = await saveUserToDb(userWithSchool);
@@ -1763,6 +1770,7 @@ const App: React.FC = () => {
           ...userWithSchool,
           ...result,
           schoolId: (result as any).schoolId || (result as any).school_id || (userWithSchool as any).schoolId,
+          licenseSchoolId: (result as any).licenseSchoolId || (result as any).schoolId || (result as any).school_id || (userWithSchool as any).schoolId,
           schoolName: (result as any).schoolName || (result as any).school_name || (userWithSchool as any).schoolName,
         };
         if (userToSave.id) {
@@ -3358,6 +3366,45 @@ const App: React.FC = () => {
     }
 
     switch(activePage) {
+      case 'Vue d\'ensemble':
+        // The mobile navigation uses this label. It is a real role-aware
+        // overview, not a placeholder page.
+        if (loggedInRole === 'Promoteur') {
+          return <PromoterDashboard
+            users={users}
+            payments={payments}
+            budget={budget}
+            transactions={transactions}
+            topClasses={topClasses}
+            classes={classes}
+            attendance={attendance}
+            personnel={personnel}
+            fees={fees}
+            grades={grades}
+            financialEvents={financialEvents}
+            schoolSettings={schoolSettings}
+            currentUser={currentUser}
+            setActivePage={setActivePage}
+            onUpdateTransactionStatus={handleUpdateTransactionStatus}
+            subscriptionInfo={subscriptionInfo}
+            isLicenseActive={isSubscriptionActive}
+            onOpenSubscriptionModal={() => setIsSubscriptionModalOpen(true)}
+          />;
+        }
+        return <SchoolOverview
+          topClasses={topClasses}
+          users={users}
+          payments={payments}
+          personnel={personnel}
+          budget={budget}
+          transactions={transactions}
+          grades={grades}
+          classes={classes}
+          attendance={attendance}
+          schoolSettings={schoolSettings}
+          setActivePage={setActivePage}
+          currentUserRole={loggedInRole}
+        />;
       case 'AdminSpecialLogin':
         if (currentUser) {
           if (loggedInRole === 'Admin') {

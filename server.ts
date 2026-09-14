@@ -177,7 +177,10 @@ const ensureSchoolIdentifier = async (school: any, supabaseAdmin?: any) => {
 const mapSupabaseUser = (user: any) => user ? ({
   id: user.id,
   uid: user.uid,
-  schoolId: user.school_id || user.schoolId,
+  schoolId: user.school_id ?? user.schoolId ?? null,
+  // A subscription is scoped to its school. Expose the inherited scope so
+  // clients never need to guess or fall back to another establishment.
+  licenseSchoolId: user.school_id ?? user.schoolId ?? null,
   name: user.name,
   email: user.email,
   role: canonicalizeRole(user.role),
@@ -269,21 +272,26 @@ const mapSupabaseFee = (f: any) => f ? ({
   class: f.class || f.className || f.class_name
 }) : null;
 
-const mapSupabasePersonnel = (p: any) => p ? ({
-  id: p.id,
-  userId: p.user_id || p.userId,
-  schoolId: p.school_id || p.schoolId,
-  matricule: p.matricule,
-  role: p.role,
-  baseSalary: p.base_salary || p.baseSalary,
-  salary: p.salary || p.base_salary || p.baseSalary,
-  hireDate: p.hire_date || p.hireDate,
-  bankAccount: p.bank_account || p.bankAccount,
-  name: p.name || `Personnel #${p.id}`,
-  email: p.email || '',
-  phone: p.phone || '',
-  status: normalizeAccountStatus(p.status)
-}) : null;
+const mapSupabasePersonnel = (p: any) => {
+  if (!p) return null;
+  const parsedSalary = Number(p.base_salary ?? p.baseSalary ?? p.salary ?? 0);
+  const baseSalary = Number.isFinite(parsedSalary) ? parsedSalary : 0;
+  return {
+    id: p.id,
+    userId: p.user_id || p.userId,
+    schoolId: p.school_id || p.schoolId,
+    matricule: p.matricule,
+    role: p.role,
+    baseSalary,
+    salary: baseSalary,
+    hireDate: p.hire_date || p.hireDate,
+    bankAccount: p.bank_account || p.bankAccount,
+    name: p.name || `Personnel #${p.id}`,
+    email: p.email || '',
+    phone: p.phone || '',
+    status: normalizeAccountStatus(p.status)
+  };
+};
 
 const mapSupabaseGrade = (g: any, subjectName?: string) => g ? ({
   id: String(g.id),
@@ -1702,7 +1710,8 @@ async function startServer() {
               email_confirm: true,
               user_metadata: {
                 name: parentName,
-                role: 'Parent'
+                role: 'Parent',
+                schoolId: schoolObj.id,
               }
             });
             if (authUser?.user?.id) {
@@ -1771,6 +1780,7 @@ async function startServer() {
       res.json({
         success: true,
         user: newParent,
+        licenseSchoolId: schoolObj.id,
         school: schoolObj,
         student: linkedStudent,
         message: `Compte Parent créé avec succès pour l'établissement "${schoolObj.name}".`
@@ -2080,7 +2090,8 @@ async function startServer() {
           email_confirm: true,
           user_metadata: {
             name: req.body.name || requestEmail.split('@')[0],
-            role: canonicalRequestedRole || 'Enseignant'
+            role: canonicalRequestedRole || 'Enseignant',
+            schoolId: targetSchoolId,
           }
         });
         
@@ -2190,7 +2201,7 @@ async function startServer() {
           loginUrl: `${getPublicAppUrl(req)}/?login=1`,
         }).catch(err => console.warn('User welcome email warning:', err));
 
-        return res.json(mapSupabaseUser(sbUser));
+        return res.json({ ...mapSupabaseUser(sbUser), licenseSchoolId: targetSchoolId });
       }
 
       if (requestEmail) {
@@ -2206,7 +2217,7 @@ async function startServer() {
         status: req.body.status || 'Actif',
         schoolId: targetSchoolId
       }).returning();
-      return res.json(newUser[0]);
+      return res.json({ ...newUser[0], licenseSchoolId: targetSchoolId });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

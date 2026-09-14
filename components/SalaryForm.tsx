@@ -56,7 +56,10 @@ const SalaryForm: React.FC<SalaryFormProps> = ({ personnel, onSave, onCancel, ra
       incomeTax: 0,
   });
 
-  const { baseSalary, primes = [], deductions = [] } = personnel;
+  const baseSalaryValue = Number(personnel.baseSalary);
+  const baseSalary = Number.isFinite(baseSalaryValue) ? baseSalaryValue : 0;
+  const primes = Array.isArray(personnel.primes) ? personnel.primes : [];
+  const deductions = Array.isArray(personnel.deductions) ? personnel.deductions : [];
 
   useEffect(() => {
     const allowanceAmount = parseFloat(allowance) || 0;
@@ -64,7 +67,7 @@ const SalaryForm: React.FC<SalaryFormProps> = ({ personnel, onSave, onCancel, ra
     const additionalDeductionVal = parseFloat(customDeductionAmount) || 0;
 
     // Primes contractuelles + Prime exceptionnelle classique + Prime ad-hoc custom
-    const basePrimesTotal = primes.reduce((sum, p) => sum + p.amount, 0);
+    const basePrimesTotal = primes.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
     const totalPrimes = basePrimesTotal + allowanceAmount + additionalPrimeVal;
 
     // Salaire brut de base pour charges
@@ -83,7 +86,7 @@ const SalaryForm: React.FC<SalaryFormProps> = ({ personnel, onSave, onCancel, ra
       : 0;
 
     // Retenues contractuelles + Retenue ad-hoc custom
-    const baseDeductionsTotal = deductions.reduce((sum, d) => sum + d.amount, 0);
+    const baseDeductionsTotal = deductions.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
     const totalDeductions = baseDeductionsTotal + additionalDeductionVal;
 
     // Somme de toutes les retenues et charges

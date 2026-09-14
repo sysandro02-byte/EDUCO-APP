@@ -1,11 +1,14 @@
-const CACHE_NAME = 'educo-shell-v4';
+const CACHE_NAME = 'educo-shell-v5';
 const APP_SHELL = [
-  '/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png',
+  '/', '/index.html', '/manifest.json', '/educo-icon.png',
   'https://cdn.tailwindcss.com',
   'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap'
 ];
 
 const isCacheable = (response) => response && (response.ok || response.type === 'opaque');
+const isShellUrl = (url) => APP_SHELL.some((shellUrl) =>
+  new URL(shellUrl, self.location.origin).href === url
+);
 
 async function cacheCurrentBuild() {
   const cache = await caches.open(CACHE_NAME);
@@ -21,7 +24,10 @@ async function cacheCurrentBuild() {
   const urls = [...new Set([...APP_SHELL, ...assetPaths])];
 
   await Promise.allSettled(urls.map(async (url) => {
-    const assetResponse = await fetch(url, { cache: 'no-store' });
+    const request = url.startsWith('/')
+      ? new Request(url, { cache: 'no-store' })
+      : new Request(url, { mode: 'no-cors', cache: 'no-store' });
+    const assetResponse = await fetch(request);
     if (isCacheable(assetResponse)) await cache.put(url, assetResponse);
   }));
 }
@@ -43,6 +49,12 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
+
+  // Browser extensions and other custom protocols cannot be stored by Cache.
+  if (!['http:', 'https:'].includes(url.protocol)) return;
+  // Only own EDUCO assets and explicitly listed CDN resources belong to this
+  // cache. Other third-party requests keep their normal browser behaviour.
+  if (url.origin !== self.location.origin && !isShellUrl(url.href)) return;
   if (url.origin === self.location.origin && (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/'))) return;
 
   event.respondWith((async () => {

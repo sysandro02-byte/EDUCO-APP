@@ -76,7 +76,7 @@ const mapSupabaseUser = (user: any) => user ? {
   email: user.email,
   name: user.name || user.email?.split('@')[0] || 'Utilisateur',
   role: user.role || 'Personnel',
-  schoolId: user.school_id || user.schoolId,
+  schoolId: user.school_id ?? user.schoolId ?? null,
   avatar: user.avatar,
   status: user.status || 'active',
   studentId: user.student_id || user.studentId || user.matricule,
