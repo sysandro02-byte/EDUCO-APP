@@ -65,13 +65,11 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 
 root.render(
-  <React.StrictMode>
-    <AppErrorBoundary>
-      <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || 'dummy-client-id'}>
-        <App />
-        <PwaInstallPrompt />
-        <Analytics />
-      </GoogleOAuthProvider>
-    </AppErrorBoundary>
-  </React.StrictMode>
+  <AppErrorBoundary>
+    <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || 'dummy-client-id'}>
+      <App />
+      <PwaInstallPrompt />
+      <Analytics />
+    </GoogleOAuthProvider>
+  </AppErrorBoundary>
 );
