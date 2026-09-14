@@ -12,7 +12,7 @@
     "build:studio": "vite build",
     "build:server": "esbuild server.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server.js",
     "check": "npm run lint && npm run build:studio",
-    "start": "node dist/server.js",
+    "start": "node --import ./server/dbAccessGuard.mjs dist/server.js",
     "preview": "vite preview --host 0.0.0.0 --port 3001",
     "test:e2e": "playwright test",
     "test:e2e:receipt-bulletin": "playwright test tests/e2e/receipt-bulletin-print.spec.ts",
