@@ -91,7 +91,9 @@ const getMaintenanceClient = () => {
   if (maintenanceClient !== undefined) return maintenanceClient;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const url = getSupabaseUrl(key);
-  if (!url || !key || decodeJwtPayload(key)?.role !== 'service_role') return (maintenanceClient = null);
+  const legacyServiceRole = decodeJwtPayload(key)?.role === 'service_role';
+  const modernServerSecret = typeof key === 'string' && key.startsWith('sb_secret_');
+  if (!url || !key || (!legacyServiceRole && !modernServerSecret)) return (maintenanceClient = null);
   try {
     maintenanceClient = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
   } catch {
