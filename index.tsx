@@ -6,6 +6,9 @@ import './index.css';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { Analytics } from '@vercel/analytics/react';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
+import { installSessionExpiryGuard } from './src/services/sessionExpiryGuard';
+
+installSessionExpiryGuard();
 
 class AppErrorBoundary extends React.Component<React.PropsWithChildren, { hasError: boolean }> {
   state = { hasError: false };
