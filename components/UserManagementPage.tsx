@@ -41,12 +41,12 @@ import { Class } from './ClassForm';
 import { Fee } from './FeeForm';
 import { SchoolSettings, SchoolSubscriptionInfo } from '../App';
 import { showAppFeedback } from '../src/utils/appFeedback';
-import { canonicalizeRole } from '../src/services/userAccountWorkflow';
+import { canDeleteAccount, canonicalizeRole } from '../src/services/userAccountWorkflow';
 
 interface UserManagementPageProps {
   users: User[];
   onSaveUser: (user: User) => void | Promise<void>;
-  onDeleteUser: (userId: number) => void;
+  onDeleteUser: (userId: number) => void | Promise<void>;
   currentUserRole: string;
   currentUser?: User | null;
   classes: Class[];
@@ -123,10 +123,15 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
     setIsDeleteModalOpen(true);
   };
 
-  const confirmDeleteUser = () => {
+  const confirmDeleteUser = async () => {
     if (userToDelete && userToDelete.id) {
-      onDeleteUser(userToDelete.id);
-      showToast(`Compte de ${userToDelete.name} supprimé.`);
+      try {
+        await onDeleteUser(userToDelete.id);
+        showToast(`Compte de ${userToDelete.name} supprimé.`);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Impossible de supprimer ce compte.');
+        return;
+      }
     }
     setIsDeleteModalOpen(false);
     setUserToDelete(null);
@@ -318,6 +323,7 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
   };
 
   const canManageUsers = ['Admin', 'Co-admin', 'Promoteur'].includes(currentUserRole);
+  const canDeleteUser = (user: User) => canDeleteAccount(currentUserRole, user.role);
   const canGenerateBadges = ['Admin', 'Co-admin', 'Promoteur', 'Caissière', 'Responsable des finances', 'Directeur des Etudes'].includes(currentUserRole);
   const canActivateStudentAccount = ['Caissière', 'Responsable des finances', 'Directeur des Etudes'].includes(currentUserRole);
 
@@ -734,22 +740,22 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({
                         </button>
                       )}
                       {canManageUsers && (
-                        <>
-                          <button 
-                            onClick={() => handleEditUser(user)} 
-                            className="p-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-xl transition-colors cursor-pointer border border-indigo-200 dark:border-indigo-800"
-                            title="Modifier les informations"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteUser(user)} 
-                            className="p-2 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-xl transition-colors cursor-pointer border border-rose-200 dark:border-rose-800"
-                            title="Supprimer ce compte"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </>
+                        <button
+                          onClick={() => handleEditUser(user)}
+                          className="p-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-xl transition-colors cursor-pointer border border-indigo-200 dark:border-indigo-800"
+                          title="Modifier les informations"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      )}
+                      {canDeleteUser(user) && (
+                        <button
+                          onClick={() => handleDeleteUser(user)}
+                          className="p-2 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-xl transition-colors cursor-pointer border border-rose-200 dark:border-rose-800"
+                          title="Supprimer ce compte"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       )}
                     </div>
                   </td>

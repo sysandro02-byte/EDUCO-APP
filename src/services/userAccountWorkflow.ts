@@ -45,6 +45,18 @@ export const canonicalizeRole = (role?: string | null) => {
   return canonicalRolesByNormalized.get(normalizedRole) || originalRole;
 };
 
+/** Server and UI share this policy so a restricted account cannot bypass the interface. */
+export const canDeleteAccount = (actorRole?: string | null, targetRole?: string | null) => {
+  const actor = canonicalizeRole(actorRole);
+  const target = canonicalizeRole(targetRole);
+
+  if (!['Admin', 'Co-admin', 'Promoteur', 'Responsable des finances', 'Directeur Général', 'Directeur des Etudes'].includes(actor)) return false;
+  if (target === 'Admin') return false;
+  if (target === 'Co-admin' && actor !== 'Admin') return false;
+  if (actor === 'Directeur des Etudes') return ['Enseignant', 'Élève'].includes(target);
+  return true;
+};
+
 export const normalizeAccountStatus = (status?: string | null) => {
   const normalized = String(status || '').trim().toLowerCase();
   if (!normalized || normalized === 'active' || normalized === 'actif') return 'Actif';

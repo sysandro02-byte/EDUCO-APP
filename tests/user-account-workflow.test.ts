@@ -5,6 +5,7 @@ import {
   buildSchoolAcronym,
   buildStaffMatricule,
   buildStudentMatricule,
+  canDeleteAccount,
   canonicalizeRole,
   getAccountCreationKind,
   normalizeAccountStatus,
@@ -55,6 +56,17 @@ test('account creation workflow separates roles and enforces a single normalized
     buildStaffMatricule({ schoolAcronym: 'Louka Tech', role: 'Responsable des finances', idOrSeed: 987 }),
     /^LT-PER-\d{4}-00987$/,
   );
+});
+
+test('account deletion permissions restrict the DE to teachers and students', () => {
+  assert.equal(canDeleteAccount('DE', 'Enseignant'), true);
+  assert.equal(canDeleteAccount('Directeur des Etudes', 'Élève'), true);
+  assert.equal(canDeleteAccount('DE', 'Parent'), false);
+  assert.equal(canDeleteAccount('DE', 'Responsable des finances'), false);
+  assert.equal(canDeleteAccount('RAF', 'Parent'), true);
+  assert.equal(canDeleteAccount('Directeur Général', 'Enseignant'), true);
+  assert.equal(canDeleteAccount('Promoteur', 'Admin'), false);
+  assert.equal(canDeleteAccount('Enseignant', 'Élève'), false);
 });
 
 test('school operations persist settings and collection entries consistently', () => {

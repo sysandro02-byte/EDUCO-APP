@@ -182,10 +182,12 @@ export async function deleteUserFromDb(userId: number) {
       method: 'DELETE',
       headers,
     });
-    return await res.json();
+    const data = await safeJson(res, {});
+    if (!res.ok || data?.error) throw new Error(data?.error || 'Impossible de supprimer ce compte.');
+    return data;
   } catch (error) {
     console.warn('Error deleting user from DB:', error);
-    return null;
+    throw error;
   }
 }
 

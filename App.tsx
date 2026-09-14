@@ -1848,8 +1848,8 @@ const App: React.FC = () => {
 
   const handleDeleteUser = async (userId: number) => {
     const targetUser = users.find(u => u.id === userId);
-    await deleteUserFromDb(userId);
-    await deleteUserFromSupabaseDirectly(userId);
+    const result = await deleteUserFromDb(userId);
+    if (!result?.success) throw new Error(result?.error || 'Impossible de supprimer ce compte.');
     setUsers(prev => prev.filter(user => user.id !== userId));
     const userDesc = targetUser ? `Nom: ${targetUser.name}, Rôle: ${targetUser.role}, Email: ${targetUser.email || 'N/A'}` : `ID: ${userId}`;
     addActivityLog('Suppression de compte', `Compte supprimé avec succès - ${userDesc}`);

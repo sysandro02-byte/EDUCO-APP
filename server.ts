@@ -54,6 +54,7 @@ import {
   buildSchoolAcronym,
   buildStaffMatricule,
   buildStudentMatricule,
+  canDeleteAccount,
   canonicalizeRole,
   getAccountCreationKind,
   normalizeAccountStatus,
@@ -551,6 +552,33 @@ import { createWebAuthnRouter } from './server/webauthn.ts';
 
 dotenv.config();
 dotenv.config({ path: '.env.local', override: true });
+
+const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[character] || character));
+
+const sendAccountDeletionEmail = async (targetUser: any, actor: any) => {
+  const recipientEmail = String(targetUser?.email || '').trim();
+  if (!recipientEmail) return { success: false, skipped: true };
+
+  const targetName = String(targetUser?.name || 'Utilisateur');
+  const actorName = String(actor?.name || 'Administration EDUCO');
+  const actorRole = canonicalizeRole(actor?.role) || 'Administration EDUCO';
+  try {
+    const result = await sendBrevoEmail({
+      to: [{ email: recipientEmail, name: targetName }],
+      subject: 'Votre compte EDUCO a été supprimé',
+      htmlContent: `<p>Bonjour ${escapeHtml(targetName)},</p><p>Votre compte EDUCO a été supprimé de la plateforme par <strong>${escapeHtml(actorName)}</strong> (${escapeHtml(actorRole)}).</p><p>Si vous pensez qu’il s’agit d’une erreur, veuillez contacter votre établissement.</p>`,
+      textContent: `Bonjour ${targetName},\n\nVotre compte EDUCO a été supprimé de la plateforme par ${actorName} (${actorRole}).\n\nSi vous pensez qu’il s’agit d’une erreur, veuillez contacter votre établissement.`,
+      tags: ['account-deletion'],
+    });
+    if (!result.success) console.warn('Account-deletion email warning:', result.error || 'delivery failed');
+    return result;
+  } catch (error: any) {
+    console.warn('Account-deletion email warning:', error?.message || error);
+    return { success: false, error: error?.message || 'delivery failed' };
+  }
+};
 
 const { 
   users, students, schools, classes, fees, payments, transactions, personnel, 
@@ -2407,7 +2435,8 @@ async function startServer() {
   app.delete('/api/users/:id', requireAuth, async (req: AuthRequest, res) => {
     try {
       const dbUser = await getRequestUser(req);
-      if (!['Admin', 'Co-admin', 'Promoteur'].includes(dbUser?.role || '')) {
+      const actorRole = canonicalizeRole(dbUser?.role);
+      if (!['Admin', 'Co-admin', 'Promoteur', 'Responsable des finances', 'Directeur Général', 'Directeur des Etudes'].includes(actorRole)) {
         return res.status(403).json({ error: 'Permission refusée. Seuls les administrateurs peuvent supprimer des comptes.' });
       }
 
@@ -2424,16 +2453,20 @@ async function startServer() {
         if (error) throw error;
         targetUser = mapSupabaseUser(data);
 
-        const isCentralAdmin = dbUser?.role === 'Admin' || dbUser?.role === 'Co-admin';
+        const isCentralAdmin = actorRole === 'Admin' || actorRole === 'Co-admin';
         if (!targetUser || (!isCentralAdmin && Number(targetUser.schoolId) !== Number(dbUser?.schoolId))) {
           return res.status(403).json({ error: 'Cet utilisateur appartient à un autre établissement.' });
         }
-        if (targetUser.role === 'Admin') {
+        if (canonicalizeRole(targetUser.role) === 'Admin') {
           return res.status(403).json({ error: 'Le compte Admin unique ne peut pas être supprimé.' });
         }
-        if (targetUser.role === 'Co-admin' && dbUser?.role !== 'Admin') {
+        if (canonicalizeRole(targetUser.role) === 'Co-admin' && actorRole !== 'Admin') {
           return res.status(403).json({ error: 'Seul l’Admin peut supprimer un Co-admin.' });
         }
+        if (!canDeleteAccount(actorRole, targetUser.role)) {
+          return res.status(403).json({ error: 'Le Directeur des Etudes peut uniquement supprimer les comptes des enseignants et des élèves.' });
+        }
+        await sendAccountDeletionEmail(targetUser, dbUser);
 
         await Promise.all([
           supabaseAdmin.from('students').delete().eq('user_id', targetUserId),
@@ -2450,16 +2483,20 @@ async function startServer() {
         // Fetch target user details before deletion
         const [dbTargetUser] = await db.select().from(users).where(eq(users.id, targetUserId));
         targetUser = dbTargetUser;
-        const isCentralAdmin = dbUser?.role === 'Admin' || dbUser?.role === 'Co-admin';
+        const isCentralAdmin = actorRole === 'Admin' || actorRole === 'Co-admin';
         if (!targetUser || (!isCentralAdmin && Number(targetUser.schoolId) !== Number(dbUser?.schoolId))) {
           return res.status(403).json({ error: 'Cet utilisateur appartient à un autre établissement.' });
         }
-        if (targetUser.role === 'Admin') {
+        if (canonicalizeRole(targetUser.role) === 'Admin') {
           return res.status(403).json({ error: 'Le compte Admin unique ne peut pas être supprimé.' });
         }
-        if (targetUser.role === 'Co-admin' && dbUser?.role !== 'Admin') {
+        if (canonicalizeRole(targetUser.role) === 'Co-admin' && actorRole !== 'Admin') {
           return res.status(403).json({ error: 'Seul l’Admin peut supprimer un Co-admin.' });
         }
+        if (!canDeleteAccount(actorRole, targetUser.role)) {
+          return res.status(403).json({ error: 'Le Directeur des Etudes peut uniquement supprimer les comptes des enseignants et des élèves.' });
+        }
+        await sendAccountDeletionEmail(targetUser, dbUser);
 
         // Delete referencing dependent records
         await db.delete(students).where(eq(students.userId, targetUserId));
