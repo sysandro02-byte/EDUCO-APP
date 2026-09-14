@@ -57,6 +57,11 @@ export const canDeleteAccount = (actorRole?: string | null, targetRole?: string 
   return true;
 };
 
+/** Full grade data is reserved for academic roles; parents and students use their personal space. */
+export const canViewGrades = (role?: string | null) => [
+  'Admin', 'Co-admin', 'Promoteur', 'Directeur Général', 'Directeur des Etudes', 'Directeur du Primaire', 'Enseignant',
+].includes(canonicalizeRole(role));
+
 export const normalizeAccountStatus = (status?: string | null) => {
   const normalized = String(status || '').trim().toLowerCase();
   if (!normalized || normalized === 'active' || normalized === 'actif') return 'Actif';

@@ -6,6 +6,7 @@ import {
   buildStaffMatricule,
   buildStudentMatricule,
   canDeleteAccount,
+  canViewGrades,
   canonicalizeRole,
   getAccountCreationKind,
   normalizeAccountStatus,
@@ -67,6 +68,15 @@ test('account deletion permissions restrict the DE to teachers and students', ()
   assert.equal(canDeleteAccount('Directeur Général', 'Enseignant'), true);
   assert.equal(canDeleteAccount('Promoteur', 'Admin'), false);
   assert.equal(canDeleteAccount('Enseignant', 'Élève'), false);
+});
+
+test('grade visibility is limited to academic roles', () => {
+  assert.equal(canViewGrades('Caissière'), false);
+  assert.equal(canViewGrades('Responsable des finances'), false);
+  assert.equal(canViewGrades('Parent'), false);
+  assert.equal(canViewGrades('Élève'), false);
+  assert.equal(canViewGrades('Enseignant'), true);
+  assert.equal(canViewGrades('DE'), true);
 });
 
 test('school operations persist settings and collection entries consistently', () => {

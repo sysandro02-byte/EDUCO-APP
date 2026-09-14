@@ -55,6 +55,7 @@ import {
   buildStaffMatricule,
   buildStudentMatricule,
   canDeleteAccount,
+  canViewGrades,
   canonicalizeRole,
   getAccountCreationKind,
   normalizeAccountStatus,
@@ -649,9 +650,10 @@ async function startServer() {
     return requireAuth(req, res, async () => {
       try {
         const user = await getRequestUser(req);
-        const role = user?.role || '';
+        const role = canonicalizeRole(user?.role);
         if (req.method === 'GET') {
           if (/parent|élève|eleve/i.test(role) && resource !== 'school') return res.status(403).json({ error: 'Utilisez votre espace personnel pour consulter vos données.' });
+          if (resource === 'grades' && !canViewGrades(role)) return res.status(403).json({ error: 'Accès aux notes non autorisé pour ce compte.' });
         } else if (!['Admin', 'Co-admin', ...writers[resource]].includes(role)
           || (resource === 'transactions' && req.path.endsWith('/status') && role === 'Caissière')) {
           return res.status(403).json({ error: 'Opération non autorisée pour ce compte.' });
@@ -3391,6 +3393,8 @@ async function startServer() {
     try {
       const dbUser = await getRequestUser(req);
       if (!dbUser?.schoolId) return res.status(403).json({ error: 'No school associated' });
+      const role = canonicalizeRole(dbUser.role);
+      if (!canViewGrades(role)) return res.status(403).json({ error: 'Accès aux notes non autorisé pour ce compte.' });
 
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase non configuré.' });
@@ -3404,8 +3408,13 @@ async function startServer() {
       if (studentResult.error) throw studentResult.error;
       const studentUserIds = new Map((studentResult.data || []).map((s: any) => [Number(s.id), s.user_id]));
       const classIds = new Set<number>();
-      const { data: schoolClasses } = await supabaseAdmin.from('classes').select('id').eq('school_id', dbUser.schoolId);
+      const { data: schoolClasses } = await supabaseAdmin.from('classes').select('id,teacher_id').eq('school_id', dbUser.schoolId);
       (schoolClasses || []).forEach((c: any) => classIds.add(Number(c.id)));
+      if (role === 'Enseignant') {
+        for (const schoolClass of schoolClasses || []) {
+          if (Number(schoolClass.teacher_id) !== Number(dbUser.id)) classIds.delete(Number(schoolClass.id));
+        }
+      }
       res.json((gradeRows || [])
         .filter((g: any) => classIds.has(Number(g.class_id || g.classId)))
         .map((g: any) => ({ ...mapSupabaseGrade(g, subjectsById.get(Number(g.subject_id || g.subjectId))), studentId: studentUserIds.get(Number(g.student_id)) || g.student_id })));
@@ -6022,7 +6031,7 @@ async function startServer() {
       const groq = new Groq({ apiKey });
       const completion = await groq.chat.completions.create({
         messages: [{ role: 'user', content: prompt }],
-        model: 'llama3-8b-8192',
+        model: 'llama-3.3-70b-versatile',
       });
       
       res.json({ text: completion.choices[0]?.message?.content || '' });
