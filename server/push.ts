@@ -18,7 +18,7 @@ interface PushPayload {
   tag?: string;
 }
 
-const MAX_DEVICES_PER_USER = 5;
+const MAX_DEVICES_PER_USER = 20;
 
 const getVapidConfig = () => {
   const publicKey = String(process.env.VAPID_PUBLIC_KEY || '').trim();
