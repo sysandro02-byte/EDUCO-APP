@@ -15,9 +15,6 @@ export default defineConfig(({ mode }) => {
       port: 3001,
       strictPort: false,
       host: '0.0.0.0',
-      hmr: {
-        clientPort: 443,
-      },
       proxy: {
         '/api': {
           target: devApiTarget,
