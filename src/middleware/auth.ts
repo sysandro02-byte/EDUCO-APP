@@ -119,29 +119,42 @@ export const requireAuth = async (
         user_metadata: verified.user.user_metadata,
       };
     }
+
     // Raw e-mail/UID bearer values are identities, not credentials. They are
     // accepted only in an explicitly opted-in local development environment.
     const allowInsecureLocalAuth = process.env.NODE_ENV !== 'production' && process.env.ALLOW_INSECURE_LOCAL_AUTH === 'true';
     if (!matched && !jwtPayload && !allowInsecureLocalAuth) {
       return res.status(401).json({ error: 'Accès non autorisé : session sécurisée requise.' });
     }
+
     const lookupEmail = matched?.email || jwtPayload?.email || (allowInsecureLocalAuth && token.includes('@') ? token : '');
-    if (!matched && supabase && lookupEmail) {
-      const { data: sbUser } = await supabase
+
+    // A signed EDUCO session contains a snapshot of the account at login time.
+    // The user's school can legitimately be attached/fixed afterwards (for
+    // example after a licence purchase or an account migration). Always refresh
+    // the authoritative profile so licensing uses the current school_id instead
+    // of a stale/null value embedded in an older token.
+    if (supabase && lookupEmail) {
+      const { data: sbUser, error: profileError } = await supabase
         .from('users')
         .select('*')
-        .eq('email', lookupEmail.toLowerCase())
+        .eq('email', String(lookupEmail).toLowerCase())
         .limit(1)
         .maybeSingle();
-      matched = mapSupabaseUser(sbUser) as any;
+
+      if (!profileError && sbUser) {
+        const authoritativeUser = mapSupabaseUser(sbUser);
+        matched = matched
+          ? { ...matched, ...authoritativeUser }
+          : authoritativeUser;
+      }
     }
 
     if (!matched && isDbConfigured() && allowInsecureLocalAuth) {
       const allUsers = await db.select().from(users).catch(() => []);
       matched = allUsers.find(u => u.uid === token || u.email === token || String(u.id) === token);
-      
+
       if (!matched && jwtPayload) {
-        // Decode JWT payload if available
         try {
           if (jwtPayload && (jwtPayload.email || jwtPayload.sub)) {
             const userEmail = jwtPayload.email || '';
@@ -154,7 +167,7 @@ export const requireAuth = async (
     if (!matched) {
       return res.status(401).json({ error: 'Accès non autorisé : utilisateur introuvable.' });
     }
-    
+
     req.user = matched;
     next();
   } catch (error) {
