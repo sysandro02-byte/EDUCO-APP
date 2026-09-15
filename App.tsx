@@ -264,59 +264,13 @@ const App: React.FC = () => {
           setLoading(false);
           return;
         }
-
-        // Check stored local user or fetch from backend API
-        const savedUserJson = localStorage.getItem('EDUCO_CURRENT_USER');
-        if (savedUserJson) {
-          try {
-            const parsedUser = JSON.parse(savedUserJson);
-            if (!otpVerified) {
-              setPendingOtpUser(parsedUser);
-            } else {
-              setCurrentUser(parsedUser);
-              const schoolResult = await getSchoolSettings();
-              if (schoolResult) {
-                setSchoolSettings(schoolResult);
-              }
-            }
-            setLoadingAuth(false);
-            setLoading(false);
-            return;
-          } catch (e) {}
-        }
-
-        // If session email exists, search Supabase DB users table
-        if (sessionEmail && url && !url.includes('demo-educo.supabase.co')) {
-          try {
-            const supabase = getSupabaseClient();
-            const { data: dbUsers } = await supabase.from('users').select('*').ilike('email', sessionEmail);
-            if (dbUsers && dbUsers.length > 0) {
-              const row = dbUsers[0];
-              const sbUser = {
-                id: row.id,
-                uid: row.uid || `usr_${row.id}`,
-                name: row.name || sessionEmail.split('@')[0],
-                email: row.email || sessionEmail,
-                role: row.role || 'Admin',
-                // A licence belongs to an establishment. Never substitute a
-                // default school here: doing so can give a new account the
-                // entitlement of another establishment.
-                schoolId: row.school_id ?? row.schoolId ?? null,
-                status: row.status || 'active',
-                avatar: row.avatar,
-                permissions: row.permissions,
-              };
-              localStorage.setItem('EDUCO_CURRENT_USER', JSON.stringify(sbUser));
-              if (!otpVerified) {
-                setPendingOtpUser(sbUser);
-              } else {
-                setCurrentUser(sbUser);
-              }
-              setLoadingAuth(false);
-              setLoading(false);
-              return;
-            }
-          } catch (e) {}
+        // Cached users are never trusted as authentication proof.
+        const storedToken = localStorage.getItem('EDUCO_USER_TOKEN') || '';
+        if (!storedToken) {
+          localStorage.removeItem('EDUCO_CURRENT_USER');
+          sessionStorage.removeItem('EDUCO_SESSION_ACTIVE');
+          setCurrentUser(null);
+          return;
         }
 
         const userResult = await getCurrentUser();
@@ -383,202 +337,37 @@ const App: React.FC = () => {
   }, [currentUser, inactivityTimeoutMinutes]);
 
   const handleLogin = async (email: string, password: string, isBiometric: boolean = false) => {
-    // 1. Verify email formatting before sending
     const trimmedEmail = (email || '').trim();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    
-    if (!trimmedEmail) {
-      return { success: false, error: 'Veuillez saisir une adresse email.' };
-    }
-    if (!emailRegex.test(trimmedEmail)) {
-      return { success: false, error: "Le format de l'adresse email est incorrect. Exemple: utilisateur@domaine.com" };
-    }
-    if (!isBiometric && (!password || password.trim().length < 4)) {
-      return { success: false, error: 'Le mot de passe doit contenir au moins 4 caractères.' };
-    }
-
+    if (!trimmedEmail || !emailRegex.test(trimmedEmail)) return { success: false, error: 'Veuillez saisir une adresse email valide.' };
+    if (!isBiometric && (!password || password.trim().length < 4)) return { success: false, error: 'Le mot de passe doit contenir au moins 4 caractères.' };
     try {
-      let loggedUser: any = null;
-      let authData: any = null;
-      let backendToken = '';
-      let backendError = '';
-      let backendUnavailable = false;
       const isAdminPortal = activePage === 'AdminSpecialLogin';
-
-      // 1. Try unified Backend Login API (/api/auth/login)
-      try {
-        const supabaseConfig = getStoredSupabaseConfig();
-        const loginHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (supabaseConfig.url && !supabaseConfig.url.includes('your-project.supabase.co')) {
-          loginHeaders['x-supabase-url'] = supabaseConfig.url;
+      let loggedUser: any = null;
+      let provenToken = localStorage.getItem('EDUCO_USER_TOKEN') || '';
+      if (isBiometric) {
+        if (!provenToken) return { success: false, error: 'Preuve biométrique absente ou expirée.' };
+        const verified = await getCurrentUser();
+        if (!verified?.user || String(verified.user.email || '').toLowerCase() !== trimmedEmail.toLowerCase()) {
+          localStorage.removeItem('EDUCO_USER_TOKEN');
+          localStorage.removeItem('EDUCO_CURRENT_USER');
+          return { success: false, error: 'La session biométrique n’a pas pu être validée.' };
         }
-        if (supabaseConfig.key && !supabaseConfig.key.includes('placeholder')) {
-          loginHeaders['x-supabase-key'] = supabaseConfig.key;
-        }
-        const loginRes = await fetch(getApiUrl('/api/auth/login'), {
-          method: 'POST',
-          headers: loginHeaders,
-          body: JSON.stringify({
-            email: trimmedEmail,
-            password: password,
-            isBiometric: isBiometric,
-            isAdminPortal: isAdminPortal
-          })
-        });
-
-        const resData = await loginRes.json().catch(() => null);
-        if (loginRes.ok) {
-          if (resData.success && resData.user) {
-            loggedUser = resData.user;
-            backendToken = resData.token || '';
-          } else {
-            backendUnavailable = true;
-          }
-        } else {
-          // Keep explicit access denials, but allow a direct Supabase attempt when
-          // the API service itself is unavailable or returned an invalid response.
-          if (resData && resData.error) {
-            backendError = resData.error;
-          }
-          backendUnavailable = loginRes.status >= 500 || !resData;
-        }
-      } catch (backendErr) {
-        console.warn('Backend login endpoint check error:', backendErr);
-        backendUnavailable = true;
+        loggedUser = verified.user;
+      } else {
+        const loginRes = await fetch(getApiUrl('/api/auth/login'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: trimmedEmail, password, isAdminPortal }) });
+        const data = await loginRes.json().catch(() => null);
+        if (!loginRes.ok || !data?.success || !data?.user || !data?.token) return { success: false, error: data?.error || 'Identifiants invalides. Vérifiez votre e-mail et votre mot de passe.' };
+        loggedUser = data.user; provenToken = data.token;
       }
-
-      // 2. If the API cannot be reached, authenticate directly with Supabase.
-      // A row in public.users alone is not sufficient: a valid Auth session is
-      // required before the profile is accepted.
-      if (!loggedUser) {
-        const { url } = getStoredSupabaseConfig();
-        if (url && !url.includes('demo-educo.supabase.co') && !url.includes('your-project.supabase.co')) {
-          try {
-            const supabase = getSupabaseClient();
-            if (!isBiometric) {
-              const res = await supabase.auth.signInWithPassword({
-                email: trimmedEmail,
-                password: password
-              });
-
-              authData = res.data;
-              if (res.data?.session?.user && !res.error) {
-                const { data: dbU, error: profileError } = await supabase
-                  .from('users')
-                  .select('*')
-                  .ilike('email', trimmedEmail)
-                  .maybeSingle();
-
-                if (dbU && !profileError) {
-                  loggedUser = {
-                    id: dbU.id,
-                    uid: dbU.uid || res.data.user.id,
-                    name: dbU.name || trimmedEmail.split('@')[0],
-                    email: dbU.email || trimmedEmail,
-                    role: dbU.role || 'Personnel',
-                    schoolId: dbU.school_id ?? dbU.schoolId ?? null,
-                    status: dbU.status || 'active',
-                    avatar: dbU.avatar,
-                    permissions: dbU.permissions,
-                    contact: dbU.contact,
-                    address: dbU.address
-                  };
-                } else {
-                  backendError = 'Compte authentifié, mais son profil utilisateur est introuvable dans la base EDUCO.';
-                }
-              }
-            }
-          } catch (sbErr) {
-            console.warn('Supabase login check:', sbErr);
-          }
-        }
-      }
-
-      // 3. Check local users array state
-      if (!loggedUser && users && users.length > 0) {
-        const localMatch = users.find((u: any) => u.email?.toLowerCase() === trimmedEmail.toLowerCase());
-        if (localMatch) {
-          loggedUser = localMatch;
-        }
-      }
-
-      // 4. Fallback search via findUserByEmail API
-      if (!loggedUser) {
-        const result = await findUserByEmail(trimmedEmail);
-        if (result?.user) {
-          loggedUser = result.user;
-        }
-      }
-
-      // Strict enforcement of recognized accounts only (no generic fallbacks for unrecognized emails/biometrics)
-      if (!loggedUser) {
-        return { 
-          success: false, 
-          error: backendError || (backendUnavailable
-            ? "Service d'authentification indisponible. Vérifiez la connexion Supabase puis réessayez."
-            : 'Identifiants invalides. Vérifiez votre e-mail et votre mot de passe.')
-        };
-      }
-
-      // Double-check: Rule that admin cannot log in from the standard homepage interface
-      if ((loggedUser.role === 'Admin' || loggedUser.role === 'Co-admin') && !isAdminPortal) {
-        return {
-          success: false,
-          error: "Accès refusé : L'administrateur n'est pas autorisé à se connecter depuis la page d'accueil. Veuillez utiliser le portail d'administration dédié."
-        };
-      }
-      if (isAdminPortal && loggedUser.role !== 'Admin' && loggedUser.role !== 'Co-admin') {
-        return {
-          success: false,
-          error: "Accès refusé : ce portail est réservé aux administrateurs et co-administrateurs."
-        };
-      }
-
-      if (loggedUser) {
-        if (loggedUser.role === 'Admin') {
-          loggedUser = { ...loggedUser, schoolId: null, school_id: null, schoolName: 'EDUCO APP' };
-        }
-        sessionStorage.setItem('EDUCO_SESSION_ACTIVE', 'true');
-        setInactivityNotice(null);
-        localStorage.setItem('EDUCO_CURRENT_USER', JSON.stringify(loggedUser));
-        if (backendToken) {
-          localStorage.setItem('EDUCO_USER_TOKEN', backendToken);
-        } else if (authData?.session?.access_token) {
-          localStorage.setItem('EDUCO_USER_TOKEN', authData.session.access_token);
-        } else {
-          localStorage.setItem('EDUCO_USER_TOKEN', trimmedEmail);
-        }
-        if (!otpVerified) {
-          setPendingOtpUser(loggedUser);
-          setActivePage('Tableau de bord');
-        } else {
-          setCurrentUser(loggedUser);
-          setActivePage('Tableau de bord');
-        }
-
-        // Check if user logged in with password and can register a biometric passkey
-        if (!isBiometric && isWebAuthnSupported() && loggedUser.email) {
-          fetchUserDevices(loggedUser.email).then(devs => {
-            if (devs.length === 0) {
-              setPasskeyPromptUser({
-                email: loggedUser.email,
-                userId: loggedUser.uid || String(loggedUser.id),
-                name: loggedUser.name
-              });
-            }
-          }).catch(() => {});
-        }
-
-        return { success: true };
-      }
-      
-      return { 
-        success: false, 
-        error: 'Identifiants incorrects. Veuillez vérifier votre adresse e-mail et mot de passe.' 
-      };
-    } catch (error: any) {
-      return { success: false, error: error.message || 'Une erreur inattendue est survenue.' };
-    }
+      if ((loggedUser.role === 'Admin' || loggedUser.role === 'Co-admin') && !isAdminPortal) return { success: false, error: "Accès refusé : utilisez le portail d’administration dédié." };
+      if (isAdminPortal && loggedUser.role !== 'Admin' && loggedUser.role !== 'Co-admin') return { success: false, error: "Accès refusé : ce portail est réservé aux administrateurs et co-administrateurs." };
+      if (loggedUser.role === 'Admin') loggedUser = { ...loggedUser, schoolId: null, school_id: null, schoolName: 'EDUCO APP' };
+      localStorage.setItem('EDUCO_USER_TOKEN', provenToken); localStorage.setItem('EDUCO_CURRENT_USER', JSON.stringify(loggedUser)); sessionStorage.setItem('EDUCO_SESSION_ACTIVE', 'true');
+      setInactivityNotice(null); if (!otpVerified) setPendingOtpUser(loggedUser); else setCurrentUser(loggedUser); setActivePage('Tableau de bord');
+      if (!isBiometric && isWebAuthnSupported() && loggedUser.email) fetchUserDevices(loggedUser.email).then(devs => { if (devs.length === 0) setPasskeyPromptUser({ email: loggedUser.email, userId: loggedUser.uid || String(loggedUser.id), name: loggedUser.name }); }).catch(() => {});
+      return { success: true };
+    } catch (error: any) { return { success: false, error: error?.message || 'Une erreur inattendue est survenue.' }; }
   };
 
   const handleLogout = async () => {

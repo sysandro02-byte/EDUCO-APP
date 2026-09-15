@@ -130,12 +130,10 @@ const decodeSupabaseJwtPayload = (key?: string | null): any | null => {
   }
 };
 
-const getSupabaseServerKey = (req?: any) => (
+const getSupabaseServerKey = (_req?: any) => (
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_ANON_KEY ||
-  process.env.VITE_SUPABASE_ANON_KEY ||
-  process.env.SUPABASE_KEY ||
-  (req?.headers?.['x-supabase-key'] as string)
+  process.env.SUPABASE_KEY
 );
 
 const getSupabaseServerKeyRole = (req?: any) => decodeSupabaseJwtPayload(getSupabaseServerKey(req))?.role;
@@ -202,7 +200,7 @@ const mapSupabaseUser = (user: any) => user ? ({
 }) : null;
 
 const getSupabaseAdmin = (req?: any) => {
-  let supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || (req?.headers?.['x-supabase-url'] as string);
+  let supabaseUrl = process.env.SUPABASE_URL;
   const serviceRoleKey = getSupabaseServerKey(req);
   if (!supabaseUrl) {
     const ref = decodeSupabaseJwtPayload(serviceRoleKey)?.ref;
@@ -665,6 +663,42 @@ async function startServer() {
 
   // WebAuthn / Passkeys API Routes
   app.use('/api/auth/webauthn', createWebAuthnRouter(getSupabaseAdmin, db, schema.webauthnCredentials));
+
+  // Password login: credentials are verified by Supabase Auth on the server.
+  // Public profile rows, cached browser users and biometric flags are never authentication proof.
+  app.post('/api/auth/login', rateLimit('login', 10, 60_000), async (req, res) => {
+    try {
+      const email = normalizeEmail(req.body?.email);
+      const password = String(req.body?.password || '');
+      const isAdminPortal = Boolean(req.body?.isAdminPortal);
+      if (!email || password.length < 4) return res.status(400).json({ success: false, error: 'Identifiants invalides.' });
+      if (req.body?.isBiometric) return res.status(400).json({ success: false, error: 'La biométrie doit utiliser la vérification WebAuthn dédiée.' });
+
+      const authClient = getSupabaseAdmin();
+      if (!authClient) return res.status(503).json({ success: false, error: 'Service d’authentification indisponible.' });
+      const { data: authData, error: authError } = await authClient.auth.signInWithPassword({ email, password });
+      if (authError || !authData?.user?.id || !authData?.session?.access_token) {
+        return res.status(401).json({ success: false, error: 'Identifiants invalides. Vérifiez votre e-mail et votre mot de passe.' });
+      }
+
+      const { data: profile, error: profileError } = await authClient.from('users').select('*').eq('uid', authData.user.id).limit(1).maybeSingle();
+      const resolvedProfile = profile || (await authClient.from('users').select('*').eq('email', email).limit(1).maybeSingle()).data;
+      if (profileError && !resolvedProfile) return res.status(401).json({ success: false, error: 'Profil EDUCO introuvable.' });
+      const user = mapSupabaseUser(resolvedProfile);
+      if (!user || user.status === 'Inactif' || user.status === 'inactive') return res.status(403).json({ success: false, error: 'Ce compte est inactif.' });
+
+      const isAdmin = user.role === 'Admin' || user.role === 'Co-admin';
+      if (isAdmin && !isAdminPortal) return res.status(403).json({ success: false, error: 'Utilisez le portail d’administration dédié.' });
+      if (isAdminPortal && !isAdmin) return res.status(403).json({ success: false, error: 'Ce portail est réservé aux administrateurs.' });
+
+      const token = createLocalSessionToken(user);
+      if (!token) return res.status(503).json({ success: false, error: 'Impossible de créer une session EDUCO sécurisée.' });
+      return res.json({ success: true, user, token });
+    } catch (error: any) {
+      console.error('Secure login error:', error);
+      return res.status(500).json({ success: false, error: 'Service d’authentification indisponible.' });
+    }
+  });
 
   // Ensure database tables & schema columns are synchronized asynchronously without blocking port binding
   ensureSchemaColumns().catch(err => {

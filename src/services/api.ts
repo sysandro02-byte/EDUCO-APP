@@ -12,55 +12,11 @@ import { getSupabaseClient, getStoredSupabaseConfig, isPlaceholderSupabaseUrl } 
 import { getApiUrl } from '../lib/apiConfig';
 
 async function getAuthHeaders() {
-  try {
-    const sbConfig = getStoredSupabaseConfig();
-    let session = null;
-    let token = localStorage.getItem('EDUCO_USER_TOKEN') || '';
-
-    // Skip Supabase auth check if using a placeholder URL to avoid DNS timeouts
-    if (!isPlaceholderSupabaseUrl(sbConfig.url)) {
-      const supabase = getSupabaseClient();
-      try {
-        const sessionRes = await Promise.race([
-          supabase.auth.getSession(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
-        ]) as any;
-        session = sessionRes?.data?.session;
-        if (session?.access_token) {
-          token = session.access_token;
-        }
-      } catch (err) {
-        console.warn('Supabase getSession timeout/error, skipping:', err);
-      }
-    }
-    if (!token) {
-      const savedUserStr = localStorage.getItem('EDUCO_CURRENT_USER');
-      if (savedUserStr) {
-        try {
-          const parsed = JSON.parse(savedUserStr);
-          token = parsed.uid || parsed.email || '';
-        } catch (e) {}
-      }
-    }
-    const sbHeaders: Record<string, string> = {};
-    if (!isPlaceholderSupabaseUrl(sbConfig.url)) {
-      sbHeaders['x-supabase-url'] = sbConfig.url;
-    }
-    if (sbConfig.key && !sbConfig.key.includes('placeholder')) {
-      sbHeaders['x-supabase-key'] = sbConfig.key;
-    }
-
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-      ...sbHeaders
-    };
-  } catch (e) {
-    return { 
-      'Content-Type': 'application/json',
-      'Authorization': ''
-    };
-  }
+  const token = localStorage.getItem('EDUCO_USER_TOKEN') || '';
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+  };
 }
 
 async function safeJson(res: Response, fallback: any = null) {
