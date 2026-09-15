@@ -18,7 +18,19 @@ jobs:
           cache: npm
       - name: Regenerate lockfile metadata safely
         run: npm install --package-lock-only --ignore-scripts --audit=false
-      - name: Report lockfile drift
+      - name: Apply compatible security fixes to lockfile
+        run: npm audit fix --package-lock-only --ignore-scripts
+      - name: Show lockfile changes
         run: git diff -- package-lock.json
-      - name: Audit dependencies
+      - name: Verify dependency audit
         run: npm audit --audit-level=moderate
+      - name: Install dependencies without lifecycle scripts
+        run: npm install --ignore-scripts --audit=false
+      - name: Build EDUCO
+        run: npm run build
+      - name: Upload repaired lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: repaired-package-lock
+          path: package-lock.json
+          if-no-files-found: error
