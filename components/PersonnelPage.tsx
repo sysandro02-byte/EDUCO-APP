@@ -79,7 +79,7 @@ const PersonnelPage: React.FC<PersonnelPageProps> = ({ personnel, transactions, 
         onPaySalary(personnelId, paymentData);
         setPayslipData({ 
             personnel: employee, 
-            netAmount: paymentData.netAmount, 
+            netAmount: paymentData.netAmount,
             paymentDetails: paymentData.details 
         });
         setIsPayModalOpen(false);
@@ -92,7 +92,7 @@ const PersonnelPage: React.FC<PersonnelPageProps> = ({ personnel, transactions, 
     setIsAddOrEditModalOpen(false);
   };
   
-  const canManagePersonnel = currentUserRole === 'Admin' || currentUserRole === 'Responsable des finances' || currentUserRole === 'Directeur Général';
+  const canManagePersonnel = ['Admin', 'Promoteur', 'Responsable des finances', 'Directeur Général'].includes(currentUserRole);
   const canPaySalary = currentUserRole === 'Admin' || currentUserRole === 'Caissière' || currentUserRole === 'Responsable des finances';
   const canGenerateBadges = ['Admin', 'Caissière', 'Responsable des finances', 'Directeur des Etudes'].includes(currentUserRole);
   const isCaisseClosedForCashier = currentUserRole === 'Caissière' && !isCaisseOpen;
