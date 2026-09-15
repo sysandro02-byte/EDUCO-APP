@@ -20,28 +20,5 @@
   "orientation": "portrait-primary",
   "lang": "fr-FR",
   "dir": "ltr",
-  "categories": ["education", "finance", "productivity", "business"],
-  "shortcuts": [
-    {
-      "name": "Tableau de Bord",
-      "short_name": "Dashboard",
-      "description": "Accéder directement au tableau de bord",
-      "url": "/?page=Tableau+de+Bord",
-      "icons": [{ "src": "/educo-icon.png", "sizes": "1254x1254" }]
-    },
-    {
-      "name": "Paiements & Caisse",
-      "short_name": "Caisse",
-      "description": "Enregistrer un paiement de frais scolaire",
-      "url": "/?page=Paiements",
-      "icons": [{ "src": "/educo-icon.png", "sizes": "1254x1254" }]
-    },
-    {
-      "name": "Gestion des Élèves",
-      "short_name": "Élèves",
-      "description": "Consulter la liste et les dossiers des élèves",
-      "url": "/?page=Élèves",
-      "icons": [{ "src": "/educo-icon.png", "sizes": "1254x1254" }]
-    }
-  ]
+  "categories": ["education", "finance", "productivity", "business"]
 }
