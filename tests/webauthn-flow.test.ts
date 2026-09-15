@@ -24,14 +24,9 @@ test('login options are JSON and each attempt gets its own challenge id', async 
   await withServer(async (baseUrl) => {
     const requestOptions = () => fetch(`${baseUrl}/api/auth/webauthn/login/options`, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-forwarded-host': 'educo-test.vercel.app',
-        'x-forwarded-proto': 'https',
-      },
+      headers: { 'content-type': 'application/json', 'x-forwarded-host': 'educo-test.vercel.app', 'x-forwarded-proto': 'https' },
       body: JSON.stringify({}),
     });
-
     const [firstResponse, secondResponse] = await Promise.all([requestOptions(), requestOptions()]);
     assert.match(firstResponse.headers.get('content-type') || '', /application\/json/);
     const first = await firstResponse.json() as any;
@@ -45,11 +40,7 @@ test('login options are JSON and each attempt gets its own challenge id', async 
 
 test('an account without a registered passkey gets a recoverable response', async () => {
   await withServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/auth/webauthn/login/options`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: 'no-passkey@example.com' }),
-    });
+    const response = await fetch(`${baseUrl}/api/auth/webauthn/login/options`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'no-passkey@example.com' }) });
     const body = await response.json() as any;
     assert.equal(response.status, 404);
     assert.equal(body.code, 'PASSKEY_NOT_REGISTERED');
@@ -58,24 +49,34 @@ test('an account without a registered passkey gets a recoverable response', asyn
 });
 
 test('API JSON reader reports HTML responses without leaking JSON.parse errors', async () => {
-  const response = new Response('<!doctype html><title>Vercel fallback</title>', {
-    status: 404,
-    headers: { 'content-type': 'text/html; charset=utf-8' },
-  });
-
+  const response = new Response('<!doctype html><title>Vercel fallback</title>', { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } });
   await assert.rejects(readApiJson(response), /proxy API a renvoyé une page HTML au lieu de JSON/);
 });
 
 test('invalid verification requests still return structured JSON', async () => {
   await withServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/auth/webauthn/login/verify`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: '{}',
-    });
+    const response = await fetch(`${baseUrl}/api/auth/webauthn/login/verify`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     const body = await response.json() as any;
     assert.equal(response.status, 400);
     assert.match(response.headers.get('content-type') || '', /application\/json/);
     assert.match(body.error, /absente/);
+  });
+});
+
+test('passkey registration and device management reject anonymous callers', async () => {
+  await withServer(async (baseUrl) => {
+    const cases: Array<[string, string, string?]> = [
+      ['POST', '/api/auth/webauthn/register/options', '{}'],
+      ['POST', '/api/auth/webauthn/register/verify', '{}'],
+      ['GET', '/api/auth/webauthn/devices'],
+      ['PATCH', '/api/auth/webauthn/devices/fake-credential', JSON.stringify({ deviceName: 'Attacker rename' })],
+      ['DELETE', '/api/auth/webauthn/devices/fake-credential'],
+    ];
+    for (const [method, path, body] of cases) {
+      const response = await fetch(`${baseUrl}${path}`, { method, headers: { 'content-type': 'application/json' }, ...(body ? { body } : {}) });
+      assert.equal(response.status, 401, `${method} ${path} must require authentication`);
+      const payload = await response.json() as any;
+      assert.ok(payload.error);
+    }
   });
 });

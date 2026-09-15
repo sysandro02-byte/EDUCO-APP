@@ -1,0 +1,27 @@
+name: WebAuthn Security
+
+on:
+  pull_request:
+    paths:
+      - 'server/webauthn.ts'
+      - 'src/services/webauthnService.ts'
+      - 'tests/webauthn-security.test.ts'
+      - 'tests/webauthn-flow.test.ts'
+      - '.github/workflows/webauthn-security.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # package-lock.json on main predates the existing web-push dependency.
+      # npm install repairs the lock in the ephemeral runner without committing
+      # unrelated lockfile churn into this security PR.
+      - run: npm install --ignore-scripts
+      - run: npm run build
+      - run: npx tsx --test tests/webauthn-flow.test.ts tests/webauthn-security.test.ts
