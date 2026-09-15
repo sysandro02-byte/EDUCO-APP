@@ -37,7 +37,6 @@ export function registerCollections(app: Express, requireAuth: any, getUser: any
         receipt_number: receipt, payment_method: req.body.paymentMethod || 'Espèce', status: 'paid',
       });
       if (paymentError) {
-        // Compensate a rejected payment so it cannot inflate the cash journal.
         const rollback = await client.from('transactions').delete().eq('id', transaction.id).eq('school_id', user.schoolId);
         if (rollback.error) throw new Error(`Paiement refusé. La transaction ${transaction.id} doit être rapprochée par le RAF : ${rollback.error.message}`);
         throw paymentError;
@@ -46,68 +45,68 @@ export function registerCollections(app: Express, requireAuth: any, getUser: any
     } catch (error: any) { res.status(500).json({ error: error.message }); }
   });
 
-  // Salary disbursements have a dedicated server-owned path. The client only
-  // identifies the employee and payment metadata; the contractual amount is
-  // always read from the authenticated user's school record.
+  const createSalaryTransaction = async (req: any, res: any, input: { personnelId?: number; employeeName?: string; salaryPeriod: string; paymentMethod?: string; notes?: string }) => {
+    const user = await getUser(req);
+    if (!user?.schoolId || !salaryRoles.has(String(user.role || ''))) return res.status(403).json({ error: 'Paiement de salaire non autorisé.' });
+    const client = getClient(req);
+    if (!client) return res.status(503).json({ error: 'Supabase non configuré.' });
+
+    const salaryPeriod = String(input.salaryPeriod || '').trim();
+    const paymentMethod = String(input.paymentMethod || 'Espèce').trim();
+    if (!salaryPeriodPattern.test(salaryPeriod)) return res.status(400).json({ error: 'Période salariale invalide.' });
+    if (!allowedSalaryMethods.has(paymentMethod)) return res.status(400).json({ error: 'Mode de paiement invalide.' });
+
+    let employeeQuery = client.from('personnel').select('id,name,base_salary,salary,school_id').eq('school_id', user.schoolId);
+    if (Number.isSafeInteger(input.personnelId) && Number(input.personnelId) > 0) employeeQuery = employeeQuery.eq('id', input.personnelId);
+    else if (input.employeeName) employeeQuery = employeeQuery.eq('name', input.employeeName);
+    else return res.status(400).json({ error: 'Personnel invalide.' });
+    const { data: employees, error: employeeError } = await employeeQuery.limit(2);
+    if (employeeError) throw employeeError;
+    if (!employees?.length) return res.status(404).json({ error: 'Personnel introuvable dans cet établissement.' });
+    if (employees.length !== 1) return res.status(409).json({ error: 'Nom de personnel ambigu. Utilisez le dossier personnel identifié.' });
+    const employee = employees[0];
+
+    const contractualSalary = Number(employee.base_salary ?? employee.salary ?? 0);
+    if (!Number.isFinite(contractualSalary) || contractualSalary <= 0) return res.status(409).json({ error: 'Le salaire contractuel doit être défini avant le paiement.' });
+
+    const marker = `[SALARY:${employee.id}:${salaryPeriod}]`;
+    const { data: duplicate, error: duplicateError } = await client.from('transactions').select('id').eq('school_id', user.schoolId).like('description', `%${marker}%`).limit(1);
+    if (duplicateError) throw duplicateError;
+    if (duplicate?.length) return res.status(409).json({ error: 'Un paiement existe déjà pour ce personnel et cette période.' });
+
+    const notes = String(input.notes || '').trim().slice(0, 500);
+    const description = `(Status: En attente) ${marker} Salaire - ${String(employee.name || `Personnel #${employee.id}`)} (${salaryPeriod})${notes ? ` — ${notes}` : ''}`;
+    const { data: transaction, error: transactionError } = await client.from('transactions').insert({
+      school_id: user.schoolId, type: 'Dépense', category: 'Salaires', amount: contractualSalary,
+      description, date: new Date().toISOString(), recorded_by: user.id,
+    }).select('*').single();
+    if (transactionError) throw transactionError;
+    return res.json({ ...mapTransaction(transaction), paymentMethod, salaryPeriod, personnelId: employee.id, authoritativeAmount: contractualSalary });
+  };
+
+  // Compatibility guard for the existing UI. Because registerCollections is
+  // mounted before the generic transaction route, salary-shaped transactions
+  // are intercepted here and the browser-supplied amount is ignored.
+  app.post('/api/transactions', requireAuth, async (req, res, next) => {
+    if (String(req.body?.category || '') !== 'Salaires') return next();
+    try {
+      const description = String(req.body?.description || '');
+      const match = description.match(/^Salaire\s*-\s*(.+?)\s*\(([^()]+)\)\s*$/i);
+      if (!match) return res.status(400).json({ error: 'Référence salariale invalide.' });
+      return await createSalaryTransaction(req, res, {
+        employeeName: match[1].trim(), salaryPeriod: match[2].trim(),
+        paymentMethod: req.body?.paymentMethod, notes: req.body?.notes,
+      });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || 'Paiement de salaire impossible.' });
+    }
+  });
+
   app.post('/api/salaries/pay', requireAuth, async (req, res) => {
     try {
-      const user = await getUser(req);
-      if (!user?.schoolId || !salaryRoles.has(String(user.role || ''))) {
-        return res.status(403).json({ error: 'Paiement de salaire non autorisé.' });
-      }
-      const client = getClient(req);
-      if (!client) return res.status(503).json({ error: 'Supabase non configuré.' });
-
-      const personnelId = Number(req.body?.personnelId);
-      const salaryPeriod = String(req.body?.salaryPeriod || '').trim();
-      const paymentMethod = String(req.body?.paymentMethod || 'Espèce').trim();
-      if (!Number.isSafeInteger(personnelId) || personnelId <= 0) return res.status(400).json({ error: 'Personnel invalide.' });
-      if (!salaryPeriodPattern.test(salaryPeriod)) return res.status(400).json({ error: 'Période salariale invalide.' });
-      if (!allowedSalaryMethods.has(paymentMethod)) return res.status(400).json({ error: 'Mode de paiement invalide.' });
-
-      const { data: employee, error: employeeError } = await client
-        .from('personnel')
-        .select('id,name,base_salary,salary,school_id')
-        .eq('id', personnelId)
-        .eq('school_id', user.schoolId)
-        .maybeSingle();
-      if (employeeError) throw employeeError;
-      if (!employee) return res.status(404).json({ error: 'Personnel introuvable dans cet établissement.' });
-
-      const contractualSalary = Number(employee.base_salary ?? employee.salary ?? 0);
-      if (!Number.isFinite(contractualSalary) || contractualSalary <= 0) {
-        return res.status(409).json({ error: 'Le salaire contractuel doit être défini avant le paiement.' });
-      }
-
-      // One pending/approved salary transaction per employee and period. This
-      // check is deliberately server-side so a modified browser cannot bypass it.
-      const marker = `[SALARY:${personnelId}:${salaryPeriod}]`;
-      const { data: duplicate, error: duplicateError } = await client
-        .from('transactions')
-        .select('id,description')
-        .eq('school_id', user.schoolId)
-        .like('description', `%${marker}%`)
-        .limit(1);
-      if (duplicateError) throw duplicateError;
-      if (duplicate?.length) return res.status(409).json({ error: 'Un paiement existe déjà pour ce personnel et cette période.' });
-
-      const notes = String(req.body?.notes || '').trim().slice(0, 500);
-      const description = `(Status: En attente) ${marker} Salaire - ${String(employee.name || `Personnel #${personnelId}`)} (${salaryPeriod})${notes ? ` — ${notes}` : ''}`;
-      const { data: transaction, error: transactionError } = await client.from('transactions').insert({
-        school_id: user.schoolId,
-        type: 'Dépense',
-        category: 'Salaires',
-        amount: contractualSalary,
-        description,
-        date: new Date().toISOString(),
-        recorded_by: user.id,
-      }).select('*').single();
-      if (transactionError) throw transactionError;
-
-      return res.json({
-        success: true,
-        transaction: { ...mapTransaction(transaction), paymentMethod, salaryPeriod, personnelId },
-        authoritativeAmount: contractualSalary,
+      return await createSalaryTransaction(req, res, {
+        personnelId: Number(req.body?.personnelId), salaryPeriod: req.body?.salaryPeriod,
+        paymentMethod: req.body?.paymentMethod, notes: req.body?.notes,
       });
     } catch (error: any) {
       return res.status(500).json({ error: error?.message || 'Paiement de salaire impossible.' });
