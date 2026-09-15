@@ -129,11 +129,26 @@ const PersonnelPage: React.FC<PersonnelPageProps> = ({ personnel, transactions, 
         </div>
       </div>
 
+      {/* Main Tabs Navigation */}
       <div className="flex border-b border-gray-200 mb-6 no-print">
-        <button onClick={() => setActiveTab('list')} className={`px-5 py-2.5 text-xs font-bold transition-all border-b-2 flex items-center gap-2 ${activeTab === 'list' ? 'border-[#1F4A59] text-[#1F4A59]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+        <button
+          onClick={() => setActiveTab('list')}
+          className={`px-5 py-2.5 text-xs font-bold transition-all border-b-2 flex items-center gap-2 ${
+            activeTab === 'list' 
+              ? 'border-[#1F4A59] text-[#1F4A59]' 
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
           📋 Liste du Personnel ({personnel.length})
         </button>
-        <button onClick={() => setActiveTab('analytics')} className={`px-5 py-2.5 text-xs font-bold transition-all border-b-2 flex items-center gap-2 ${activeTab === 'analytics' ? 'border-[#1F4A59] text-[#1F4A59]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+        <button
+          onClick={() => setActiveTab('analytics')}
+          className={`px-5 py-2.5 text-xs font-bold transition-all border-b-2 flex items-center gap-2 ${
+            activeTab === 'analytics' 
+              ? 'border-[#1F4A59] text-[#1F4A59]' 
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
           💼 Planification & Pilotage Salarial
         </button>
       </div>
@@ -169,51 +184,102 @@ const PersonnelPage: React.FC<PersonnelPageProps> = ({ personnel, transactions, 
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatSalary(person)} {schoolSettings.currency}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{person.lastPaymentDate}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-4">
-                   {canGenerateBadges && <button onClick={() => handleShowBadge(person)} className="text-gray-500 hover:text-gray-800 inline-flex items-center" title="Générer le badge"><BadgeIcon /></button>}
+                   {canGenerateBadges && (
+                    <button onClick={() => handleShowBadge(person)} className="text-gray-500 hover:text-gray-800 inline-flex items-center" title="Générer le badge">
+                      <BadgeIcon />
+                    </button>
+                   )}
                    {canManagePersonnel && (
                     <>
-                      <button onClick={() => handleEditClick(person)} className="text-indigo-600 hover:text-indigo-900 inline-flex items-center" title="Modifier le membre"><PencilIcon /></button>
-                      <button onClick={() => handleDeletePersonnelClick(person)} className="text-red-600 hover:text-red-900 inline-flex items-center" title="Supprimer le membre"><TrashIcon /></button>
+                      <button onClick={() => handleEditClick(person)} className="text-indigo-600 hover:text-indigo-900 inline-flex items-center" title="Modifier le membre">
+                        <PencilIcon />
+                      </button>
+                      <button onClick={() => handleDeletePersonnelClick(person)} className="text-red-600 hover:text-red-900 inline-flex items-center" title="Supprimer le membre">
+                        <TrashIcon />
+                      </button>
                     </>
                   )}
                   {canPaySalary && (
-                    <button onClick={() => handlePayClick(person)} disabled={isCaisseClosedForCashier} title={isCaisseClosedForCashier ? "La caisse est actuellement fermée" : `Payer ${person.name}`} className="px-4 py-2 bg-teal-500 text-white rounded-md hover:bg-teal-600 text-xs font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed">
+                    <button 
+                      onClick={() => handlePayClick(person)} 
+                      disabled={isCaisseClosedForCashier}
+                      title={isCaisseClosedForCashier ? "La caisse est actuellement fermée" : `Payer ${person.name}`}
+                      className="px-4 py-2 bg-teal-500 text-white rounded-md hover:bg-teal-600 text-xs font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
                       Payer
                     </button>
                   )}
                 </td>
               </tr>
             ))}
-            {filteredPersonnel.length === 0 && <tr><td colSpan={5} className="px-6 py-12 text-center text-sm text-slate-500">Aucun membre du personnel ne correspond à votre recherche.</td></tr>}
+            {filteredPersonnel.length === 0 && (
+              <tr><td colSpan={5} className="px-6 py-12 text-center text-sm text-slate-500">Aucun membre du personnel ne correspond à votre recherche.</td></tr>
+            )}
           </tbody>
         </table>
       </div>
       </>
       ) : (
         <div className="pt-2">
-          <SalaryAnalytics personnelList={personnel} transactions={transactions} schoolSettings={schoolSettings} rafSettings={rafSettings} currentUserRole={currentUserRole} />
+          <SalaryAnalytics 
+            personnelList={personnel}
+            transactions={transactions}
+            schoolSettings={schoolSettings}
+            rafSettings={rafSettings}
+            currentUserRole={currentUserRole}
+          />
         </div>
       )}
 
       <Modal isOpen={isPayModalOpen} onClose={() => setIsPayModalOpen(false)} title={`Payer le salaire de ${selectedPersonnel?.name}`}>
-        {selectedPersonnel && <SalaryForm personnel={selectedPersonnel} onSave={handleSaveSalary} onCancel={() => setIsPayModalOpen(false)} rafSettings={rafSettings} currency={schoolSettings.currency} />}
+        {selectedPersonnel && (
+          <SalaryForm
+            personnel={selectedPersonnel}
+            onSave={handleSaveSalary}
+            onCancel={() => setIsPayModalOpen(false)}
+            rafSettings={rafSettings}
+            currency={schoolSettings.currency}
+          />
+        )}
       </Modal>
 
       <Modal isOpen={isAddOrEditModalOpen} onClose={() => setIsAddOrEditModalOpen(false)} title={selectedPersonnel ? `Modifier ${selectedPersonnel.name}` : 'Ajouter un Membre du Personnel'}>
-        <PersonnelForm personnel={selectedPersonnel} onSave={handleSavePersonnel} onCancel={() => setIsAddOrEditModalOpen(false)} />
+        <PersonnelForm
+            personnel={selectedPersonnel}
+            onSave={handleSavePersonnel}
+            onCancel={() => setIsAddOrEditModalOpen(false)}
+        />
       </Modal>
 
       <Modal isOpen={isPayslipModalOpen} onClose={() => setIsPayslipModalOpen(false)} title="Aperçu du Bulletin de Paie" size="4xl">
-        {payslipData && <Payslip personnel={payslipData.personnel} netAmount={payslipData.netAmount} paymentDetails={payslipData.paymentDetails} onClose={() => setIsPayslipModalOpen(false)} rafSettings={rafSettings} schoolSettings={schoolSettings} />}
+        {payslipData && (
+          <Payslip 
+            personnel={payslipData.personnel}
+            netAmount={payslipData.netAmount}
+            paymentDetails={payslipData.paymentDetails}
+            onClose={() => setIsPayslipModalOpen(false)}
+            rafSettings={rafSettings}
+            schoolSettings={schoolSettings}
+          />
+        )}
       </Modal>
 
       <Modal isOpen={isBadgeModalOpen} onClose={() => setIsBadgeModalOpen(false)} title="Génération de Badge" size="4xl">
-        {personForBadge && <IdCard person={personForBadge} schoolSettings={schoolSettings} onClose={() => setIsBadgeModalOpen(false)} />}
+        {personForBadge && (
+          <IdCard
+            person={personForBadge}
+            schoolSettings={schoolSettings}
+            onClose={() => setIsBadgeModalOpen(false)}
+          />
+        )}
       </Modal>
 
       <ConfirmDialog
         isOpen={isDeleteModalOpen}
-        onClose={() => { setIsDeleteModalOpen(false); setPersonnelToDelete(null); }}
+        onClose={() => {
+          setIsDeleteModalOpen(false);
+          setPersonnelToDelete(null);
+        }}
         onConfirm={confirmDeletePersonnel}
         title="Confirmation de suppression - Personnel"
         itemType="le membre du personnel"
