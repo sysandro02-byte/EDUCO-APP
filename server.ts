@@ -130,12 +130,10 @@ const decodeSupabaseJwtPayload = (key?: string | null): any | null => {
   }
 };
 
-const getSupabaseServerKey = (req?: any) => (
+const getSupabaseServerKey = (_req?: any) => (
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_ANON_KEY ||
-  process.env.VITE_SUPABASE_ANON_KEY ||
-  process.env.SUPABASE_KEY ||
-  (req?.headers?.['x-supabase-key'] as string)
+  process.env.SUPABASE_KEY
 );
 
 const getSupabaseServerKeyRole = (req?: any) => decodeSupabaseJwtPayload(getSupabaseServerKey(req))?.role;
@@ -202,7 +200,7 @@ const mapSupabaseUser = (user: any) => user ? ({
 }) : null;
 
 const getSupabaseAdmin = (req?: any) => {
-  let supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || (req?.headers?.['x-supabase-url'] as string);
+  let supabaseUrl = process.env.SUPABASE_URL;
   const serviceRoleKey = getSupabaseServerKey(req);
   if (!supabaseUrl) {
     const ref = decodeSupabaseJwtPayload(serviceRoleKey)?.ref;
