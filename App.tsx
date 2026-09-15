@@ -339,20 +339,13 @@ const App: React.FC = () => {
   const handleLogin = async (email: string, password: string, isBiometric: boolean = false) => {
     const trimmedEmail = (email || '').trim();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!trimmedEmail || !emailRegex.test(trimmedEmail)) {
-      return { success: false, error: 'Veuillez saisir une adresse email valide.' };
-    }
-    if (!isBiometric && (!password || password.trim().length < 4)) {
-      return { success: false, error: 'Le mot de passe doit contenir au moins 4 caractères.' };
-    }
-
+    if (!trimmedEmail || !emailRegex.test(trimmedEmail)) return { success: false, error: 'Veuillez saisir une adresse email valide.' };
+    if (!isBiometric && (!password || password.trim().length < 4)) return { success: false, error: 'Le mot de passe doit contenir au moins 4 caractères.' };
     try {
       const isAdminPortal = activePage === 'AdminSpecialLogin';
       let loggedUser: any = null;
       let provenToken = localStorage.getItem('EDUCO_USER_TOKEN') || '';
-
       if (isBiometric) {
-        // loginWithWebAuthn has already verified the assertion server-side and stored its signed token.
         if (!provenToken) return { success: false, error: 'Preuve biométrique absente ou expirée.' };
         const verified = await getCurrentUser();
         if (!verified?.user || String(verified.user.email || '').toLowerCase() !== trimmedEmail.toLowerCase()) {
@@ -362,43 +355,19 @@ const App: React.FC = () => {
         }
         loggedUser = verified.user;
       } else {
-        const loginRes = await fetch(getApiUrl('/api/auth/login'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: trimmedEmail, password, isAdminPortal })
-        });
+        const loginRes = await fetch(getApiUrl('/api/auth/login'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: trimmedEmail, password, isAdminPortal }) });
         const data = await loginRes.json().catch(() => null);
-        if (!loginRes.ok || !data?.success || !data?.user || !data?.token) {
-          return { success: false, error: data?.error || 'Identifiants invalides. Vérifiez votre e-mail et votre mot de passe.' };
-        }
-        loggedUser = data.user;
-        provenToken = data.token;
+        if (!loginRes.ok || !data?.success || !data?.user || !data?.token) return { success: false, error: data?.error || 'Identifiants invalides. Vérifiez votre e-mail et votre mot de passe.' };
+        loggedUser = data.user; provenToken = data.token;
       }
-
-      if ((loggedUser.role === 'Admin' || loggedUser.role === 'Co-admin') && !isAdminPortal) {
-        return { success: false, error: "Accès refusé : utilisez le portail d’administration dédié." };
-      }
-      if (isAdminPortal && loggedUser.role !== 'Admin' && loggedUser.role !== 'Co-admin') {
-        return { success: false, error: "Accès refusé : ce portail est réservé aux administrateurs et co-administrateurs." };
-      }
-
+      if ((loggedUser.role === 'Admin' || loggedUser.role === 'Co-admin') && !isAdminPortal) return { success: false, error: "Accès refusé : utilisez le portail d’administration dédié." };
+      if (isAdminPortal && loggedUser.role !== 'Admin' && loggedUser.role !== 'Co-admin') return { success: false, error: "Accès refusé : ce portail est réservé aux administrateurs et co-administrateurs." };
       if (loggedUser.role === 'Admin') loggedUser = { ...loggedUser, schoolId: null, school_id: null, schoolName: 'EDUCO APP' };
-      localStorage.setItem('EDUCO_USER_TOKEN', provenToken);
-      localStorage.setItem('EDUCO_CURRENT_USER', JSON.stringify(loggedUser));
-      sessionStorage.setItem('EDUCO_SESSION_ACTIVE', 'true');
-      setInactivityNotice(null);
-      if (!otpVerified) setPendingOtpUser(loggedUser); else setCurrentUser(loggedUser);
-      setActivePage('Tableau de bord');
-
-      if (!isBiometric && isWebAuthnSupported() && loggedUser.email) {
-        fetchUserDevices(loggedUser.email).then(devs => {
-          if (devs.length === 0) setPasskeyPromptUser({ email: loggedUser.email, userId: loggedUser.uid || String(loggedUser.id), name: loggedUser.name });
-        }).catch(() => {});
-      }
+      localStorage.setItem('EDUCO_USER_TOKEN', provenToken); localStorage.setItem('EDUCO_CURRENT_USER', JSON.stringify(loggedUser)); sessionStorage.setItem('EDUCO_SESSION_ACTIVE', 'true');
+      setInactivityNotice(null); if (!otpVerified) setPendingOtpUser(loggedUser); else setCurrentUser(loggedUser); setActivePage('Tableau de bord');
+      if (!isBiometric && isWebAuthnSupported() && loggedUser.email) fetchUserDevices(loggedUser.email).then(devs => { if (devs.length === 0) setPasskeyPromptUser({ email: loggedUser.email, userId: loggedUser.uid || String(loggedUser.id), name: loggedUser.name }); }).catch(() => {});
       return { success: true };
-    } catch (error: any) {
-      return { success: false, error: error?.message || 'Une erreur inattendue est survenue.' };
-    }
+    } catch (error: any) { return { success: false, error: error?.message || 'Une erreur inattendue est survenue.' }; }
   };
 
   const handleLogout = async () => {
