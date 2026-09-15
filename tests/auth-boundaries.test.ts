@@ -11,6 +11,16 @@ test('Supabase server configuration never comes from request headers', () => {
   assert.doesNotMatch(server, /VITE_SUPABASE_ANON_KEY/);
 });
 
+test('password login is verified by Supabase Auth on the server and rejects biometric flags', () => {
+  const start = server.indexOf("app.post('/api/auth/login'");
+  assert.ok(start >= 0, 'secure password login route must exist');
+  const login = server.slice(start, start + 5000);
+  assert.match(login, /auth\.signInWithPassword/);
+  assert.match(login, /req\.body\?\.isBiometric/);
+  assert.match(login, /createLocalSessionToken\(user\)/);
+  assert.doesNotMatch(login, /return res\.json\([\s\S]*Authentification biométrique validée/);
+});
+
 test('browser API auth does not send Supabase configuration or uid/email bearer fallbacks', () => {
   assert.doesNotMatch(api, /x-supabase-(?:key|url)/i);
   assert.doesNotMatch(api, /token\s*=\s*parsed\.(?:uid|email)/);
