@@ -1,0 +1,62 @@
+name: Auth Boundary Hardening
+
+on:
+  push:
+    branches:
+      - security/harden-auth-session-boundaries
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  harden-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply deterministic hardening
+        run: node scripts/harden-auth-boundaries.mjs
+
+      - name: Commit generated hardening changes
+        if: github.event_name == 'push' && github.ref_name == 'security/harden-auth-session-boundaries'
+        run: |
+          if git diff --quiet; then
+            echo "No generated changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add server.ts App.tsx src/services/api.ts
+          git commit -m "security: enforce authenticated session boundaries"
+          git push origin HEAD:${{ github.ref_name }}
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Auth boundary tests
+        run: npx tsx --test tests/auth-boundaries.test.ts
+
+      - name: Existing WebAuthn security tests
+        run: |
+          if [ -f tests/webauthn-security.test.ts ]; then
+            npx tsx --test tests/webauthn-security.test.ts
+          else
+            echo "No WebAuthn test file found; continuing."
+          fi
+
+      - name: Build
+        run: npm run build
