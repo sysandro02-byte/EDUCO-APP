@@ -1,0 +1,22 @@
+name: Salary Security
+
+on:
+  pull_request:
+    paths:
+      - 'server/collections.ts'
+      - 'tests/salary-security.test.ts'
+      - '.github/workflows/salary-security.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install --ignore-scripts
+      - run: npm run build
+      - run: npx tsx --test tests/salary-security.test.ts tests/cashier-raf-flow.test.ts
