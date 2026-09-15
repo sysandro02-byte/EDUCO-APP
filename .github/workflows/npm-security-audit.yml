@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [chore/npm-audit-ci]
+    branches: [main, chore/npm-audit-ci]
 
 permissions:
   contents: write
@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.head_ref || github.ref_name }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -33,6 +33,7 @@ jobs:
       - name: Build EDUCO
         run: npm run build
       - name: Persist repaired lockfile
+        if: github.ref_name != 'main'
         run: |
           if git diff --quiet -- package-lock.json; then
             echo "package-lock.json is already synchronized."
