@@ -174,6 +174,9 @@ const ensureSchoolIdentifier = async (school: any, supabaseAdmin?: any) => {
   return { ...school, identifier };
 };
 
+const normalizePhoneIdentity = (value: unknown) => String(value || '').replace(/[^0-9+]/g, '');
+const isDuplicatePhoneError = (error: any) => error?.code === '23505' || /users_phone_unique_idx|phone.*unique|duplicate.*phone/i.test(String(error?.message || error || ''));
+
 const mapSupabaseUser = (user: any) => user ? ({
   id: user.id,
   uid: user.uid,
@@ -1512,6 +1515,7 @@ async function startServer() {
           .insert([{
             uid: resolvedUid,
             email: resolvedEmail,
+            phone: normalizePhoneIdentity(promoterContact || schoolPhone) || null,
             name: promoterName || firebaseUser?.name || 'Promoteur',
             role: 'Promoteur',
             school_id: newSchool.id,
@@ -1546,6 +1550,7 @@ async function startServer() {
           const promoterUserPayload = {
             uid: resolvedUid,
             email: resolvedEmail,
+            phone: normalizePhoneIdentity(promoterContact || schoolPhone) || null,
             name: promoterName || firebaseUser?.name || 'Promoteur',
             role: 'Promoteur',
             school_id: newSchool.id,
@@ -1688,8 +1693,9 @@ async function startServer() {
     try {
       const { schoolMatricule, studentMatricule, parentName, parentEmail, parentPhone, password, studentName } = req.body;
 
-      if (!schoolMatricule || !parentName || !parentEmail) {
-        return res.status(400).json({ error: 'Le N° Matricule d\'établissement, le nom du parent et l\'adresse e-mail sont obligatoires.' });
+      const normalizedParentPhone = normalizePhoneIdentity(parentPhone);
+      if (!schoolMatricule || !parentName || !parentEmail || normalizedParentPhone.length < 7) {
+        return res.status(400).json({ error: 'Le N° Matricule d\'établissement, le nom, l\'adresse e-mail et un numéro de téléphone valide sont obligatoires.' });
       }
 
       const formattedMatricule = schoolMatricule.trim().toUpperCase();
@@ -1796,6 +1802,7 @@ async function startServer() {
         schoolId: schoolObj.id,
         name: parentName,
         email: parentEmail,
+        phone: normalizedParentPhone,
         role: 'Parent',
         status: 'active',
       };
@@ -1813,6 +1820,7 @@ async function startServer() {
             school_id: schoolObj.id,
             name: parentName,
             email: parentEmail,
+            phone: normalizedParentPhone,
             role: 'Parent',
             status: 'active',
           }])
@@ -2057,6 +2065,10 @@ async function startServer() {
       const normalizedRequestedRole = normalizeRole(requestedRole);
       const accountKind = getAccountCreationKind(requestedRole);
       const requestEmail = normalizeEmail(req.body.email);
+      const requestPhone = normalizePhoneIdentity(req.body.phone || req.body.contact);
+      if (requestPhone.length < 7) {
+        return res.status(400).json({ error: 'Un numéro de téléphone principal valide est obligatoire.' });
+      }
       if (canonicalRequestedRole === 'Admin') {
         return res.status(403).json({ error: 'Le compte Admin unique ne peut pas être créé depuis la gestion des utilisateurs.' });
       }
@@ -2101,11 +2113,15 @@ async function startServer() {
           return res.status(409).json({ error: buildDuplicateEmailMessage(requestEmail) });
         }
         if (supabaseAdmin) {
+          const { data: phoneOwner, error: phoneLookupError } = await supabaseAdmin.from('users').select('id').eq('phone_normalized', requestPhone).neq('id', Number(req.body.id)).limit(1).maybeSingle();
+          if (phoneLookupError) throw phoneLookupError;
+          if (phoneOwner?.id) return res.status(409).json({ error: 'Ce numéro de téléphone est déjà associé à un autre compte.' });
           const { data: updatedUser, error: updateError } = await supabaseAdmin
             .from('users')
             .update({
               name: req.body.name,
               email: req.body.email,
+              phone: requestPhone,
               role: canonicalRequestedRole,
               status: req.body.status === 'Inactif' ? 'inactive' : 'active',
               avatar: req.body.avatar,
@@ -2122,6 +2138,7 @@ async function startServer() {
           .set({
             name: req.body.name,
             email: req.body.email,
+            phone: requestPhone,
             role: canonicalRequestedRole,
             status: req.body.status || 'Actif',
             avatar: req.body.avatar,
@@ -2136,6 +2153,11 @@ async function startServer() {
       let resolvedUid = req.body.uid || `usr_${Date.now()}`;
       
       const adminClient = getSupabaseAdmin(req);
+      if (adminClient) {
+        const { data: phoneOwner, error: phoneLookupError } = await adminClient.from('users').select('id').eq('phone_normalized', requestPhone).limit(1).maybeSingle();
+        if (phoneLookupError) throw phoneLookupError;
+        if (phoneOwner?.id) return res.status(409).json({ error: 'Ce numéro de téléphone est déjà associé à un autre compte.' });
+      }
       if (requestEmail) {
         const existingWithEmail = await ensureUniqueUserEmail({ req, email: requestEmail });
         if (existingWithEmail) {
@@ -2173,6 +2195,7 @@ async function startServer() {
           uid: resolvedUid,
           name: req.body.name,
           email: requestEmail,
+          phone: requestPhone,
           role: canonicalRequestedRole,
           status: req.body.status === 'Inactif' ? 'inactive' : 'active',
           school_id: targetSchoolId,
@@ -2277,12 +2300,14 @@ async function startServer() {
       const newUser = await db.insert(users).values({
         ...req.body,
         uid: resolvedUid,
+        phone: requestPhone,
         role: canonicalRequestedRole,
         status: req.body.status || 'Actif',
         schoolId: targetSchoolId
       }).returning();
       return res.json({ ...newUser[0], licenseSchoolId: targetSchoolId });
     } catch (error: any) {
+      if (isDuplicatePhoneError(error)) return res.status(409).json({ error: 'Ce numéro de téléphone est déjà associé à un autre compte.' });
       res.status(500).json({ error: error.message });
     }
   });
@@ -2309,6 +2334,10 @@ async function startServer() {
       const isCentralAdmin = actor?.role === 'Admin' || actor?.role === 'Co-admin';
       const supabaseAdmin = getSupabaseAdmin(req);
       const normalizedEmail = normalizeEmail(email);
+      const normalizedPhone = phone === undefined ? undefined : normalizePhoneIdentity(phone);
+      if (normalizedPhone !== undefined && normalizedPhone.length < 7) {
+        return res.status(400).json({ error: 'Numéro de téléphone principal invalide.' });
+      }
       if (normalizedEmail) {
         const existingWithEmail = await ensureUniqueUserEmail({ req, email: normalizedEmail, excludeUserId: targetUserId });
         if (existingWithEmail) {
@@ -2316,6 +2345,11 @@ async function startServer() {
         }
       }
       if (supabaseAdmin) {
+        if (normalizedPhone) {
+          const { data: phoneOwner, error: phoneLookupError } = await supabaseAdmin.from('users').select('id').eq('phone_normalized', normalizedPhone).neq('id', targetUserId).limit(1).maybeSingle();
+          if (phoneLookupError) throw phoneLookupError;
+          if (phoneOwner?.id) return res.status(409).json({ error: 'Ce numéro de téléphone est déjà associé à un autre compte.' });
+        }
         const { data: target } = await supabaseAdmin.from('users').select('school_id').eq('id', targetUserId).maybeSingle();
         if (!target || (!isCentralAdmin && Number(target.school_id) !== Number(actor?.schoolId))) {
           return res.status(403).json({ error: 'Cet utilisateur appartient à un autre établissement.' });
@@ -2326,6 +2360,7 @@ async function startServer() {
           ...(role !== undefined && { role: canonicalRole }),
           ...(status !== undefined && { status: status === 'Inactif' ? 'inactive' : 'active' }),
           ...(avatar !== undefined && { avatar }),
+          ...(normalizedPhone !== undefined && { phone: normalizedPhone }),
           ...(isCentralAdmin && schoolId !== undefined && { school_id: Number(schoolId) })
         };
         const { data: updatedUser, error: updateError } = await supabaseAdmin
@@ -2351,6 +2386,7 @@ async function startServer() {
           ...(role !== undefined && { role: canonicalRole }),
           ...(status !== undefined && { status }),
           ...(avatar !== undefined && { avatar }),
+          ...(normalizedPhone !== undefined && { phone: normalizedPhone }),
           ...(isCentralAdmin && schoolId !== undefined && { schoolId: Number(schoolId) })
         })
         .where(eq(users.id, targetUserId))

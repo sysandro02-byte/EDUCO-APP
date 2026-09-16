@@ -195,6 +195,7 @@ const UserForm: React.FC<UserFormProps> = ({
     birthPlace: '',
     gender: 'Masculin',
     contact: '',
+    phone: '',
     address: '',
     postalCode: '',
     city: 'Brazzaville',
@@ -309,7 +310,8 @@ const UserForm: React.FC<UserFormProps> = ({
         studentId: user.studentId || '',
         birthPlace: user.birthPlace || '',
         dob: user.dob || '',
-        contact: user.contact || '',
+        contact: user.contact || user.phone || '',
+        phone: user.phone || user.contact || '',
         address: user.address || '',
         postalCode: user.postalCode || '',
         city: user.city || 'Brazzaville',
@@ -399,6 +401,10 @@ const UserForm: React.FC<UserFormProps> = ({
       if (!isStudent && !formData.email.trim()) {
         errors.email = "L'adresse email est requise pour le personnel";
       }
+      const primaryPhone = String(formData.phone || formData.contact || '').replace(/[^0-9+]/g, '');
+      if (primaryPhone.length < 7) {
+        errors.phone = "Le numéro de téléphone principal est obligatoire et doit être valide";
+      }
     } else if (stepNumber === 2 && isStudent) {
       if (!formData.class) {
         errors.class = "Veuillez sélectionner une classe";
@@ -436,6 +442,8 @@ const UserForm: React.FC<UserFormProps> = ({
       setIsSubmitting(true);
       // Auto-generate email if missing for students
       const finalData = { ...formData };
+      finalData.phone = String(finalData.phone || finalData.contact || '').trim();
+      finalData.contact = finalData.phone;
       if (isStudent && !finalData.studentId) {
         finalData.studentId = buildStudentMatricule({ schoolAcronym: getSchoolAcronym() });
       }
@@ -796,16 +804,18 @@ const UserForm: React.FC<UserFormProps> = ({
               {/* Email & Contact personnel */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="contact" className={labelClass}>Numéro de Téléphone principal</label>
+                  <label htmlFor="phone" className={labelClass}>Numéro de Téléphone principal *</label>
                   <input
                     type="tel"
-                    id="contact"
-                    name="contact"
-                    value={formData.contact}
+                    id="phone"
+                    name="phone"
+                    value={formData.phone || ''}
                     onChange={handleChange}
                     placeholder="Ex: +242 06 123 4567"
-                    className={formFieldClass}
+                    className={`${formFieldClass} ${formErrors.phone ? 'border-rose-500' : ''}`}
+                    required
                   />
+                  {formErrors.phone && <p className="text-[10px] text-rose-600 font-bold mt-1">{formErrors.phone}</p>}
                 </div>
 
                 <div>
@@ -838,7 +848,7 @@ const UserForm: React.FC<UserFormProps> = ({
                         {isStudent ? 'Accès du Compte Élève' : isTeacher ? 'Accès du Compte Enseignant' : isParent ? 'Accès du Compte Parent' : 'Accès du Compte Personnel'}
                       </h4>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Définissez le mot de passe initial. Un email ne peut appartenir qu'à un seul compte.
+                        Définissez le mot de passe initial. Un e-mail et un numéro principal ne peuvent appartenir qu'à un seul compte.
                       </p>
                     </div>
                   </div>

@@ -4,9 +4,15 @@ on:
     paths:
       - 'server/accountLifecycle.ts'
       - 'server/push.ts'
+      - 'server.ts'
+      - 'components/UserForm.tsx'
+      - 'components/LoginPage.tsx'
       - 'src/middleware/auth.ts'
+      - 'src/db/schema.ts'
       - 'supabase/migrations/20260916_account_lifecycle.sql'
+      - 'supabase/migrations/20260917_enforce_unique_user_phone.sql'
       - 'tests/account-lifecycle.test.ts'
+      - 'tests/phone-identity.test.ts'
       - '.github/workflows/account-lifecycle-security.yml'
 jobs:
   test:
@@ -17,5 +23,5 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      - run: npx tsx --test tests/account-lifecycle.test.ts
+      - run: npx tsx --test tests/account-lifecycle.test.ts tests/phone-identity.test.ts
       - run: npm run build

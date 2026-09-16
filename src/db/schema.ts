@@ -28,6 +28,7 @@ export const users = pgTable('users', {
   schoolId: integer('school_id').references(() => schools.id),
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
+  phone: text('phone'),
   role: text('role').notNull(), // Admin, Co-admin, Teacher, Cashier, Finance Manager, Promoter, Student, DE, Parent
   avatar: text('avatar'),
   status: text('status').default('active'),
