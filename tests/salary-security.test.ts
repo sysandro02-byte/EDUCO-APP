@@ -12,8 +12,8 @@ test('salary payment uses authenticated server endpoints', () => {
 
 test('legacy salary transaction is intercepted and browser amount is ignored', () => {
   assert.match(source, /category \|\| ''\) !== 'Salaires'/);
-  assert.match(source, /browser-supplied amount is ignored/);
   assert.doesNotMatch(source, /amount:\s*Number\(req\.body\?\.netAmount/);
+  assert.doesNotMatch(source, /amount:\s*Number\(req\.body\?\.amount/);
 });
 
 test('salary ownership and amount are derived from the authenticated school record', () => {
