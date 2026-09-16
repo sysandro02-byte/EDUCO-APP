@@ -1,0 +1,18 @@
+-- EDUCO account lifecycle: durable inactivity state and idempotent reminders.
+alter table public.users add column if not exists last_active_at timestamptz;
+alter table public.users add column if not exists inactivity_warning_sent_at timestamptz;
+alter table public.users add column if not exists inactivity_admin_alerted_at timestamptz;
+alter table public.users add column if not exists inactivity_delete_after timestamptz;
+alter table public.users add column if not exists inactivity_exempt boolean not null default false;
+alter table public.users add column if not exists deletion_reason text;
+
+update public.users
+set last_active_at = coalesce(last_active_at, updated_at, created_at, now())
+where last_active_at is null;
+
+create index if not exists users_last_active_at_idx on public.users(last_active_at);
+create index if not exists users_inactivity_delete_after_idx on public.users(inactivity_delete_after)
+  where inactivity_delete_after is not null;
+create unique index if not exists users_phone_unique_idx
+  on public.users (regexp_replace(coalesce(phone, ''), '[^0-9+]', '', 'g'))
+  where phone is not null and btrim(phone) <> '';
