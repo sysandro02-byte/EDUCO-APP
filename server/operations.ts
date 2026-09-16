@@ -18,20 +18,42 @@ const collections = new Set(['attendance', 'subjects', 'timetable', 'homeworkDia
 const personalRole = (role: string) => /parent|élève|eleve/i.test(role);
 const same = (a: any, b: any) => a != null && b != null && String(a) !== '' && String(a) === String(b);
 
-export const defaultCashierPermissions = {
-  allowRegistration: false,
-  allowStudentPayment: false,
-  allowGeneralExpense: false,
-  allowSalaryPayment: false,
-  allowCsvExport: false,
+export const defaultCashierSettings = {
+  openingAmount: 0,
+  paymentMethods: { cash: true, mobileMoney: false, transfer: false },
+  paymentAccounts: { mobileMoney: '', bankAccount: '' },
+  receiptTemplate: { footerText: '', printCopies: 1, showQrCode: true },
+  defaultViewPeriod: 'day',
+  reminders: { closeout: true },
+  notifications: { paymentValidated: false, newStudent: false, cashDifference: false },
+  operationalHours: { enabled: false, opensAt: '08:00', closesAt: '17:00' },
+  personalProfile: { theme: 'light' },
+  permissions: {
+    allowRegistration: false,
+    allowStudentPayment: false,
+    allowGeneralExpense: false,
+    allowSalaryPayment: false,
+    allowCsvExport: false,
+  },
+  limits: { maxDailyActions: 0, maxUnitRevenue: 0, maxUnitExpense: 0 },
 };
+
+export const defaultCashierPermissions = defaultCashierSettings.permissions;
 
 export function normalizeCashierSettings(value: any) {
   const settings = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return {
+    ...defaultCashierSettings,
     ...settings,
-    permissions: { ...defaultCashierPermissions, ...(settings.permissions || {}) },
-    limits: { maxDailyActions: 0, maxUnitRevenue: 0, maxUnitExpense: 0, ...(settings.limits || {}) },
+    paymentMethods: { ...defaultCashierSettings.paymentMethods, ...(settings.paymentMethods || {}) },
+    paymentAccounts: { ...defaultCashierSettings.paymentAccounts, ...(settings.paymentAccounts || {}) },
+    receiptTemplate: { ...defaultCashierSettings.receiptTemplate, ...(settings.receiptTemplate || {}) },
+    reminders: { ...defaultCashierSettings.reminders, ...(settings.reminders || {}) },
+    notifications: { ...defaultCashierSettings.notifications, ...(settings.notifications || {}) },
+    operationalHours: { ...defaultCashierSettings.operationalHours, ...(settings.operationalHours || {}) },
+    personalProfile: { ...defaultCashierSettings.personalProfile, ...(settings.personalProfile || {}) },
+    permissions: { ...defaultCashierSettings.permissions, ...(settings.permissions || {}) },
+    limits: { ...defaultCashierSettings.limits, ...(settings.limits || {}) },
   };
 }
 
