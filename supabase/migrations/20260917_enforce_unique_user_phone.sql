@@ -1,7 +1,12 @@
 -- Every EDUCO account that has a phone must own that normalized phone uniquely.
--- This migration intentionally runs after the account-lifecycle migration, which
--- introduced phone_normalized. It restores database-level uniqueness so the
--- phone identifier used for login cannot belong to multiple accounts.
+-- Keep this migration self-contained so production remains correct even if an
+-- older account-lifecycle migration did not create phone_normalized.
+
+ALTER TABLE public.users
+  ADD COLUMN IF NOT EXISTS phone_normalized text
+  GENERATED ALWAYS AS (
+    regexp_replace(coalesce(phone, ''), '[^0-9+]', '', 'g')
+  ) STORED;
 
 DO $$
 BEGIN
