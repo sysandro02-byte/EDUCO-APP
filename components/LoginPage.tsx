@@ -24,7 +24,13 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
   const [isParentRegistering, setIsParentRegistering] = useState(false);
   const [modalType, setModalType] = useState<'none' | 'accountNotFound' | 'incorrectPassword' | 'invalidCredentials' | 'biometricError'>('none');
   const [modalMessage, setModalMessage] = useState('');
-  
+  const [loginMode, setLoginMode] = useState<'email' | 'phone'>('email');
+  const [phone, setPhone] = useState('');
+  const [phoneOtp, setPhoneOtp] = useState('');
+  const [phoneStep, setPhoneStep] = useState<'phone' | 'otp'>('phone');
+  const [phoneMessage, setPhoneMessage] = useState('');
+  const [isPhoneLoading, setIsPhoneLoading] = useState(false);
+
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetStep, setResetStep] = useState<'request' | 'verify'>('request');
@@ -57,7 +63,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    
+
     if (!email || !password) {
       setError('Veuillez saisir l\'e-mail et le mot de passe.');
       return;
@@ -78,6 +84,45 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
     } finally {
       setIsLoggingIn(false);
     }
+  };
+
+  const handlePhoneRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setPhoneMessage('');
+    if (phone.trim().length < 7) return setError('Veuillez saisir un numéro de téléphone valide.');
+    setIsPhoneLoading(true);
+    try {
+      const response = await fetch(getApiUrl('/api/auth/phone-login/request'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phone.trim() }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) return setError(data?.error || 'Impossible d’envoyer le code.');
+      setPhoneStep('otp');
+      setPhoneMessage(data?.message || 'Si ce numéro correspond à un compte, un code a été envoyé à son adresse e-mail.');
+    } catch (requestError: any) {
+      setError(requestError?.message || 'Service de connexion indisponible.');
+    } finally { setIsPhoneLoading(false); }
+  };
+
+  const handlePhoneVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!/^\d{6}$/.test(phoneOtp)) return setError('Saisissez le code OTP à 6 chiffres.');
+    setIsPhoneLoading(true);
+    try {
+      const response = await fetch(getApiUrl('/api/auth/phone-login/verify'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phone.trim(), otpCode: phoneOtp }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success || !data?.token || !data?.user) return setError(data?.error || 'Code invalide ou expiré.');
+      localStorage.setItem('EDUCO_USER_TOKEN', data.token);
+      localStorage.setItem('EDUCO_CURRENT_USER', JSON.stringify(data.user));
+      sessionStorage.setItem('EDUCO_SESSION_ACTIVE', 'true');
+      window.location.reload();
+    } catch (requestError: any) {
+      setError(requestError?.message || 'Connexion indisponible.');
+    } finally { setIsPhoneLoading(false); }
   };
 
   const handleWebAuthnLogin = async () => {
@@ -179,7 +224,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
     e.preventDefault();
     setParentRegError('');
     setParentRegSuccess('');
-    
+
     if (!parentOtpCode.trim() || parentOtpCode.trim().length < 4) {
       setParentRegError('Veuillez saisir le code OTP à 6 chiffres.');
       return;
@@ -336,7 +381,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
       <div className="flex items-center justify-center min-h-screen bg-slate-50 text-slate-900 p-4">
         <div className="w-full max-w-lg p-6 sm:p-8 space-y-6 bg-white rounded-3xl shadow-xl border border-slate-200 animate-fade-in">
           <div className="flex items-center justify-between pb-4 border-b border-slate-200">
-            <button 
+            <button
               onClick={() => setIsParentRegistering(false)}
               className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 cursor-pointer"
             >
@@ -418,7 +463,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
             </form>
           ) : (
             <form onSubmit={handleParentRegisterSubmit} className="space-y-4">
-              
+
               {/* School Matricule Input + Verify */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
@@ -691,8 +736,8 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
     <div className="flex items-center justify-center min-h-screen bg-[#EBF3F8] dark:bg-slate-950 p-4 transition-colors">
       <div className="w-full max-w-md p-8 space-y-6 bg-white dark:bg-slate-900 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-800">
         <div className="text-center">
-            <button 
-              className="flex justify-center mx-auto mb-4 hover:scale-105 transition-transform active:scale-95 duration-200 cursor-pointer" 
+            <button
+              className="flex justify-center mx-auto mb-4 hover:scale-105 transition-transform active:scale-95 duration-200 cursor-pointer"
               onClick={onNavigateToAdmin}
               title="Accès Administration"
             >
@@ -703,15 +748,21 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
         </div>
 
         {/* Biometric WebAuthn Quick Login */}
-        <BiometricLoginButton 
-          onBiometricClick={handleWebAuthnLogin} 
-          isLoading={isLoggingIn} 
-          userEmail={email} 
+        <BiometricLoginButton
+          onBiometricClick={handleWebAuthnLogin}
+          isLoading={isLoggingIn}
+          userEmail={loginMode === 'email' ? email : undefined}
         />
 
+        <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl" aria-label="Mode de connexion">
+          <button type="button" onClick={() => { setLoginMode('email'); setError(''); }} aria-pressed={loginMode === 'email'} className={`py-2 text-xs font-bold rounded-lg ${loginMode === 'email' ? 'bg-white dark:bg-slate-700 shadow text-[#1F4A59] dark:text-sky-300' : 'text-slate-500'}`}>E-mail</button>
+          <button type="button" onClick={() => { setLoginMode('phone'); setError(''); }} aria-pressed={loginMode === 'phone'} className={`py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 ${loginMode === 'phone' ? 'bg-white dark:bg-slate-700 shadow text-[#1F4A59] dark:text-sky-300' : 'text-slate-500'}`}><Phone className="w-4 h-4" /> Téléphone</button>
+        </div>
+
+        {error && <p role="alert" className="text-center text-sm text-red-600 bg-red-50 dark:bg-rose-950 border border-red-200 dark:border-rose-800 p-3 rounded-xl">{error}</p>}
+        {loginMode === 'email' ? (
         <form className="space-y-4" onSubmit={handleSubmit}>
-          {error && <p className="text-center text-sm text-red-600 bg-red-50 dark:bg-rose-950 border border-red-200 dark:border-rose-800 p-3 rounded-xl">{error}</p>}
-          
+
           <div>
             <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Adresse E-mail</label>
             <div className="relative">
@@ -775,6 +826,22 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
             </button>
           </div>
         </form>
+        ) : phoneStep === 'phone' ? (
+          <form className="space-y-4" onSubmit={handlePhoneRequest}>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Le code de connexion sera envoyé uniquement à l’adresse e-mail déjà enregistrée sur votre compte.</p>
+            <label htmlFor="phone-login" className="block text-xs font-bold text-gray-700 dark:text-slate-300">Numéro de téléphone</label>
+            <input id="phone-login" type="tel" autoComplete="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Ex: +242 06 000 0000" className="w-full px-3 py-3 border border-gray-300 dark:border-slate-700 dark:bg-slate-900 dark:text-white rounded-xl" />
+            <button type="submit" disabled={isPhoneLoading} className="w-full py-3.5 px-4 text-sm font-bold rounded-xl text-white bg-[#1F4A59] disabled:opacity-70">{isPhoneLoading ? 'Envoi…' : 'Recevoir le code par e-mail'}</button>
+          </form>
+        ) : (
+          <form className="space-y-4" onSubmit={handlePhoneVerify}>
+            {phoneMessage && <p role="status" className="text-xs text-emerald-700 bg-emerald-50 p-3 rounded-xl">{phoneMessage}</p>}
+            <label htmlFor="phone-otp" className="block text-xs font-bold text-gray-700 dark:text-slate-300">Code OTP à 6 chiffres</label>
+            <input id="phone-otp" inputMode="numeric" autoComplete="one-time-code" maxLength={6} required value={phoneOtp} onChange={(e) => setPhoneOtp(e.target.value.replace(/\D/g, ''))} className="w-full p-3 border rounded-xl text-center font-mono text-xl tracking-widest dark:bg-slate-900 dark:text-white" />
+            <button type="submit" disabled={isPhoneLoading} className="w-full py-3.5 px-4 text-sm font-bold rounded-xl text-white bg-[#1F4A59] disabled:opacity-70">{isPhoneLoading ? 'Vérification…' : 'Valider et se connecter'}</button>
+            <button type="button" onClick={() => { setPhoneStep('phone'); setPhoneOtp(''); setPhoneMessage(''); }} className="w-full text-xs font-bold text-slate-500">Changer de numéro</button>
+          </form>
+        )}
 
         <div className="pt-2 border-t border-gray-100 dark:border-slate-800 space-y-2 text-center text-xs text-gray-600 dark:text-slate-400">
           <p>
@@ -795,7 +862,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
       <Modal isOpen={modalType !== 'none'} onClose={() => setModalType('none')} title={modalType === 'accountNotFound' ? 'Compte non trouvé' : modalType === 'incorrectPassword' ? 'Mot de passe incorrect' : modalType === 'biometricError' ? 'Connexion biométrique' : 'Erreur de connexion'}>
         <div className="p-4">
           <p className="text-gray-700 dark:text-slate-300">
-            {modalType === 'accountNotFound' 
+            {modalType === 'accountNotFound'
               ? 'Le compte associé à cet e-mail n\'existe pas. Voulez-vous créer un nouveau compte ?'
               : modalType === 'incorrectPassword'
               ? 'Le mot de passe saisi est incorrect. Veuillez réessayer.'
@@ -821,4 +888,3 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
 };
 
 export default LoginPage;
-

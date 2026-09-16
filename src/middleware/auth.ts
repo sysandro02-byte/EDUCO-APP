@@ -8,6 +8,8 @@ export interface AuthRequest extends Request {
   user?: any;
 }
 
+const AUTH_ACTIVITY_REFRESH_MS = 15 * 60 * 1000;
+
 const decodeJwtPayload = (token?: string | null): any | null => {
   if (!token || !token.includes('.')) return null;
   try {
@@ -147,6 +149,24 @@ export const requireAuth = async (
         matched = matched
           ? { ...matched, ...authoritativeUser }
           : authoritativeUser;
+
+        // Treat real authenticated API traffic as account activity. The write is
+        // throttled to avoid updating the profile on every request, and any
+        // pending inactivity/deletion state is cancelled when activity resumes.
+        const lastActiveMs = Date.parse(sbUser.last_active_at || '');
+        if (!Number.isFinite(lastActiveMs) || Date.now() - lastActiveMs >= AUTH_ACTIVITY_REFRESH_MS) {
+          const { error: activityError } = await supabase
+            .from('users')
+            .update({
+              last_active_at: new Date().toISOString(),
+              inactivity_warning_sent_at: null,
+              inactivity_admin_alerted_at: null,
+              inactivity_delete_after: null,
+              deletion_reason: null,
+            })
+            .eq('id', sbUser.id);
+          if (activityError) console.warn('Authenticated activity refresh failed:', activityError.message || activityError);
+        }
       }
     }
 

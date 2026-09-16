@@ -227,6 +227,7 @@ export function registerPushNotifications(app: Express, requireAuth: any, getUse
 
   // The existing notification route remains the source of truth. This middleware
   // mirrors a successfully-created in-app notification to subscribed devices.
+  if (typeof app.use !== 'function') return;
   app.use('/api/notifications/dispatch', requireAuth, async (req: any, res: any, next: any) => {
     let user: any = null;
     let client: any = null;
