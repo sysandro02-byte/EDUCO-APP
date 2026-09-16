@@ -46,7 +46,8 @@ const allowPhoneRequest = (key: string, now = Date.now()) => {
   return existing.count <= 3;
 };
 
-const GENERIC_PHONE_MESSAGE = 'Si ce numéro correspond à un compte, un code a été envoyé à son adresse e-mail.';
+const PHONE_CREDENTIALS_ERROR = 'Numéro ou mot de passe incorrect.';
+const GENERIC_PHONE_MESSAGE = 'Mot de passe confirmé. Un code OTP a été envoyé à l’adresse e-mail enregistrée sur votre compte.';
 
 const mapLoginUser = (u: any) => ({
   id: u.id, uid: u.uid, schoolId: u.school_id ?? null, licenseSchoolId: u.school_id ?? null,
@@ -131,25 +132,42 @@ export function registerAccountLifecycle(app: Express, requireAuth: any, getUser
     res.json({ success: true, stats });
   });
 
-  // Passwordless phone login: the phone identifies the account, but the secret OTP is delivered only to the registered email.
+  // Two-step phone login: phone + password are verified first, then a second-factor OTP is delivered only to the registered email.
   app.post('/api/auth/phone-login/request', async (req: any, res) => {
     try {
       const client = getClient(req); if (!client) return res.status(503).json({ error: 'Service indisponible.' });
       const phone = cleanPhone(req.body?.phone);
-      if (phone.length < 7) return res.status(400).json({ error: 'Numéro de téléphone invalide.' });
+      const password = String(req.body?.password || '');
+      if (phone.length < 7 || password.length < 4) return res.status(400).json({ error: PHONE_CREDENTIALS_ERROR });
       const rateLimitKey = `${req.ip || req.socket?.remoteAddress || 'unknown'}:${phone}`;
-      if (!allowPhoneRequest(rateLimitKey)) return res.status(429).json({ error: 'Trop de demandes. Réessayez dans quelques minutes.' });
+      if (!allowPhoneRequest(rateLimitKey)) return res.status(429).json({ error: 'Trop de tentatives. Réessayez dans quelques minutes.' });
+
       const account = await findPhoneAccount(client, phone);
-      // Keep the same successful response for missing, protected, and deliverable accounts.
-      if (!account || protectedRoles.has(canonicalizeRole(account.role))) return res.json({ success: true, message: GENERIC_PHONE_MESSAGE });
+      if (!account || protectedRoles.has(canonicalizeRole(account.role))) {
+        return res.status(401).json({ error: PHONE_CREDENTIALS_ERROR });
+      }
+
+      const { data: authData, error: authError } = await client.auth.signInWithPassword({
+        email: account.email,
+        password,
+      });
+      const authMatchesAccount = Boolean(authData?.user?.id)
+        && (!account.uid || String(authData.user.id) === String(account.uid));
+      if (authError || !authData?.session?.access_token || !authMatchesAccount) {
+        return res.status(401).json({ error: PHONE_CREDENTIALS_ERROR });
+      }
+
       const code = otpManager.generateOtp(account.email, 'login_2fa', { phoneLogin: true, userId: account.id });
       const result = await sendBrevoEmail({
         to: [{ email: account.email, name: account.name }],
         subject: 'Votre code de connexion EDUCO',
-        htmlContent: `<p>Bonjour ${escapeHtml(account.name || '')},</p><p>Votre code de connexion EDUCO est :</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p><p>Ce code expire dans 10 minutes.</p>`,
+        htmlContent: `<p>Bonjour ${escapeHtml(account.name || '')},</p><p>Votre mot de passe EDUCO a été vérifié.</p><p>Votre code de confirmation est :</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p><p>Ce code expire dans 10 minutes.</p>`,
         tags: ['phone-login-otp'],
       });
-      if (!result.success) console.warn('Phone login OTP delivery failed:', result.error);
+      if (!result.success) {
+        console.warn('Phone login OTP delivery failed:', result.error);
+        return res.status(503).json({ error: 'Impossible d’envoyer le code de confirmation. Réessayez.' });
+      }
       res.json({ success: true, message: GENERIC_PHONE_MESSAGE });
     } catch (e: any) { res.status(500).json({ error: e.message || 'Connexion indisponible.' }); }
   });
