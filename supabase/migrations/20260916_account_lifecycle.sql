@@ -16,6 +16,11 @@ where last_active_at is null;
 create index if not exists users_last_active_at_idx on public.users(last_active_at);
 create index if not exists users_inactivity_delete_after_idx on public.users(inactivity_delete_after)
   where inactivity_delete_after is not null;
-create unique index if not exists users_phone_unique_idx
+
+-- Historical data can legitimately contain duplicate phone values. Keep the
+-- lookup indexed without making the migration fail; the login resolver requires
+-- exactly one matching active account before sending or accepting an OTP.
+drop index if exists public.users_phone_unique_idx;
+create index if not exists users_phone_lookup_idx
   on public.users (phone_normalized)
   where phone_normalized <> '';
