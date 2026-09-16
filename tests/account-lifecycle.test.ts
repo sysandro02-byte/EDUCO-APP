@@ -6,6 +6,7 @@ const lifecycle = fs.readFileSync(new URL('../server/accountLifecycle.ts', impor
 const migration = fs.readFileSync(new URL('../supabase/migrations/20260916_account_lifecycle.sql', import.meta.url), 'utf8');
 const push = fs.readFileSync(new URL('../server/push.ts', import.meta.url), 'utf8');
 const operations = fs.readFileSync(new URL('../server/operations.ts', import.meta.url), 'utf8');
+const auth = fs.readFileSync(new URL('../src/middleware/auth.ts', import.meta.url), 'utf8');
 
 test('inactivity policy is 14 days, 30 days and 5 day admin grace', () => {
   assert.match(lifecycle, /WARNING_AFTER = 14 \* DAY/);
@@ -16,6 +17,11 @@ test('inactivity policy is 14 days, 30 days and 5 day admin grace', () => {
 test('activity cancels pending inactivity deletion', () => {
   assert.match(lifecycle, /last_active_at: now/);
   assert.match(lifecycle, /inactivity_delete_after: null/);
+  assert.match(auth, /AUTH_ACTIVITY_REFRESH_MS = 15 \* 60 \* 1000/);
+  assert.match(auth, /Authenticated activity refresh failed/);
+  assert.match(auth, /inactivity_warning_sent_at: null/);
+  assert.match(auth, /inactivity_admin_alerted_at: null/);
+  assert.match(auth, /inactivity_delete_after: null/);
 });
 
 test('lifecycle sends user warning, admin notification and deletion email', () => {
@@ -23,6 +29,15 @@ test('lifecycle sends user warning, admin notification and deletion email', () =
   assert.match(lifecycle, /ACCOUNT_INACTIVITY/);
   assert.match(lifecycle, /account-inactivity-admin/);
   assert.match(lifecycle, /account-deleted/);
+});
+
+test('automatic deletion removes auth identity before deleting the profile and checks errors', () => {
+  const authDelete = lifecycle.indexOf('client.auth.admin.deleteUser(account.uid)');
+  const profileDelete = lifecycle.indexOf("client.from('users').delete().eq('id', account.id)");
+  assert.ok(authDelete >= 0, 'Supabase Auth deletion must be present');
+  assert.ok(profileDelete > authDelete, 'profile deletion must happen after Auth deletion');
+  assert.match(lifecycle, /authDeleteError/);
+  assert.match(lifecycle, /authDeleteError\.status !== 404/);
 });
 
 test('phone login sends OTP only to registered email without exposing it', () => {
@@ -55,12 +70,14 @@ test('lifecycle processes every account and keeps school alerts tenant-scoped', 
   assert.match(lifecycle, /delete\(\)\.eq\('user_id', account\.id\)\.throwOnError\(\)/);
 });
 
-test('database persists lifecycle state and unique normalized phone', () => {
+test('database persists lifecycle state and indexes normalized phone without unsafe uniqueness', () => {
   assert.match(migration, /phone text/);
   assert.match(migration, /last_active_at timestamptz/);
   assert.match(migration, /inactivity_warning_sent_at timestamptz/);
   assert.match(migration, /inactivity_delete_after timestamptz/);
-  assert.match(migration, /users_phone_unique_idx/);
+  assert.match(migration, /users_phone_lookup_idx/);
+  assert.match(migration, /drop index if exists public\.users_phone_unique_idx/);
   assert.match(migration, /phone_normalized text[\s\S]*generated always/);
   assert.match(lifecycle, /\.eq\('phone_normalized', phone\)/);
+  assert.match(lifecycle, /matches\.length === 1/);
 });
