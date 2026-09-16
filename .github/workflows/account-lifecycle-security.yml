@@ -4,6 +4,7 @@ on:
     paths:
       - 'server/accountLifecycle.ts'
       - 'server/push.ts'
+      - 'src/middleware/auth.ts'
       - 'supabase/migrations/20260916_account_lifecycle.sql'
       - 'tests/account-lifecycle.test.ts'
       - '.github/workflows/account-lifecycle-security.yml'
