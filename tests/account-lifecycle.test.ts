@@ -5,6 +5,7 @@ import fs from 'node:fs';
 const lifecycle = fs.readFileSync(new URL('../server/accountLifecycle.ts', import.meta.url), 'utf8');
 const migration = fs.readFileSync(new URL('../supabase/migrations/20260916_account_lifecycle.sql', import.meta.url), 'utf8');
 const push = fs.readFileSync(new URL('../server/push.ts', import.meta.url), 'utf8');
+const operations = fs.readFileSync(new URL('../server/operations.ts', import.meta.url), 'utf8');
 
 test('inactivity policy is 14 days, 30 days and 5 day admin grace', () => {
   assert.match(lifecycle, /WARNING_AFTER = 14 \* DAY/);
@@ -31,16 +32,27 @@ test('phone login sends OTP only to registered email without exposing it', () =>
   assert.match(lifecycle, /phone-login-otp/);
   assert.doesNotMatch(lifecycle, /success: true, email: account\.email/);
   assert.doesNotMatch(lifecycle, /sendSms|sendSMS|twilio/i);
+  assert.match(lifecycle, /GENERIC_PHONE_MESSAGE/);
+  assert.match(lifecycle, /Phone login OTP delivery failed/);
+  assert.match(lifecycle, /allowPhoneRequest/);
 });
 
 test('phone OTP verification creates a secure EDUCO session and resets inactivity', () => {
   assert.match(lifecycle, /createLocalSessionToken\(user\)/);
+  assert.match(lifecycle, /activeOtp\.metadata\?\.userId/);
   assert.match(lifecycle, /otpManager\.verifyOtp\(account\.email, otpCode, 'login_2fa'\)/);
   assert.match(lifecycle, /inactivity_admin_alerted_at: null/);
 });
 
 test('account lifecycle routes are registered by the live operations server path', () => {
-  assert.match(push, /registerAccountLifecycle\(app, requireAuth, getUser, getClient\)/);
+  assert.match(operations, /registerAccountLifecycle\(app, requireAuth, getUser, getClient\)/);
+  assert.doesNotMatch(push, /registerAccountLifecycle/);
+});
+
+test('lifecycle processes every account and keeps school alerts tenant-scoped', () => {
+  assert.match(lifecycle, /\.range\(from, from \+ 999\)/);
+  assert.match(lifecycle, /adminsQuery\.eq\('school_id', account\.school_id\)/);
+  assert.match(lifecycle, /delete\(\)\.eq\('user_id', account\.id\)\.throwOnError\(\)/);
 });
 
 test('database persists lifecycle state and unique normalized phone', () => {
@@ -49,4 +61,6 @@ test('database persists lifecycle state and unique normalized phone', () => {
   assert.match(migration, /inactivity_warning_sent_at timestamptz/);
   assert.match(migration, /inactivity_delete_after timestamptz/);
   assert.match(migration, /users_phone_unique_idx/);
+  assert.match(migration, /phone_normalized text[\s\S]*generated always/);
+  assert.match(lifecycle, /\.eq\('phone_normalized', phone\)/);
 });

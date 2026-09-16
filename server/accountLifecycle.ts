@@ -8,7 +8,7 @@ const WARNING_AFTER = 14 * DAY;
 const ADMIN_ALERT_AFTER = 30 * DAY;
 const AUTO_DELETE_GRACE = 5 * DAY;
 const protectedRoles = new Set(['Admin', 'Co-admin']);
-const cleanPhone = (value: any) => String(value || '').trim().replace(/[\s().-]/g, '');
+export const cleanPhone = (value: unknown) => String(value || '').replace(/[^0-9+]/g, '');
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c] || c));
 
 export const lifecyclePolicy = { WARNING_AFTER, ADMIN_ALERT_AFTER, AUTO_DELETE_GRACE };
@@ -25,11 +25,28 @@ async function sendEmail(input: { to: string; name?: string; subject: string; ht
 }
 
 async function findPhoneAccount(client: any, phone: string) {
-  const { data, error } = await client.from('users').select('*').limit(1000);
+  const { data, error } = await client
+    .from('users')
+    .select('*')
+    .eq('phone_normalized', phone)
+    .limit(2);
   if (error) throw error;
-  const matches = (data || []).filter((u: any) => cleanPhone(u.phone) === phone && u.email && !/inactif|inactive/i.test(u.status || ''));
+  const matches = (data || []).filter((user: any) => user.email && !/inactif|inactive/i.test(user.status || ''));
   return matches.length === 1 ? matches[0] : null;
 }
+
+const phoneRequests = new Map<string, { count: number; resetAt: number }>();
+const allowPhoneRequest = (key: string, now = Date.now()) => {
+  const existing = phoneRequests.get(key);
+  if (!existing || existing.resetAt <= now) {
+    phoneRequests.set(key, { count: 1, resetAt: now + 10 * 60 * 1000 });
+    return true;
+  }
+  existing.count += 1;
+  return existing.count <= 3;
+};
+
+const GENERIC_PHONE_MESSAGE = 'Si ce numéro correspond à un compte, un code a été envoyé à son adresse e-mail.';
 
 const mapLoginUser = (u: any) => ({
   id: u.id, uid: u.uid, schoolId: u.school_id ?? null, licenseSchoolId: u.school_id ?? null,
@@ -54,8 +71,13 @@ export function registerAccountLifecycle(app: Express, requireAuth: any, getUser
     const client = getClient(req);
     if (!client) return res.status(503).json({ error: 'Supabase indisponible.' });
     const now = Date.now();
-    const { data: rows, error } = await client.from('users').select('*').eq('inactivity_exempt', false).limit(1000);
-    if (error) return res.status(500).json({ error: error.message });
+    const rows: any[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await client.from('users').select('*').eq('inactivity_exempt', false).range(from, from + 999);
+      if (error) return res.status(500).json({ error: error.message });
+      rows.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
     const stats = { warned: 0, adminAlerted: 0, deleted: 0, skipped: 0, failed: 0 };
 
     for (const account of rows || []) {
@@ -70,7 +92,9 @@ export function registerAccountLifecycle(app: Express, requireAuth: any, getUser
         }
         if (inactiveFor >= ADMIN_ALERT_AFTER && !account.inactivity_admin_alerted_at) {
           const alertedAt = new Date(); const deleteAfter = new Date(alertedAt.getTime() + AUTO_DELETE_GRACE);
-          const { data: admins, error: adminError } = await client.from('users').select('id,email,name').in('role', ['Admin', 'Co-admin']);
+          let adminsQuery = client.from('users').select('id,email,name').in('role', ['Admin', 'Co-admin']);
+          adminsQuery = account.school_id == null ? adminsQuery.is('school_id', null) : adminsQuery.eq('school_id', account.school_id);
+          const { data: admins, error: adminError } = await adminsQuery;
           if (adminError) throw adminError;
           for (const admin of admins || []) {
             await client.from('notifications').insert({ user_id: admin.id, type: 'ACCOUNT_INACTIVITY', title: 'Compte inactif à contrôler', message: `${account.name || account.email} est inactif depuis un mois et sera supprimé automatiquement dans 5 jours sans action.`, is_read: false }).throwOnError();
@@ -82,9 +106,9 @@ export function registerAccountLifecycle(app: Express, requireAuth: any, getUser
         if (account.inactivity_delete_after && now >= new Date(account.inactivity_delete_after).getTime()) {
           const recipient = account.email; const name = account.name;
           await Promise.all([
-            client.from('students').delete().eq('user_id', account.id),
-            client.from('personnel').delete().eq('user_id', account.id),
-            client.from('notifications').delete().eq('user_id', account.id),
+            client.from('students').delete().eq('user_id', account.id).throwOnError(),
+            client.from('personnel').delete().eq('user_id', account.id).throwOnError(),
+            client.from('notifications').delete().eq('user_id', account.id).throwOnError(),
           ]);
           await client.from('users').delete().eq('id', account.id).throwOnError();
           if (account.uid && client.auth?.admin) await client.auth.admin.deleteUser(account.uid).catch((e: any) => console.warn('Auth deletion warning:', e?.message || e));
@@ -102,9 +126,11 @@ export function registerAccountLifecycle(app: Express, requireAuth: any, getUser
       const client = getClient(req); if (!client) return res.status(503).json({ error: 'Service indisponible.' });
       const phone = cleanPhone(req.body?.phone);
       if (phone.length < 7) return res.status(400).json({ error: 'Numéro de téléphone invalide.' });
+      const rateLimitKey = `${req.ip || req.socket?.remoteAddress || 'unknown'}:${phone}`;
+      if (!allowPhoneRequest(rateLimitKey)) return res.status(429).json({ error: 'Trop de demandes. Réessayez dans quelques minutes.' });
       const account = await findPhoneAccount(client, phone);
-      // Generic response prevents phone-number account enumeration.
-      if (!account || protectedRoles.has(canonicalizeRole(account.role))) return res.json({ success: true, message: 'Si ce numéro correspond à un compte, un code a été envoyé à son adresse e-mail.' });
+      // Keep the same successful response for missing, protected, and deliverable accounts.
+      if (!account || protectedRoles.has(canonicalizeRole(account.role))) return res.json({ success: true, message: GENERIC_PHONE_MESSAGE });
       const code = otpManager.generateOtp(account.email, 'login_2fa', { phoneLogin: true, userId: account.id });
       const result = await sendBrevoEmail({
         to: [{ email: account.email, name: account.name }],
@@ -112,8 +138,8 @@ export function registerAccountLifecycle(app: Express, requireAuth: any, getUser
         htmlContent: `<p>Bonjour ${escapeHtml(account.name || '')},</p><p>Votre code de connexion EDUCO est :</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p><p>Ce code expire dans 10 minutes.</p>`,
         tags: ['phone-login-otp'],
       });
-      if (!result.success) return res.status(503).json({ error: 'Impossible d’envoyer le code de connexion.' });
-      res.json({ success: true, message: 'Si ce numéro correspond à un compte, un code a été envoyé à son adresse e-mail.' });
+      if (!result.success) console.warn('Phone login OTP delivery failed:', result.error);
+      res.json({ success: true, message: GENERIC_PHONE_MESSAGE });
     } catch (e: any) { res.status(500).json({ error: e.message || 'Connexion indisponible.' }); }
   });
 
@@ -124,8 +150,12 @@ export function registerAccountLifecycle(app: Express, requireAuth: any, getUser
       if (phone.length < 7 || !/^\d{6}$/.test(otpCode)) return res.status(400).json({ error: 'Numéro ou code invalide.' });
       const account = await findPhoneAccount(client, phone);
       if (!account || protectedRoles.has(canonicalizeRole(account.role))) return res.status(401).json({ error: 'Code invalide ou expiré.' });
-      const verified = otpManager.verifyOtp(account.email, otpCode, 'login_2fa');
-      if (!verified.valid) return res.status(401).json({ error: verified.error || 'Code invalide ou expiré.' });
+      const activeOtp = otpManager.getActiveRecord(account.email);
+      const boundToAccount = activeOtp?.purpose === 'login_2fa'
+        && activeOtp.metadata?.phoneLogin === true
+        && String(activeOtp.metadata?.userId) === String(account.id);
+      const verified = boundToAccount && otpManager.verifyOtp(account.email, otpCode, 'login_2fa');
+      if (!verified || !verified.valid) return res.status(401).json({ error: 'Code invalide ou expiré.' });
       const user = mapLoginUser(account); const token = createLocalSessionToken(user);
       if (!token) return res.status(503).json({ error: 'Impossible de créer une session sécurisée.' });
       await client.from('users').update({ last_active_at: new Date().toISOString(), inactivity_warning_sent_at: null, inactivity_admin_alerted_at: null, inactivity_delete_after: null, deletion_reason: null }).eq('id', account.id).throwOnError();
