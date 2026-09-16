@@ -1,0 +1,186 @@
+name: One-off Primary Phone Patch
+
+on:
+  push:
+    branches:
+      - fix/unique-primary-phone-accounts
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/unique-primary-phone-accounts
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply source changes
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              s = p.read_text()
+              found = s.count(old)
+              if found < count:
+                  raise SystemExit(f'{path}: expected at least {count} occurrences, found {found}: {old[:80]!r}')
+              p.write_text(s.replace(old, new, count))
+
+          # Drizzle schema must expose the persisted primary phone too.
+          replace('src/db/schema.ts',
+              "  email: text('email').notNull().unique(),\n  role: text('role').notNull(),",
+              "  email: text('email').notNull().unique(),\n  phone: text('phone'),\n  role: text('role').notNull(),")
+
+          # Internal account form: the field labelled primary phone must really map to users.phone.
+          replace('components/UserForm.tsx',
+              "    contact: '',\n    address: '',",
+              "    contact: '',\n    phone: '',\n    address: '',")
+          replace('components/UserForm.tsx',
+              "        contact: user.contact || '',\n        address: user.address || '',",
+              "        contact: user.contact || user.phone || '',\n        phone: user.phone || user.contact || '',\n        address: user.address || '',")
+          replace('components/UserForm.tsx',
+              "      if (!isStudent && !formData.email.trim()) {\n        errors.email = \"L'adresse email est requise pour le personnel\";\n      }",
+              "      if (!isStudent && !formData.email.trim()) {\n        errors.email = \"L'adresse email est requise pour le personnel\";\n      }\n      const primaryPhone = String(formData.phone || formData.contact || '').replace(/[^0-9+]/g, '');\n      if (primaryPhone.length < 7) {\n        errors.phone = \"Le numéro de téléphone principal est obligatoire et doit être valide\";\n      }")
+          replace('components/UserForm.tsx',
+              "      const finalData = { ...formData };\n      if (isStudent && !finalData.studentId) {",
+              "      const finalData = { ...formData };\n      finalData.phone = String(finalData.phone || finalData.contact || '').trim();\n      finalData.contact = finalData.phone;\n      if (isStudent && !finalData.studentId) {")
+          replace('components/UserForm.tsx',
+              "                  <label htmlFor=\"contact\" className={labelClass}>Numéro de Téléphone principal</label>\n                  <input\n                    type=\"tel\"\n                    id=\"contact\"\n                    name=\"contact\"\n                    value={formData.contact}\n                    onChange={handleChange}\n                    placeholder=\"Ex: +242 06 123 4567\"\n                    className={formFieldClass}\n                  />",
+              "                  <label htmlFor=\"phone\" className={labelClass}>Numéro de Téléphone principal *</label>\n                  <input\n                    type=\"tel\"\n                    id=\"phone\"\n                    name=\"phone\"\n                    value={formData.phone || ''}\n                    onChange={handleChange}\n                    placeholder=\"Ex: +242 06 123 4567\"\n                    className={`${formFieldClass} ${formErrors.phone ? 'border-rose-500' : ''}`}\n                    required\n                  />\n                  {formErrors.phone && <p className=\"text-[10px] text-rose-600 font-bold mt-1\">{formErrors.phone}</p>}")
+          replace('components/UserForm.tsx',
+              "                        Définissez le mot de passe initial. Un email ne peut appartenir qu'à un seul compte.",
+              "                        Définissez le mot de passe initial. Un e-mail et un numéro principal ne peuvent appartenir qu'à un seul compte.")
+
+          # Public parent signup: phone is mandatory for an account that can use phone login.
+          replace('components/LoginPage.tsx',
+              "    if (!parentForm.parentEmail.trim()) {\n      setParentRegError('Veuillez renseigner votre adresse e-mail.');\n      return;\n    }",
+              "    if (!parentForm.parentEmail.trim()) {\n      setParentRegError('Veuillez renseigner votre adresse e-mail.');\n      return;\n    }\n    if (parentForm.parentPhone.replace(/[^0-9+]/g, '').length < 7) {\n      setParentRegError('Veuillez renseigner un numéro de téléphone principal valide.');\n      return;\n    }")
+          replace('components/LoginPage.tsx',
+              "                    Numéro de Téléphone\n                  </label>\n                  <input\n                    type=\"tel\"\n                    value={parentForm.parentPhone}",
+              "                    Numéro de Téléphone <span className=\"text-rose-500\">*</span>\n                  </label>\n                  <input\n                    type=\"tel\"\n                    required\n                    value={parentForm.parentPhone}")
+
+          # Server helpers for one canonical identity and friendly duplicate errors.
+          replace('server.ts',
+              "const mapSupabaseUser = (user: any) => user ? ({",
+              "const normalizePhoneIdentity = (value: unknown) => String(value || '').replace(/[^0-9+]/g, '');\nconst isDuplicatePhoneError = (error: any) => error?.code === '23505' || /users_phone_unique_idx|phone.*unique|duplicate.*phone/i.test(String(error?.message || error || ''));\n\nconst mapSupabaseUser = (user: any) => user ? ({")
+
+          # Promoteur created with school registration gets its primary login phone.
+          replace('server.ts',
+              "            email: resolvedEmail,\n            name: promoterName || firebaseUser?.name || 'Promoteur',\n            role: 'Promoteur',",
+              "            email: resolvedEmail,\n            phone: normalizePhoneIdentity(promoterContact || schoolPhone) || null,\n            name: promoterName || firebaseUser?.name || 'Promoteur',\n            role: 'Promoteur',")
+          replace('server.ts',
+              "            email: resolvedEmail,\n            name: promoterName || firebaseUser?.name || 'Promoteur',\n            role: 'Promoteur',\n            school_id: newSchool.id,\n            status: 'active'\n          };",
+              "            email: resolvedEmail,\n            phone: normalizePhoneIdentity(promoterContact || schoolPhone) || null,\n            name: promoterName || firebaseUser?.name || 'Promoteur',\n            role: 'Promoteur',\n            school_id: newSchool.id,\n            status: 'active'\n          };")
+
+          # Parent account: require, normalize and persist the same primary phone.
+          replace('server.ts',
+              "      if (!schoolMatricule || !parentName || !parentEmail) {\n        return res.status(400).json({ error: 'Le N° Matricule d\\'établissement, le nom du parent et l\\'adresse e-mail sont obligatoires.' });\n      }",
+              "      const normalizedParentPhone = normalizePhoneIdentity(parentPhone);\n      if (!schoolMatricule || !parentName || !parentEmail || normalizedParentPhone.length < 7) {\n        return res.status(400).json({ error: 'Le N° Matricule d\\'établissement, le nom, l\\'adresse e-mail et un numéro de téléphone valide sont obligatoires.' });\n      }")
+          replace('server.ts',
+              "        email: parentEmail,\n        role: 'Parent',",
+              "        email: parentEmail,\n        phone: normalizedParentPhone,\n        role: 'Parent',")
+          replace('server.ts',
+              "            email: parentEmail,\n            role: 'Parent',\n            status: 'active',",
+              "            email: parentEmail,\n            phone: normalizedParentPhone,\n            role: 'Parent',\n            status: 'active',")
+
+          # Main account create/update endpoint.
+          replace('server.ts',
+              "      const accountKind = getAccountCreationKind(requestedRole);\n      const requestEmail = normalizeEmail(req.body.email);",
+              "      const accountKind = getAccountCreationKind(requestedRole);\n      const requestEmail = normalizeEmail(req.body.email);\n      const requestPhone = normalizePhoneIdentity(req.body.phone || req.body.contact);\n      if (requestPhone.length < 7) {\n        return res.status(400).json({ error: 'Un numéro de téléphone principal valide est obligatoire.' });\n      }")
+          replace('server.ts',
+              "        if (supabaseAdmin) {\n          const { data: updatedUser, error: updateError } = await supabaseAdmin",
+              "        if (supabaseAdmin) {\n          const { data: phoneOwner, error: phoneLookupError } = await supabaseAdmin.from('users').select('id').eq('phone_normalized', requestPhone).neq('id', Number(req.body.id)).limit(1).maybeSingle();\n          if (phoneLookupError) throw phoneLookupError;\n          if (phoneOwner?.id) return res.status(409).json({ error: 'Ce numéro de téléphone est déjà associé à un autre compte.' });\n          const { data: updatedUser, error: updateError } = await supabaseAdmin")
+          replace('server.ts',
+              "              email: req.body.email,\n              role: canonicalRequestedRole,",
+              "              email: req.body.email,\n              phone: requestPhone,\n              role: canonicalRequestedRole,")
+          replace('server.ts',
+              "            email: req.body.email,\n            role: canonicalRequestedRole,",
+              "            email: req.body.email,\n            phone: requestPhone,\n            role: canonicalRequestedRole,")
+          replace('server.ts',
+              "      const adminClient = getSupabaseAdmin(req);\n      if (requestEmail) {",
+              "      const adminClient = getSupabaseAdmin(req);\n      if (adminClient) {\n        const { data: phoneOwner, error: phoneLookupError } = await adminClient.from('users').select('id').eq('phone_normalized', requestPhone).limit(1).maybeSingle();\n        if (phoneLookupError) throw phoneLookupError;\n        if (phoneOwner?.id) return res.status(409).json({ error: 'Ce numéro de téléphone est déjà associé à un autre compte.' });\n      }\n      if (requestEmail) {")
+          replace('server.ts',
+              "          email: requestEmail,\n          role: canonicalRequestedRole,",
+              "          email: requestEmail,\n          phone: requestPhone,\n          role: canonicalRequestedRole,")
+          replace('server.ts',
+              "        ...req.body,\n        uid: resolvedUid,\n        role: canonicalRequestedRole,",
+              "        ...req.body,\n        uid: resolvedUid,\n        phone: requestPhone,\n        role: canonicalRequestedRole,")
+
+          # PUT endpoint must enforce the same identity rule.
+          replace('server.ts',
+              "      const normalizedEmail = normalizeEmail(email);\n      if (normalizedEmail) {",
+              "      const normalizedEmail = normalizeEmail(email);\n      const normalizedPhone = phone === undefined ? undefined : normalizePhoneIdentity(phone);\n      if (normalizedPhone !== undefined && normalizedPhone.length < 7) {\n        return res.status(400).json({ error: 'Numéro de téléphone principal invalide.' });\n      }\n      if (normalizedEmail) {")
+          replace('server.ts',
+              "      if (supabaseAdmin) {\n        const { data: target } = await supabaseAdmin.from('users').select('school_id').eq('id', targetUserId).maybeSingle();",
+              "      if (supabaseAdmin) {\n        if (normalizedPhone) {\n          const { data: phoneOwner, error: phoneLookupError } = await supabaseAdmin.from('users').select('id').eq('phone_normalized', normalizedPhone).neq('id', targetUserId).limit(1).maybeSingle();\n          if (phoneLookupError) throw phoneLookupError;\n          if (phoneOwner?.id) return res.status(409).json({ error: 'Ce numéro de téléphone est déjà associé à un autre compte.' });\n        }\n        const { data: target } = await supabaseAdmin.from('users').select('school_id').eq('id', targetUserId).maybeSingle();")
+          replace('server.ts',
+              "          ...(avatar !== undefined && { avatar }),\n          ...(isCentralAdmin && schoolId !== undefined && { school_id: Number(schoolId) })",
+              "          ...(avatar !== undefined && { avatar }),\n          ...(normalizedPhone !== undefined && { phone: normalizedPhone }),\n          ...(isCentralAdmin && schoolId !== undefined && { school_id: Number(schoolId) })")
+          replace('server.ts',
+              "          ...(avatar !== undefined && { avatar }),\n          ...(isCentralAdmin && schoolId !== undefined && { schoolId: Number(schoolId) })",
+              "          ...(avatar !== undefined && { avatar }),\n          ...(normalizedPhone !== undefined && { phone: normalizedPhone }),\n          ...(isCentralAdmin && schoolId !== undefined && { schoolId: Number(schoolId) })")
+
+          # Return 409 for DB uniqueness violations rather than a generic 500.
+          replace('server.ts',
+              "    } catch (error: any) {\n      res.status(500).json({ error: error.message });\n    }\n  });\n\n  // PUT /api/users/:id",
+              "    } catch (error: any) {\n      if (isDuplicatePhoneError(error)) return res.status(409).json({ error: 'Ce numéro de téléphone est déjà associé à un autre compte.' });\n      res.status(500).json({ error: error.message });\n    }\n  });\n\n  // PUT /api/users/:id")
+
+          PY
+      - name: Add phone identity regression test
+        shell: bash
+        run: |
+          cat > tests/phone-identity.test.ts <<'EOF'
+          import assert from 'node:assert/strict';
+          import test from 'node:test';
+          import fs from 'node:fs';
+
+          const server = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+          const form = fs.readFileSync(new URL('../components/UserForm.tsx', import.meta.url), 'utf8');
+          const login = fs.readFileSync(new URL('../components/LoginPage.tsx', import.meta.url), 'utf8');
+          const schema = fs.readFileSync(new URL('../src/db/schema.ts', import.meta.url), 'utf8');
+          const migration = fs.readFileSync(new URL('../supabase/migrations/20260917_enforce_unique_user_phone.sql', import.meta.url), 'utf8');
+
+          test('primary phone is persisted as users.phone and required by account forms', () => {
+            assert.match(schema, /phone: text\('phone'\)/);
+            assert.match(form, /name="phone"/);
+            assert.match(form, /formErrors\.phone/);
+            assert.match(form, /finalData\.phone/);
+            assert.match(login, /parentPhone\.replace\(\/\[\^0-9\+\]\//);
+          });
+
+          test('server normalizes and rejects duplicate primary phone identities', () => {
+            assert.match(server, /normalizePhoneIdentity/);
+            assert.match(server, /phone_normalized/);
+            assert.match(server, /Ce numéro de téléphone est déjà associé à un autre compte/);
+            assert.match(server, /phone: requestPhone/);
+            assert.match(server, /phone: normalizedParentPhone/);
+          });
+
+          test('database enforces one normalized phone per user account', () => {
+            assert.match(migration, /CREATE UNIQUE INDEX IF NOT EXISTS users_phone_unique_idx/i);
+            assert.match(migration, /GROUP BY phone_normalized[\s\S]*HAVING COUNT\(\*\) > 1/i);
+          });
+          EOF
+      - name: Validate
+        run: |
+          npm ci
+          npx tsx --test tests/phone-identity.test.ts tests/account-lifecycle.test.ts
+          npm run build
+      - name: Commit source patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add components/UserForm.tsx components/LoginPage.tsx server.ts src/db/schema.ts tests/phone-identity.test.ts
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: enforce unique primary phone per account"
+          git push origin HEAD:fix/unique-primary-phone-accounts
