@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'server/accountLifecycle.ts'
+      - 'server/push.ts'
       - 'supabase/migrations/20260916_account_lifecycle.sql'
       - 'tests/account-lifecycle.test.ts'
       - '.github/workflows/account-lifecycle-security.yml'
