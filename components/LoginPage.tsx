@@ -91,15 +91,17 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
     setError('');
     setPhoneMessage('');
     if (phone.trim().length < 7) return setError('Veuillez saisir un numéro de téléphone valide.');
+    if (!password || password.length < 4) return setError('Veuillez saisir votre mot de passe.');
     setIsPhoneLoading(true);
     try {
       const response = await fetch(getApiUrl('/api/auth/phone-login/request'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phone.trim() }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phone.trim(), password }),
       });
       const data = await response.json().catch(() => null);
-      if (!response.ok) return setError(data?.error || 'Impossible d’envoyer le code.');
+      if (!response.ok) return setError(data?.error || 'Numéro ou mot de passe incorrect.');
+      setPassword('');
       setPhoneStep('otp');
-      setPhoneMessage(data?.message || 'Si ce numéro correspond à un compte, un code a été envoyé à son adresse e-mail.');
+      setPhoneMessage(data?.message || 'Mot de passe confirmé. Un code OTP a été envoyé à l’adresse e-mail enregistrée sur votre compte.');
     } catch (requestError: any) {
       setError(requestError?.message || 'Service de connexion indisponible.');
     } finally { setIsPhoneLoading(false); }
@@ -828,10 +830,19 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
         </form>
         ) : phoneStep === 'phone' ? (
           <form className="space-y-4" onSubmit={handlePhoneRequest}>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Le code de connexion sera envoyé uniquement à l’adresse e-mail déjà enregistrée sur votre compte.</p>
-            <label htmlFor="phone-login" className="block text-xs font-bold text-gray-700 dark:text-slate-300">Numéro de téléphone</label>
-            <input id="phone-login" type="tel" autoComplete="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Ex: +242 06 000 0000" className="w-full px-3 py-3 border border-gray-300 dark:border-slate-700 dark:bg-slate-900 dark:text-white rounded-xl" />
-            <button type="submit" disabled={isPhoneLoading} className="w-full py-3.5 px-4 text-sm font-bold rounded-xl text-white bg-[#1F4A59] disabled:opacity-70">{isPhoneLoading ? 'Envoi…' : 'Recevoir le code par e-mail'}</button>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Saisissez votre numéro et votre mot de passe. Après vérification, un code OTP sera envoyé uniquement à l’adresse e-mail déjà enregistrée sur votre compte.</p>
+            <div>
+              <label htmlFor="phone-login" className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Numéro de téléphone</label>
+              <input id="phone-login" type="tel" autoComplete="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Ex: +242 06 000 0000" className="w-full px-3 py-3 border border-gray-300 dark:border-slate-700 dark:bg-slate-900 dark:text-white rounded-xl" />
+            </div>
+            <div>
+              <label htmlFor="phone-password" className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Mot de passe</label>
+              <div className="relative">
+                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"><LockClosedIcon /></div>
+                <input id="phone-password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full pl-10 pr-3 py-3 border border-gray-300 dark:border-slate-700 dark:bg-slate-900 dark:text-white rounded-xl" />
+              </div>
+            </div>
+            <button type="submit" disabled={isPhoneLoading} className="w-full py-3.5 px-4 text-sm font-bold rounded-xl text-white bg-[#1F4A59] disabled:opacity-70">{isPhoneLoading ? 'Vérification…' : 'Vérifier et recevoir le code'}</button>
           </form>
         ) : (
           <form className="space-y-4" onSubmit={handlePhoneVerify}>
@@ -839,7 +850,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
             <label htmlFor="phone-otp" className="block text-xs font-bold text-gray-700 dark:text-slate-300">Code OTP à 6 chiffres</label>
             <input id="phone-otp" inputMode="numeric" autoComplete="one-time-code" maxLength={6} required value={phoneOtp} onChange={(e) => setPhoneOtp(e.target.value.replace(/\D/g, ''))} className="w-full p-3 border rounded-xl text-center font-mono text-xl tracking-widest dark:bg-slate-900 dark:text-white" />
             <button type="submit" disabled={isPhoneLoading} className="w-full py-3.5 px-4 text-sm font-bold rounded-xl text-white bg-[#1F4A59] disabled:opacity-70">{isPhoneLoading ? 'Vérification…' : 'Valider et se connecter'}</button>
-            <button type="button" onClick={() => { setPhoneStep('phone'); setPhoneOtp(''); setPhoneMessage(''); }} className="w-full text-xs font-bold text-slate-500">Changer de numéro</button>
+            <button type="button" onClick={() => { setPhoneStep('phone'); setPhoneOtp(''); setPhoneMessage(''); setPassword(''); }} className="w-full text-xs font-bold text-slate-500">Changer de numéro ou de mot de passe</button>
           </form>
         )}
 
