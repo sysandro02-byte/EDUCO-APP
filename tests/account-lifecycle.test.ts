@@ -7,6 +7,7 @@ const migration = fs.readFileSync(new URL('../supabase/migrations/20260916_accou
 const push = fs.readFileSync(new URL('../server/push.ts', import.meta.url), 'utf8');
 const operations = fs.readFileSync(new URL('../server/operations.ts', import.meta.url), 'utf8');
 const auth = fs.readFileSync(new URL('../src/middleware/auth.ts', import.meta.url), 'utf8');
+const loginPage = fs.readFileSync(new URL('../components/LoginPage.tsx', import.meta.url), 'utf8');
 
 test('inactivity policy is 14 days, 30 days and 5 day admin grace', () => {
   assert.match(lifecycle, /WARNING_AFTER = 14 \* DAY/);
@@ -40,16 +41,27 @@ test('automatic deletion removes auth identity before deleting the profile and c
   assert.match(lifecycle, /authDeleteError\.status !== 404/);
 });
 
-test('phone login sends OTP only to registered email without exposing it', () => {
+test('phone login verifies phone and password before sending OTP to registered email', () => {
   assert.match(lifecycle, /\/api\/auth\/phone-login\/request/);
-  assert.match(lifecycle, /\/api\/auth\/phone-login\/verify/);
-  assert.match(lifecycle, /otpManager\.generateOtp\(account\.email, 'login_2fa'/);
+  assert.match(lifecycle, /const password = String\(req\.body\?\.password \|\| ''\)/);
+  assert.match(lifecycle, /signInWithPassword\(\{[\s\S]*email: account\.email,[\s\S]*password/);
+  const passwordCheck = lifecycle.indexOf('signInWithPassword');
+  const otpGeneration = lifecycle.indexOf("otpManager.generateOtp(account.email, 'login_2fa'");
+  assert.ok(passwordCheck >= 0 && otpGeneration > passwordCheck, 'password must be verified before OTP generation');
+  assert.match(lifecycle, /PHONE_CREDENTIALS_ERROR/);
   assert.match(lifecycle, /phone-login-otp/);
   assert.doesNotMatch(lifecycle, /success: true, email: account\.email/);
   assert.doesNotMatch(lifecycle, /sendSms|sendSMS|twilio/i);
   assert.match(lifecycle, /GENERIC_PHONE_MESSAGE/);
   assert.match(lifecycle, /Phone login OTP delivery failed/);
   assert.match(lifecycle, /allowPhoneRequest/);
+});
+
+test('phone login UI requires password before requesting OTP', () => {
+  assert.match(loginPage, /JSON\.stringify\(\{ phone: phone\.trim\(\), password \}\)/);
+  assert.match(loginPage, /id="phone-password"/);
+  assert.match(loginPage, /autoComplete="current-password"/);
+  assert.match(loginPage, /Vérifier et recevoir le code/);
 });
 
 test('phone OTP verification creates a secure EDUCO session and resets inactivity', () => {
