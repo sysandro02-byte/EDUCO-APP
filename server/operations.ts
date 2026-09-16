@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Express } from 'express';
 import { canonicalizeRole } from '../src/services/userAccountWorkflow.ts';
 import { registerPushNotifications } from './push.ts';
+import { registerAccountLifecycle } from './accountLifecycle.ts';
 
 const direction = ['Promoteur', 'Directeur Général', 'Directeur des Etudes', 'Directeur du Primaire'];
 const finance = ['Promoteur', 'Directeur Général', 'Responsable des finances'];
@@ -89,6 +90,7 @@ export function mutateOperations(current: any, key: string, body: any) {
 
 export function registerOperations(app: Express, requireAuth: any, getUser: any, getClient: any) {
   registerPushNotifications(app, requireAuth, getUser, getClient);
+  registerAccountLifecycle(app, requireAuth, getUser, getClient);
   app.post('/api/records/:table/delete', requireAuth, async (req, res) => {
     try {
       const table = String(req.params.table); const allowed: Record<string, string[]> = { classes: direction, fees: finance, personnel: finance };
