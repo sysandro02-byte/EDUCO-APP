@@ -195,6 +195,10 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
       setParentRegError('Veuillez renseigner votre adresse e-mail.');
       return;
     }
+    if (parentForm.parentPhone.replace(/[^0-9+]/g, '').length < 7) {
+      setParentRegError('Veuillez renseigner un numéro de téléphone principal valide.');
+      return;
+    }
     if (!parentForm.password || parentForm.password.length < 6) {
       setParentRegError('Le mot de passe doit contenir au moins 6 caractères.');
       return;
@@ -536,10 +540,11 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Numéro de Téléphone
+                    Numéro de Téléphone <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="tel"
+                    required
                     value={parentForm.parentPhone}
                     onChange={(e) => setParentForm(prev => ({ ...prev, parentPhone: e.target.value }))}
                     placeholder="+242 06 000 0000"
