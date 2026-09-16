@@ -6,7 +6,7 @@ import './index.css';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { Analytics } from '@vercel/analytics/react';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
-import { installSessionExpiryGuard } from './src/services/sessionExpiryGuard';
+import { installSessionExpiryGuard, restorePersistentSession } from './src/services/sessionExpiryGuard';
 
 installSessionExpiryGuard();
 
@@ -102,12 +102,20 @@ if (!rootElement) {
 }
 const root = ReactDOM.createRoot(rootElement);
 
-root.render(
-  <AppErrorBoundary>
-    <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || 'dummy-client-id'}>
-      <App />
-      <PwaInstallPrompt />
-      <Analytics />
-    </GoogleOAuthProvider>
-  </AppErrorBoundary>
-);
+const renderApp = async () => {
+  // A standalone PWA gets a fresh sessionStorage context. Rebuild that marker
+  // from a persistent credential only after the backend verifies it.
+  await restorePersistentSession();
+
+  root.render(
+    <AppErrorBoundary>
+      <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || 'dummy-client-id'}>
+        <App />
+        <PwaInstallPrompt />
+        <Analytics />
+      </GoogleOAuthProvider>
+    </AppErrorBoundary>
+  );
+};
+
+void renderApp();

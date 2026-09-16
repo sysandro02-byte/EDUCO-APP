@@ -1,3 +1,6 @@
+import { getApiUrl } from '../lib/apiConfig';
+import { getSecureAuthHeaders } from './authHeaders';
+
 let installed = false;
 let handlingExpiry = false;
 
@@ -38,6 +41,37 @@ const clearExpiredSession = () => {
     window.setTimeout(() => window.location.reload(), 0);
   }
 };
+
+/**
+ * Restores the browser session marker when the installed PWA is opened in a
+ * fresh browsing context. The persistent credential is verified by the server
+ * before EDUCO considers the session active, so cached user data alone can
+ * never reopen an account.
+ */
+export async function restorePersistentSession(): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  if (sessionStorage.getItem('EDUCO_SESSION_ACTIVE') === 'true') return true;
+
+  const headers = await getSecureAuthHeaders();
+  if (!headers.Authorization) return false;
+
+  try {
+    const response = await fetch(getApiUrl('/api/auth/me'), { headers });
+    if (!response.ok) return false;
+    const data = await response.json().catch(() => null);
+    if (!data?.user) return false;
+
+    localStorage.setItem('EDUCO_CURRENT_USER', JSON.stringify(data.user));
+    sessionStorage.setItem('EDUCO_SESSION_ACTIVE', 'true');
+    // OTP was already satisfied for the persisted authenticated session.
+    sessionStorage.setItem('otpVerified', 'true');
+    sessionStorage.removeItem('EDUCO_SESSION_EXPIRED');
+    return true;
+  } catch {
+    // Offline startup keeps the login screen rather than trusting stale data.
+    return false;
+  }
+}
 
 /**
  * Ensures an installed PWA cannot remain in a fake "connected" state after the
