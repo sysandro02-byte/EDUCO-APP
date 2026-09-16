@@ -105,13 +105,24 @@ export function registerAccountLifecycle(app: Express, requireAuth: any, getUser
         }
         if (account.inactivity_delete_after && now >= new Date(account.inactivity_delete_after).getTime()) {
           const recipient = account.email; const name = account.name;
+
+          // Delete the Supabase Auth identity first and only continue after a
+          // confirmed success (or an already-missing identity). This keeps the
+          // database row available for a later retry if Auth deletion fails.
+          if (account.uid) {
+            if (!client.auth?.admin) throw new Error('Supabase Auth admin indisponible pour la suppression automatique.');
+            const { error: authDeleteError } = await client.auth.admin.deleteUser(account.uid);
+            if (authDeleteError && authDeleteError.status !== 404 && !/not found|introuvable/i.test(authDeleteError.message || '')) {
+              throw authDeleteError;
+            }
+          }
+
           await Promise.all([
             client.from('students').delete().eq('user_id', account.id).throwOnError(),
             client.from('personnel').delete().eq('user_id', account.id).throwOnError(),
             client.from('notifications').delete().eq('user_id', account.id).throwOnError(),
           ]);
           await client.from('users').delete().eq('id', account.id).throwOnError();
-          if (account.uid && client.auth?.admin) await client.auth.admin.deleteUser(account.uid).catch((e: any) => console.warn('Auth deletion warning:', e?.message || e));
           if (recipient) await sendEmail({ to: recipient, name, subject: 'Votre compte EDUCO a été supprimé', tag: 'account-deleted', html: `<p>Bonjour ${escapeHtml(name || '')},</p><p>Votre compte EDUCO a été supprimé après la période d’inactivité annoncée.</p><p>Si vous souhaitez utiliser EDUCO à nouveau, contactez votre établissement.</p>` });
           stats.deleted++;
         }
