@@ -2,6 +2,7 @@ import type { Express } from 'express';
 import webpush from 'web-push';
 import { canonicalizeRole } from '../src/services/userAccountWorkflow.ts';
 import { registerMessagingRoutes } from './messagingRoutes.ts';
+import { registerPortalRoutes } from './portalRoutes.ts';
 
 interface StoredPushSubscription {
   endpoint: string;
@@ -203,8 +204,6 @@ export function registerPushNotifications(app: Express, requireAuth: any, getUse
     }
   });
 
-  // Register the push mirror before the secure dispatch route. The target school
-  // always comes from the authenticated user, never from request body fields.
   app.use('/api/notifications/dispatch', requireAuth, async (req: any, res: any, next: any) => {
     let user: any = null;
     let client: any = null;
@@ -239,5 +238,8 @@ export function registerPushNotifications(app: Express, requireAuth: any, getUse
     return next();
   });
 
+  // These exact routes are registered through operations before the broad
+  // server.ts fallbacks, so personal data is scoped by the authenticated user.
   registerMessagingRoutes(app, requireAuth, getUser, getClient);
+  registerPortalRoutes(app, requireAuth, getUser, getClient);
 }

@@ -1,0 +1,31 @@
+name: Parent Student Portal Integrity
+
+on:
+  pull_request:
+    paths:
+      - 'server/portalRoutes.ts'
+      - 'server/push.ts'
+      - 'src/services/api.ts'
+      - 'tests/parent-student-portal.test.ts'
+      - '.github/workflows/parent-student-portal.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'server/portalRoutes.ts'
+      - 'server/push.ts'
+      - 'src/services/api.ts'
+      - 'tests/parent-student-portal.test.ts'
+      - '.github/workflows/parent-student-portal.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsx --test tests/parent-student-portal.test.ts
+      - run: npm run build
