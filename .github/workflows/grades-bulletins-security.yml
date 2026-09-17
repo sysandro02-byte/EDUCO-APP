@@ -4,25 +4,35 @@ on:
   pull_request:
     paths:
       - 'server/gradeGuard.ts'
+      - 'server/academicDocuments.ts'
       - 'server/studentEnrollment.ts'
       - 'server.ts'
       - 'components/TeacherGradesPage.tsx'
       - 'components/GradeForm.tsx'
       - 'components/Bulletin.tsx'
+      - 'components/AcademicDocumentsModal.tsx'
+      - 'components/Sidebar.tsx'
       - 'components/ReportCardCommentsForm.tsx'
+      - 'supabase/migrations/*academic_documents*'
       - 'tests/grades-bulletins.test.ts'
+      - 'tests/academic-documents-workflow.test.ts'
       - '.github/workflows/grades-bulletins-security.yml'
   push:
     branches: [main]
     paths:
       - 'server/gradeGuard.ts'
+      - 'server/academicDocuments.ts'
       - 'server/studentEnrollment.ts'
       - 'server.ts'
       - 'components/TeacherGradesPage.tsx'
       - 'components/GradeForm.tsx'
       - 'components/Bulletin.tsx'
+      - 'components/AcademicDocumentsModal.tsx'
+      - 'components/Sidebar.tsx'
       - 'components/ReportCardCommentsForm.tsx'
+      - 'supabase/migrations/*academic_documents*'
       - 'tests/grades-bulletins.test.ts'
+      - 'tests/academic-documents-workflow.test.ts'
       - '.github/workflows/grades-bulletins-security.yml'
 
 jobs:
@@ -35,5 +45,5 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx tsx --test tests/grades-bulletins.test.ts
+      - run: npx tsx --test tests/grades-bulletins.test.ts tests/academic-documents-workflow.test.ts
       - run: npm run build
