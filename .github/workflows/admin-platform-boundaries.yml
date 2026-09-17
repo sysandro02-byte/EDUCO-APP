@@ -1,0 +1,35 @@
+name: Admin Platform Boundaries
+
+on:
+  pull_request:
+    paths:
+      - 'server/portalRoutes.ts'
+      - 'server/webauthn.ts'
+      - 'server.ts'
+      - 'App.tsx'
+      - 'supabase/migrations/20260917_admin_server_only_legacy_tables.sql'
+      - 'tests/admin-platform-boundaries.test.ts'
+      - '.github/workflows/admin-platform-boundaries.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'server/portalRoutes.ts'
+      - 'server/webauthn.ts'
+      - 'server.ts'
+      - 'App.tsx'
+      - 'supabase/migrations/20260917_admin_server_only_legacy_tables.sql'
+      - 'tests/admin-platform-boundaries.test.ts'
+      - '.github/workflows/admin-platform-boundaries.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx tsx --test tests/admin-platform-boundaries.test.ts tests/auth-boundary.test.ts
+      - run: npm run build

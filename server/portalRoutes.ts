@@ -2,6 +2,7 @@ import type { Express } from 'express';
 import { canonicalizeRole } from '../src/services/userAccountWorkflow.ts';
 
 const PERSONAL_ROLES = new Set(['Parent', 'Parent d’élève', 'Parent d\'élève', 'Parent/Tuteur', 'Élève']);
+const PLATFORM_ADMIN_ROLES = new Set(['Admin', 'Co-admin']);
 const same = (a: any, b: any) => a != null && b != null && String(a) !== '' && String(a) === String(b);
 const normalizePhone = (value: unknown) => String(value || '').replace(/\D/g, '');
 const isActiveAccount = (status: unknown) => ['active', 'actif'].includes(String(status || '').trim().toLowerCase());
@@ -37,12 +38,51 @@ const mapStudent = (row: any) => ({
 });
 
 export function registerPortalRoutes(app: Express, requireAuth: any, getUser: any, getClient: any) {
+  // Preserve the legacy Parent/Student export entry point, but only by routing it
+  // to the minimal personal portal. Platform Admin/Co-admin continue to the real
+  // global export handler; every other role is denied before reaching server.ts.
   app.get('/api/admin/export-data', requireAuth, async (req: any, res: any, next: any) => {
     try {
       const user = await getUser(req);
       const role = canonicalizeRole(user?.role || '');
-      if (!PERSONAL_ROLES.has(role)) return next();
-      return res.redirect(307, '/api/portal');
+      if (PERSONAL_ROLES.has(role)) return res.redirect(307, '/api/portal');
+      if (PLATFORM_ADMIN_ROLES.has(role)) return next();
+      return res.status(403).json({ error: 'Accès réservé à l’administration centrale.' });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  // Defense-in-depth for every historical /api/admin/* route. Individual routes
+  // may still apply stricter Admin-only checks (for example destructive license
+  // operations), but no school-scoped role can reach them accidentally.
+  app.use('/api/admin', requireAuth, async (req: any, res: any, next: any) => {
+    try {
+      const user = await getUser(req);
+      const role = canonicalizeRole(user?.role || '');
+      if (!PLATFORM_ADMIN_ROLES.has(role)) {
+        return res.status(403).json({ error: 'Accès réservé à l’administration centrale.' });
+      }
+      return next();
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  // server.ts contains legacy duplicate DELETE /api/schools/:id handlers. This
+  // guard is registered first, so only central admins or a Promoteur deleting
+  // their own establishment can reach either destructive implementation.
+  app.delete('/api/schools/:id', requireAuth, async (req: any, res: any, next: any) => {
+    try {
+      const user = await getUser(req);
+      const role = canonicalizeRole(user?.role || '');
+      const targetSchoolId = Number(req.params.id);
+      if (!Number.isSafeInteger(targetSchoolId) || targetSchoolId <= 0) {
+        return res.status(400).json({ error: 'Identifiant établissement invalide.' });
+      }
+      if (PLATFORM_ADMIN_ROLES.has(role)) return next();
+      if (role === 'Promoteur' && Number(user?.schoolId) === targetSchoolId) return next();
+      return res.status(403).json({ error: 'Vous ne pouvez administrer que votre propre établissement.' });
     } catch (error) {
       return next(error);
     }
@@ -145,7 +185,6 @@ export function registerPortalRoutes(app: Express, requireAuth: any, getUser: an
       const relevantSubjectIds = new Set([...visibleGrades.map((row: any) => String(row.subject_id)), ...visibleTimetable.map((row: any) => String(row.subject_id))]);
       const visibleSubjects = subjectRows.filter((row: any) => relevantSubjectIds.has(String(row.id)));
       const subjectById = new Map(visibleSubjects.map((subject: any) => [Number(subject.id), subject.name]));
-      const linkedClassRefs = new Set(classIds.map(String));
       const linkedClassNames = new Set(classRows.map((row: any) => String(row.name || '').trim()).filter(Boolean));
 
       const personalTransactions = paymentRows.map((payment: any) => ({
