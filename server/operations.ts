@@ -5,6 +5,7 @@ import { registerPushNotifications } from './push.ts';
 import { registerAccountLifecycle } from './accountLifecycle.ts';
 import { registerStudentEnrollment } from './studentEnrollment.ts';
 import { registerTimetableRoutes } from './timetableRoutes.ts';
+import { registerInstitutionalAccountReview } from './institutionalAccountReview.ts';
 
 const direction = ['Promoteur', 'Directeur Général', 'Directeur des Etudes', 'Directeur du Primaire'];
 const finance = ['Promoteur', 'Directeur Général', 'Responsable des finances'];
@@ -83,7 +84,7 @@ export function mutateOperations(current: any, key: string, body: any) {
     rows = rows.filter((row: any) => !(same(row.classId, body.classId) && row.date === body.date));
     return { ...current, attendance: [...rows, ...body.records.map((row: any) => ({ studentId: row.studentId, status: row.status, classId: body.classId, date: body.date, id: `${body.classId}:${body.date}:${row.studentId}` }))] };
   }
-  if (body.action === 'delete') return { ...current, [key]: rows.filter((row: any) => !same(row.id, body.id)) };
+  if (body.action === 'delete') return { ...current, [key]: rows.filter((row: any) => !same(row.id, value.id)) };
   const value = { ...body.value };
   if (key === 'reportCardComments') value.id = rows.find((row: any) => same(row.studentId, value.studentId) && row.period === value.period && row.year === value.year)?.id || value.id;
   value.id ||= key === 'subjects' || key === 'messageTemplates' ? Date.now() : randomUUID();
@@ -97,6 +98,7 @@ export function registerOperations(app: Express, requireAuth: any, getUser: any,
   // Register the exact timetable route before /api/operations/:key so timetable
   // mutations are persisted in public.timetable instead of school.settings.
   registerTimetableRoutes(app, requireAuth, getUser, getClient);
+  registerInstitutionalAccountReview(app, requireAuth, getUser, getClient);
   app.post('/api/records/:table/delete', requireAuth, async (req, res) => {
     try {
       const table = String(req.params.table); const allowed: Record<string, string[]> = { classes: direction, fees: finance, personnel: finance };
