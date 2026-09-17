@@ -1,0 +1,27 @@
+name: Supabase Performance Integrity
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20260917_optimize_foreign_key_indexes.sql'
+      - 'tests/supabase-performance-integrity.test.ts'
+      - '.github/workflows/supabase-performance-integrity.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20260917_optimize_foreign_key_indexes.sql'
+      - 'tests/supabase-performance-integrity.test.ts'
+      - '.github/workflows/supabase-performance-integrity.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx tsx --test tests/supabase-performance-integrity.test.ts
+      - run: npm run build
