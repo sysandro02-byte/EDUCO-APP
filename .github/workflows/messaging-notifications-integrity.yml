@@ -1,0 +1,31 @@
+name: Messaging and Notifications Integrity
+
+on:
+  pull_request:
+    paths:
+      - 'server/messagingRoutes.ts'
+      - 'server/push.ts'
+      - 'supabase/migrations/20260917_messaging_notifications_integrity.sql'
+      - 'tests/messaging-notifications-integrity.test.ts'
+      - '.github/workflows/messaging-notifications-integrity.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'server/messagingRoutes.ts'
+      - 'server/push.ts'
+      - 'supabase/migrations/20260917_messaging_notifications_integrity.sql'
+      - 'tests/messaging-notifications-integrity.test.ts'
+      - '.github/workflows/messaging-notifications-integrity.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsx --test tests/messaging-notifications-integrity.test.ts
+      - run: npm run build
