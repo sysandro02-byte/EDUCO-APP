@@ -6,9 +6,15 @@ export interface HigherEducationRequestPayload {
   values: Record<string, string>;
 }
 
+export interface HigherEducationRequestResult {
+  success: true;
+  message: string;
+  id?: string;
+}
+
 const clean = (value: unknown, max = 3000) => String(value ?? '').trim().slice(0, max);
 
-export async function submitHigherEducationEstablishmentRequest({ ownership, values }: HigherEducationRequestPayload) {
+export async function submitHigherEducationEstablishmentRequest({ ownership, values }: HigherEducationRequestPayload): Promise<HigherEducationRequestResult> {
   const officialName = clean(values.officialName, 220);
   const officialEmail = clean(values.officialEmail, 254).toLowerCase();
   const phone = clean(values.phone, 40);
@@ -78,5 +84,5 @@ export async function submitHigherEducationEstablishmentRequest({ ownership, val
     throw new Error(data?.error || "Impossible d'enregistrer le dossier.");
   }
 
-  return { success: true, message: data?.message || 'Dossier transmis au cabinet du MES.' };
+  return { success: true, message: data?.message || 'Dossier transmis au cabinet du MES.', id: data?.id };
 }
