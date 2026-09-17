@@ -1,5 +1,5 @@
-import { getSupabaseClient } from '../lib/supabase';
 import type { HigherEducationOwnership } from '../institutional/higherEducationRequestConfig';
+import { getApiUrl } from '../lib/apiConfig';
 
 export interface HigherEducationRequestPayload {
   ownership: HigherEducationOwnership;
@@ -53,35 +53,30 @@ export async function submitHigherEducationEstablishmentRequest({ ownership, val
       .map(([key, value]) => [key, clean(value)]),
   );
 
-  const client = getSupabaseClient();
-  const { error } = await client
-    .from('higher_education_establishment_requests')
-    .insert({
-      institution_type: ownership,
-      request_type: requestType,
-      official_name: officialName,
-      legal_form: clean(values.legalForm, 220) || null,
-      promoter_or_initiator: promoterOrInitiator,
-      legal_representative: legalRepresentative,
-      official_email: officialEmail,
+  const response = await fetch(getApiUrl('/api/government/higher-education-requests/submit'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      institutionType: ownership,
+      requestType,
+      officialName,
+      legalForm: clean(values.legalForm, 220) || null,
+      promoterOrInitiator,
+      legalRepresentative,
+      officialEmail,
       phone,
       department: clean(values.department, 120) || null,
       address,
-      planned_capacity: Math.trunc(plannedCapacity),
-      lmd_levels: lmdLevels,
+      plannedCapacity: Math.trunc(plannedCapacity),
+      lmdLevels,
       programs,
-      dossier_data: dossierData,
-      status: 'PENDING',
-    });
-
-  if (error) {
-    if (error.code === '23505') {
-      throw new Error('Un dossier en attente existe déjà pour cet établissement et cette adresse e-mail.');
-    }
-    throw new Error(error.message || "Impossible d'enregistrer le dossier.");
+      dossierData,
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data?.error) {
+    throw new Error(data?.error || "Impossible d'enregistrer le dossier.");
   }
 
-  // La table est volontairement INSERT-only pour les visiteurs : ne pas effectuer
-  // de SELECT après l'insertion, afin de ne pas contourner la séparation dépôt/instruction.
-  return { success: true };
+  return { success: true, message: data?.message || 'Dossier transmis au cabinet du MES.' };
 }
