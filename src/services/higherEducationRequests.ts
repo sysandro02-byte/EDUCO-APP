@@ -54,7 +54,7 @@ export async function submitHigherEducationEstablishmentRequest({ ownership, val
   );
 
   const client = getSupabaseClient();
-  const { data, error } = await client
+  const { error } = await client
     .from('higher_education_establishment_requests')
     .insert({
       institution_type: ownership,
@@ -72,9 +72,7 @@ export async function submitHigherEducationEstablishmentRequest({ ownership, val
       programs,
       dossier_data: dossierData,
       status: 'PENDING',
-    })
-    .select('id')
-    .single();
+    });
 
   if (error) {
     if (error.code === '23505') {
@@ -83,5 +81,7 @@ export async function submitHigherEducationEstablishmentRequest({ ownership, val
     throw new Error(error.message || "Impossible d'enregistrer le dossier.");
   }
 
-  return { success: true, id: data?.id as string | undefined };
+  // La table est volontairement INSERT-only pour les visiteurs : ne pas effectuer
+  // de SELECT après l'insertion, afin de ne pas contourner la séparation dépôt/instruction.
+  return { success: true };
 }
