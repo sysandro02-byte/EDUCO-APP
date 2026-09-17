@@ -126,7 +126,7 @@ const InstitutionalLoginModal: React.FC<InstitutionalLoginModalProps> = ({ conte
                         className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-black text-emerald-950 shadow-lg shadow-emerald-950/20 transition hover:bg-emerald-300"
                       >
                         <Building2 className="h-4.5 w-4.5" />
-                        Inscrire un établissement public ou privé
+                        Créer le compte de l’établissement
                       </button>
                     )}
 
@@ -137,7 +137,7 @@ const InstitutionalLoginModal: React.FC<InstitutionalLoginModalProps> = ({ conte
                         className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-black text-emerald-950 shadow-lg shadow-emerald-950/20 transition hover:bg-emerald-300"
                       >
                         <GraduationCap className="h-4.5 w-4.5" />
-                        Déposer un dossier de création / ouverture
+                        Créer le compte de l’établissement
                       </button>
                     )}
                   </div>
