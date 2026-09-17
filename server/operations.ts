@@ -84,7 +84,7 @@ export function mutateOperations(current: any, key: string, body: any) {
     rows = rows.filter((row: any) => !(same(row.classId, body.classId) && row.date === body.date));
     return { ...current, attendance: [...rows, ...body.records.map((row: any) => ({ studentId: row.studentId, status: row.status, classId: body.classId, date: body.date, id: `${body.classId}:${body.date}:${row.studentId}` }))] };
   }
-  if (body.action === 'delete') return { ...current, [key]: rows.filter((row: any) => !same(row.id, value.id)) };
+  if (body.action === 'delete') return { ...current, [key]: rows.filter((row: any) => !same(row.id, body.id)) };
   const value = { ...body.value };
   if (key === 'reportCardComments') value.id = rows.find((row: any) => same(row.studentId, value.studentId) && row.period === value.period && row.year === value.year)?.id || value.id;
   value.id ||= key === 'subjects' || key === 'messageTemplates' ? Date.now() : randomUUID();
