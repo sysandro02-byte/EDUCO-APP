@@ -11,6 +11,7 @@ import {
 import {
   buildGovernmentRoleCode,
   canRoleAccessInstitutionContext,
+  isValidInstitutionAccessContext,
 } from '../src/institutional/accessContext.ts';
 
 test('state portal exposes MEPSA, MES and METP using sigles', () => {
@@ -52,4 +53,64 @@ test('visual selection never grants government access to an unrelated role', () 
   assert.equal(canRoleAccessInstitutionContext('MEPSA_DEP', context), false);
   assert.equal(canRoleAccessInstitutionContext('Directeur Général', context), false);
   assert.equal(accessContextLabel(context), 'DEP / MES');
+});
+
+test('institutional context validation rejects tampering and unknown destinations', () => {
+  assert.equal(isValidInstitutionAccessContext({
+    sector: 'STATE',
+    ministry: 'MES',
+    entity: 'CABINET',
+    label: 'CABINET / MES',
+  }), true);
+
+  // Une direction MEPSA ne peut pas être injectée sous le MES.
+  assert.equal(isValidInstitutionAccessContext({
+    sector: 'STATE',
+    ministry: 'MES',
+    entity: 'DCEG',
+    label: 'DCEG / MES',
+  }), false);
+
+  assert.equal(isValidInstitutionAccessContext({
+    sector: 'STATE',
+    ministry: 'METP',
+    entity: 'DGET',
+    label: 'DGET / METP',
+  }), true);
+
+  assert.equal(isValidInstitutionAccessContext({
+    sector: 'SCHOOL',
+    schoolType: 'GENERAL',
+    label: 'Enseignement général',
+  }), true);
+
+  assert.equal(isValidInstitutionAccessContext({
+    sector: 'SCHOOL',
+    schoolType: 'INVENTED',
+    label: 'Invalide',
+  }), false);
+
+  assert.equal(isValidInstitutionAccessContext({
+    sector: 'UNIVERSITY',
+    universityType: 'PUBLIC',
+    label: 'Université publique',
+  }), true);
+
+  assert.equal(isValidInstitutionAccessContext({
+    sector: 'UNIVERSITY',
+    universityType: 'UNKNOWN',
+    label: 'Invalide',
+  }), false);
+});
+
+test('role building refuses a tampered government context', () => {
+  const tampered = {
+    sector: 'STATE',
+    ministry: 'MES',
+    entity: 'DCEG',
+    label: 'DCEG / MES',
+  } as InstitutionAccessContext;
+
+  assert.equal(buildGovernmentRoleCode(tampered), null);
+  assert.equal(canRoleAccessInstitutionContext('MES_DCEG', tampered), false);
 });
