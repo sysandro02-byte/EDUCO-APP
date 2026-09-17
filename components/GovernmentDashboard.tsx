@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { LogoIcon } from './Icons';
 import GovernmentModuleWorkspace from './GovernmentModuleWorkspace';
+import InstitutionalAccountRequestsPanel from './InstitutionalAccountRequestsPanel';
 import {
   accessContextLabel,
   findInstitutionEntity,
@@ -127,7 +128,9 @@ const GovernmentDashboard: React.FC<GovernmentDashboardProps> = ({ context, user
           </header>
 
           <main className="p-4 sm:p-6 lg:p-8">
-            {error ? <DataError message={error} onRetry={loadSnapshot} /> : activeModule === 'Tableau de bord' ? (
+            {error ? <DataError message={error} onRetry={loadSnapshot} /> : context.entity === 'CABINET' && activeModule === 'Dossiers à valider' ? (
+              <InstitutionalAccountRequestsPanel context={context} />
+            ) : activeModule === 'Tableau de bord' ? (
               <DashboardOverview ministry={ministry.label} entity={entity} snapshot={snapshot} loading={loading} />
             ) : (
               <GovernmentModuleWorkspace context={context} moduleName={activeModule} entityLabel={entity.shortLabel || entity.label} snapshot={snapshot} loading={loading} />
