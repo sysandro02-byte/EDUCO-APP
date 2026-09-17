@@ -1,0 +1,31 @@
+name: Attendance Integrity
+
+on:
+  pull_request:
+    paths:
+      - 'server/attendanceRoutes.ts'
+      - 'server/gradeGuard.ts'
+      - 'components/TeacherClassesPage.tsx'
+      - 'tests/attendance-integrity.test.ts'
+      - '.github/workflows/attendance-integrity.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'server/attendanceRoutes.ts'
+      - 'server/gradeGuard.ts'
+      - 'components/TeacherClassesPage.tsx'
+      - 'tests/attendance-integrity.test.ts'
+      - '.github/workflows/attendance-integrity.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsx --test tests/attendance-integrity.test.ts
+      - run: npm run build
