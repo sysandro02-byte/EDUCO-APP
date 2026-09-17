@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { ArrowLeft, Building2, GraduationCap, Landmark, LockKeyhole, School, UserPlus } from 'lucide-react';
 import LegacyApp from '../App';
 import InstitutionalAccountRequestModal from './InstitutionalAccountRequestModal';
+import SchoolEstablishmentRegistrationModal from './SchoolEstablishmentRegistrationModal';
+import HigherEducationRegistrationModal from './HigherEducationRegistrationModal';
 import {
   accessContextLabel,
   findInstitutionEntity,
@@ -16,6 +18,7 @@ interface InstitutionalLoginModalProps {
 
 const InstitutionalLoginModal: React.FC<InstitutionalLoginModalProps> = ({ context, onChangeSpace }) => {
   const [showAccountRequest, setShowAccountRequest] = useState(false);
+  const [showEstablishmentRegistration, setShowEstablishmentRegistration] = useState(false);
   const ministry = context.ministry ? findMinistry(context.ministry) : null;
   const entity = context.ministry && context.entity
     ? findInstitutionEntity(context.ministry, context.entity)
@@ -47,22 +50,12 @@ const InstitutionalLoginModal: React.FC<InstitutionalLoginModalProps> = ({ conte
     <>
       <main className="fixed inset-0 z-[110] overflow-y-auto bg-slate-950/80 px-3 py-5 backdrop-blur-md sm:px-6 sm:py-8">
         <style>{`
-          .educo-institution-login .min-h-screen {
-            min-height: 0 !important;
-          }
+          .educo-institution-login .min-h-screen { min-height: 0 !important; }
           .educo-institution-login > div,
-          .educo-institution-login .min-h-screen {
-            background: transparent !important;
-          }
-          .educo-institution-login .min-h-screen {
-            padding: 0 !important;
-          }
-          .educo-institution-login .max-w-md {
-            max-width: 100% !important;
-          }
-          .educo-institution-login .shadow-xl {
-            box-shadow: none !important;
-          }
+          .educo-institution-login .min-h-screen { background: transparent !important; }
+          .educo-institution-login .min-h-screen { padding: 0 !important; }
+          .educo-institution-login .max-w-md { max-width: 100% !important; }
+          .educo-institution-login .shadow-xl { box-shadow: none !important; }
         `}</style>
 
         <div className="mx-auto flex min-h-full w-full max-w-6xl items-center justify-center">
@@ -115,14 +108,36 @@ const InstitutionalLoginModal: React.FC<InstitutionalLoginModalProps> = ({ conte
                       </div>
                     )}
 
-                    {context.sector === 'STATE' && ministry && entity && (
+                    {context.sector === 'STATE' && ministry && entity && entity.code !== 'CABINET' && (
                       <button
                         type="button"
                         onClick={() => setShowAccountRequest(true)}
                         className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-black text-emerald-950 shadow-lg shadow-emerald-950/20 transition hover:bg-emerald-300"
                       >
                         <UserPlus className="h-4.5 w-4.5" />
-                        Demander un compte institutionnel
+                        Demander un compte sous tutelle
+                      </button>
+                    )}
+
+                    {context.sector === 'SCHOOL' && (
+                      <button
+                        type="button"
+                        onClick={() => setShowEstablishmentRegistration(true)}
+                        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-black text-emerald-950 shadow-lg shadow-emerald-950/20 transition hover:bg-emerald-300"
+                      >
+                        <Building2 className="h-4.5 w-4.5" />
+                        Inscrire un établissement public ou privé
+                      </button>
+                    )}
+
+                    {context.sector === 'UNIVERSITY' && (
+                      <button
+                        type="button"
+                        onClick={() => setShowEstablishmentRegistration(true)}
+                        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-black text-emerald-950 shadow-lg shadow-emerald-950/20 transition hover:bg-emerald-300"
+                      >
+                        <GraduationCap className="h-4.5 w-4.5" />
+                        Déposer un dossier de création / ouverture
                       </button>
                     )}
                   </div>
@@ -146,6 +161,15 @@ const InstitutionalLoginModal: React.FC<InstitutionalLoginModalProps> = ({ conte
 
       {showAccountRequest && (
         <InstitutionalAccountRequestModal context={context} onClose={() => setShowAccountRequest(false)} />
+      )}
+      {showEstablishmentRegistration && context.sector === 'SCHOOL' && (
+        <SchoolEstablishmentRegistrationModal onClose={() => setShowEstablishmentRegistration(false)} />
+      )}
+      {showEstablishmentRegistration && context.sector === 'UNIVERSITY' && (
+        <HigherEducationRegistrationModal
+          ownership={context.universityType === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE'}
+          onClose={() => setShowEstablishmentRegistration(false)}
+        />
       )}
     </>
   );
