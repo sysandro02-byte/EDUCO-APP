@@ -1,6 +1,6 @@
-import { getSupabaseClient } from '../lib/supabase';
 import { buildGovernmentRoleCode, isValidInstitutionAccessContext } from '../institutional/accessContext';
 import type { InstitutionAccessContext } from '../institutional/accessConfig';
+import { getApiUrl } from '../lib/apiConfig';
 
 export interface InstitutionalAccountRequestPayload {
   context: InstitutionAccessContext;
@@ -15,6 +15,9 @@ export const submitInstitutionalAccountRequest = async ({
 }: InstitutionalAccountRequestPayload) => {
   if (!isValidInstitutionAccessContext(context) || context.sector !== 'STATE' || !context.ministry || !context.entity) {
     throw new Error('Contexte institutionnel invalide.');
+  }
+  if (context.entity === 'CABINET') {
+    throw new Error('Les comptes Cabinet sont créés par l’administration institutionnelle, pas depuis ce formulaire.');
   }
 
   const fullName = clean(values.fullName, 160);
@@ -37,7 +40,7 @@ export const submitInstitutionalAccountRequest = async ({
     'fullName', 'officialEmail', 'phone', 'employeeNumber', 'functionTitle',
     'serviceUnit', 'appointmentReference', 'justification',
   ]);
-  const metadata = Object.fromEntries(
+  const extraData = Object.fromEntries(
     Object.entries(values)
       .filter(([key, value]) => !reserved.has(key) && clean(value))
       .map(([key, value]) => [key, clean(value, 500)]),
@@ -46,31 +49,28 @@ export const submitInstitutionalAccountRequest = async ({
   const requestedRole = buildGovernmentRoleCode(context);
   if (!requestedRole) throw new Error('Rôle institutionnel impossible à déterminer.');
 
-  const client = getSupabaseClient();
-  const { error } = await client
-    .from('institutional_account_requests')
-    .insert({
+  const response = await fetch(getApiUrl('/api/government/account-requests/submit'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
       ministry: context.ministry,
       entity: context.entity,
-      requested_role: requestedRole,
-      full_name: fullName,
-      official_email: officialEmail,
+      requestedRole,
+      fullName,
+      officialEmail,
       phone,
-      employee_number: employeeNumber,
-      function_title: functionTitle,
-      service_unit: serviceUnit,
-      appointment_reference: appointmentReference,
+      employeeNumber,
+      functionTitle,
+      serviceUnit,
+      appointmentReference,
       justification,
-      extra_data: metadata,
-      status: 'PENDING',
-    });
-
-  if (error) {
-    if (error.code === '23505') {
-      throw new Error('Une demande en attente existe déjà pour cette adresse et cette entité.');
-    }
-    throw new Error(error.message || 'Impossible d’enregistrer la demande.');
+      extraData,
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data?.error) {
+    throw new Error(data?.error || 'Impossible de transmettre la demande au cabinet ministériel.');
   }
 
-  return { success: true };
+  return { success: true, message: data?.message || `Demande transmise au cabinet ${context.ministry}.` };
 };
