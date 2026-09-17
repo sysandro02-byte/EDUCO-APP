@@ -1,0 +1,29 @@
+name: Payment and Cashier Integrity
+
+on:
+  pull_request:
+    paths:
+      - 'server/collections.ts'
+      - 'supabase/migrations/20260917_harden_payment_integrity.sql'
+      - 'tests/payment-cashier-integrity.test.ts'
+      - '.github/workflows/payment-cashier-integrity.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'server/collections.ts'
+      - 'supabase/migrations/20260917_harden_payment_integrity.sql'
+      - 'tests/payment-cashier-integrity.test.ts'
+      - '.github/workflows/payment-cashier-integrity.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsx --test tests/payment-cashier-integrity.test.ts tests/cashier-raf-flow.test.ts tests/salary-security.test.ts
+      - run: npm run build
