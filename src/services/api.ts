@@ -115,10 +115,14 @@ export async function findUserByEmail(email: string) {
 export async function saveUserToDb(user: any) {
   try {
     const headers = await getAuthHeaders();
-    const res = await fetch(getApiUrl('/api/users'), {
+    const normalizedRole = String(user?.role || '').trim().toLowerCase();
+    const isNewStudent = user?.id == null && ['élève', 'eleve', 'student'].includes(normalizedRole);
+    const endpoint = isNewStudent ? '/api/enrollments/students' : '/api/users';
+    const payload = isNewStudent ? { ...user, phone: user?.phone || user?.contact || null } : user;
+    const res = await fetch(getApiUrl(endpoint), {
       method: 'POST',
       headers,
-      body: JSON.stringify(user),
+      body: JSON.stringify(payload),
     });
     const data = await safeJson(res, {});
     if (!res.ok || data?.error) {
