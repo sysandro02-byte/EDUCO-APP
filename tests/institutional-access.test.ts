@@ -13,6 +13,7 @@ import {
   canRoleAccessInstitutionContext,
   isValidInstitutionAccessContext,
 } from '../src/institutional/accessContext.ts';
+import { getInstitutionalAccountRequestConfig } from '../src/institutional/accountRequestConfig.ts';
 
 test('state portal exposes MEPSA, MES and METP using sigles', () => {
   assert.deepEqual(MINISTRIES.map((ministry) => ministry.code), ['MEPSA', 'MES', 'METP']);
@@ -36,6 +37,38 @@ test('each ministry provides a cabinet and specialized entities', () => {
   assert.ok(findInstitutionEntity('MEPSA', 'DEP'));
   assert.ok(findInstitutionEntity('MES', 'DSIC'));
   assert.ok(findInstitutionEntity('METP', 'DGET'));
+});
+
+test('every state entity has contextual account-request fields', () => {
+  const commonFieldKeys = new Set([
+    'fullName',
+    'officialEmail',
+    'phone',
+    'employeeNumber',
+    'functionTitle',
+    'serviceUnit',
+    'appointmentReference',
+    'justification',
+  ]);
+
+  for (const ministry of MINISTRIES) {
+    for (const entity of ministry.entities) {
+      const context: InstitutionAccessContext = {
+        sector: 'STATE',
+        ministry: ministry.code,
+        entity: entity.code,
+        label: `${entity.shortLabel || entity.label} / ${ministry.label}`,
+      };
+      const config = getInstitutionalAccountRequestConfig(context);
+      assert.ok(config, `${ministry.code}/${entity.code} doit avoir un formulaire de demande de compte`);
+      const keys = config!.fields.map((item) => item.key);
+      for (const key of commonFieldKeys) assert.ok(keys.includes(key), `${ministry.code}/${entity.code} doit contenir ${key}`);
+      assert.ok(
+        keys.some((key) => !commonFieldKeys.has(key)),
+        `${ministry.code}/${entity.code} doit avoir au moins un champ métier spécifique`,
+      );
+    }
+  }
 });
 
 test('visual selection never grants government access to an unrelated role', () => {

@@ -7,8 +7,11 @@ on:
       - 'components/InstitutionAccessPortal.tsx'
       - 'components/InstitutionalEntryApp.tsx'
       - 'components/InstitutionalLoginModal.tsx'
+      - 'components/InstitutionalAccountRequestModal.tsx'
       - 'components/GovernmentDashboard.tsx'
       - 'src/institutional/**'
+      - 'src/services/institutionalAccountRequests.ts'
+      - 'supabase/migrations/*institutional_account_requests*.sql'
       - 'tests/institutional-access.test.ts'
       - '.github/workflows/institutional-portal-integrity.yml'
   workflow_dispatch:
