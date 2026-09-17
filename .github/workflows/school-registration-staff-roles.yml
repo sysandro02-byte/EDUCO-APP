@@ -1,0 +1,27 @@
+name: School Registration & Staff Roles
+
+on:
+  pull_request:
+    paths:
+      - 'constants.ts'
+      - 'src/services/userAccountWorkflow.ts'
+      - 'server/operations.ts'
+      - 'supabase/migrations/20260917_sync_school_selected_classes.sql'
+      - 'tests/school-registration-staff-roles.test.ts'
+      - '.github/workflows/school-registration-staff-roles.yml'
+  workflow_dispatch:
+
+jobs:
+  integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run focused regression tests
+        run: npx tsx --test tests/school-registration-staff-roles.test.ts tests/user-account-workflow.test.ts tests/school-operations.test.ts
+      - name: Build application
+        run: npm run build
