@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, LockKeyhole, LogOut, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, LogOut, ShieldAlert } from 'lucide-react';
 import LegacyApp from '../App';
 import InstitutionAccessPortal from './InstitutionAccessPortal';
+import InstitutionalLoginModal from './InstitutionalLoginModal';
 import GovernmentDashboard from './GovernmentDashboard';
 import {
   accessContextLabel,
@@ -52,7 +53,7 @@ const InstitutionalEntryApp: React.FC = () => {
 
   useEffect(() => {
     syncSnapshot();
-    const timer = window.setInterval(syncSnapshot, 600);
+    const timer = window.setInterval(syncSnapshot, 500);
     const syncOnFocus = () => syncSnapshot();
     window.addEventListener('focus', syncOnFocus);
     return () => {
@@ -78,7 +79,7 @@ const InstitutionalEntryApp: React.FC = () => {
         await getSupabaseClient().auth.signOut().catch(() => undefined);
       }
     } catch {
-      // The local session is still cleared below when the remote provider is unavailable.
+      // La session locale est tout de même supprimée si le fournisseur distant est indisponible.
     }
 
     localStorage.removeItem('EDUCO_CURRENT_USER');
@@ -94,14 +95,22 @@ const InstitutionalEntryApp: React.FC = () => {
     [snapshot.context, snapshot.sessionActive, snapshot.otpVerified],
   );
 
-  // Existing authenticated sessions remain untouched. This keeps current EDUCO
-  // school users compatible even if they logged in before the institutional portal existed.
+  // Les sessions existantes restent compatibles : si elles ont été créées avant
+  // le portail institutionnel, on conserve exactement l'application EDUCO actuelle.
   if (snapshot.sessionActive && !snapshot.context) {
     return <LegacyApp />;
   }
 
   if (!snapshot.sessionActive && !snapshot.context) {
     return <InstitutionAccessPortal onSelect={selectContext} />;
+  }
+
+  // Après le choix État / Écoles / Université puis de la structure, la connexion
+  // existante est affichée dans une grande modale centrée sur fond assombri. Aucun
+  // flux d'authentification n'est dupliqué : e-mail, téléphone/OTP, passkeys,
+  // mot de passe oublié et création de compte parent restent ceux d'EDUCO.
+  if (!snapshot.sessionActive && snapshot.context) {
+    return <InstitutionalLoginModal context={snapshot.context} onChangeSpace={changeSpace} />;
   }
 
   if (isGovernmentWorkspace && snapshot.context) {
@@ -127,38 +136,10 @@ const InstitutionalEntryApp: React.FC = () => {
     );
   }
 
-  // School/university users and government users who are still in password/OTP
-  // authentication continue through the original App and all its existing flows.
-  return (
-    <div className="relative min-h-screen">
-      {!snapshot.sessionActive && snapshot.context && (
-        <AccessContextBanner context={snapshot.context} onChangeSpace={changeSpace} />
-      )}
-      <LegacyApp />
-    </div>
-  );
+  // Les écoles et universités authentifiées continuent d'utiliser tous les écrans
+  // historiques. Le contexte institutionnel reste uniquement un périmètre d'entrée.
+  return <LegacyApp />;
 };
-
-const AccessContextBanner = ({
-  context,
-  onChangeSpace,
-}: {
-  context: InstitutionAccessContext;
-  onChangeSpace: () => void;
-}) => (
-  <div className="pointer-events-none fixed inset-x-0 top-3 z-[120] flex justify-center px-3">
-    <div className="pointer-events-auto flex max-w-[92vw] items-center gap-3 rounded-2xl border border-slate-200 bg-white/95 px-3 py-2 shadow-lg shadow-slate-300/30 backdrop-blur sm:px-4">
-      <LockKeyhole className="h-4 w-4 shrink-0 text-blue-600" />
-      <div className="min-w-0">
-        <div className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Espace sélectionné</div>
-        <div className="truncate text-xs font-black text-slate-800 sm:text-sm">{accessContextLabel(context)}</div>
-      </div>
-      <button type="button" onClick={onChangeSpace} className="ml-1 inline-flex shrink-0 items-center gap-1 rounded-xl bg-slate-100 px-2.5 py-2 text-[11px] font-black text-slate-600 transition hover:bg-slate-200">
-        <ArrowLeft className="h-3.5 w-3.5" /> Changer
-      </button>
-    </div>
-  </div>
-);
 
 const AccessDenied = ({
   context,
@@ -173,15 +154,35 @@ const AccessDenied = ({
 }) => (
   <main className="grid min-h-screen place-items-center bg-slate-100 p-5">
     <section className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white p-7 text-center shadow-xl sm:p-10">
-      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-50 text-rose-600"><ShieldAlert className="h-8 w-8" /></div>
+      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-50 text-rose-600">
+        <ShieldAlert className="h-8 w-8" />
+      </div>
       <h1 className="mt-5 text-2xl font-black text-slate-950">Accès institutionnel non autorisé</h1>
       <p className="mt-3 text-sm leading-6 text-slate-600">
         Le compte connecté ne possède pas le rôle requis pour <strong>{accessContextLabel(context)}</strong>. La sélection visuelle d’une structure ne donne jamais de permission supplémentaire.
       </p>
-      {role && <div className="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-xs font-bold text-slate-500">Rôle du compte : {role}</div>}
+      {role && (
+        <div className="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-xs font-bold text-slate-500">
+          Rôle du compte : {role}
+        </div>
+      )}
       <div className="mt-7 grid gap-3 sm:grid-cols-2">
-        <button type="button" onClick={onChangeSpace} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"><ArrowLeft className="h-4 w-4" />Changer d’espace</button>
-        <button type="button" onClick={() => onLogout()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1F4A59] px-4 py-3 text-sm font-black text-white hover:bg-[#173b47]"><LogOut className="h-4 w-4" />Se déconnecter</button>
+        <button
+          type="button"
+          onClick={onChangeSpace}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Changer d’espace
+        </button>
+        <button
+          type="button"
+          onClick={() => onLogout()}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1F4A59] px-4 py-3 text-sm font-black text-white hover:bg-[#173b47]"
+        >
+          <LogOut className="h-4 w-4" />
+          Se déconnecter
+        </button>
       </div>
     </section>
   </main>

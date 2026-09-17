@@ -6,6 +6,7 @@ on:
       - 'index.tsx'
       - 'components/InstitutionAccessPortal.tsx'
       - 'components/InstitutionalEntryApp.tsx'
+      - 'components/InstitutionalLoginModal.tsx'
       - 'components/GovernmentDashboard.tsx'
       - 'src/institutional/**'
       - 'tests/institutional-access.test.ts'
