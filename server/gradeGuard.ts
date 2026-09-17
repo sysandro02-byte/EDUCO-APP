@@ -1,5 +1,6 @@
 import type { Express } from 'express';
 import { canonicalizeRole } from '../src/services/userAccountWorkflow.ts';
+import { registerAttendanceRoutes } from './attendanceRoutes.ts';
 
 const GRADE_WRITER_ROLES = new Set([
   'Promoteur',
@@ -15,11 +16,11 @@ const includesTeacher = (value: unknown, teacherId: number) => {
 };
 
 /**
- * Pre-validates grade mutations before the legacy /api/grades handler runs.
- * It calls next() on success so the existing persistence path remains the
- * single writer for the grades table.
+ * Registers academic integrity guards before the legacy route handlers.
  */
 export function registerGradeMutationGuard(app: Express, requireAuth: any, getUser: any, getClient: any) {
+  registerAttendanceRoutes(app, requireAuth, getUser, getClient);
+
   app.post('/api/grades', requireAuth, async (req: any, res, next) => {
     try {
       const actor = await getUser(req);
