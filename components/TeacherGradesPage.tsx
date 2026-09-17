@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Modal from './Modal';
 import GradeForm, { Grade } from './GradeForm';
 import ReportCardCommentsForm, { ReportCardComments } from './ReportCardCommentsForm';
@@ -21,38 +21,55 @@ interface GradesManagementPageProps {
   schoolSettings: any;
 }
 
-const GradesManagementPage: React.FC<GradesManagementPageProps> = ({ 
-  currentUserRole, currentUserId, classes, students, grades, onSaveGrade, 
+const GradesManagementPage: React.FC<GradesManagementPageProps> = ({
+  currentUserRole, currentUserId, classes, students, grades, onSaveGrade,
   reportCardComments, onSaveReportCardComments, subjects, schoolSettings
 }) => {
   const [isGradeModalOpen, setIsGradeModalOpen] = useState(false);
   const [isCommentsModalOpen, setIsCommentsModalOpen] = useState(false);
   const [isBulletinOpen, setIsBulletinOpen] = useState(false);
   const [selectedStudentForComments, setSelectedStudentForComments] = useState<User | null>(null);
-  
-  const visibleClasses = useMemo(() => {
-    if (currentUserRole === 'Enseignant') {
-      const teacherSubjects = subjects.filter(s => s.teacherIds?.includes(currentUserId!));
-      const teacherSubjectNames = teacherSubjects.map(s => s.name);
-      
-      // A more robust logic would be to link teachers to classes directly.
-      // For now, we assume a teacher can see any class.
-      return classes;
-    }
-    // Admin, DE see all classes
-    return classes;
-  }, [currentUserRole, currentUserId, classes, subjects]);
-  
-  const [selectedClassId, setSelectedClassId] = useState<number | ''>(visibleClasses[0]?.id || '');
-  const [selectedSubject, setSelectedSubject] = useState(subjects[0]?.name || '');
 
-  const studentsInClass = students.filter(s => s.class === classes.find(c => c.id === selectedClassId)?.name);
+  const visibleClasses = useMemo(() => {
+    if (currentUserRole !== 'Enseignant') return classes;
+    return classes.filter((schoolClass: any) =>
+      Number(schoolClass.teacherId ?? schoolClass.teacher_id) === Number(currentUserId)
+    );
+  }, [currentUserRole, currentUserId, classes]);
+
+  const visibleSubjects = useMemo(() => {
+    if (currentUserRole !== 'Enseignant') return subjects;
+    return subjects.filter((subject) => {
+      const assigned = Array.isArray(subject.teacherIds) ? subject.teacherIds : [];
+      return assigned.length === 0 || assigned.some((id) => Number(id) === Number(currentUserId));
+    });
+  }, [currentUserRole, currentUserId, subjects]);
+
+  const [selectedClassId, setSelectedClassId] = useState<number | ''>(visibleClasses[0]?.id || '');
+  const [selectedSubject, setSelectedSubject] = useState(visibleSubjects[0]?.name || '');
+
+  useEffect(() => {
+    const stillVisible = visibleClasses.some((schoolClass) => Number(schoolClass.id) === Number(selectedClassId));
+    if (!stillVisible) setSelectedClassId(visibleClasses[0]?.id || '');
+  }, [visibleClasses, selectedClassId]);
+
+  useEffect(() => {
+    const stillVisible = visibleSubjects.some((subject) => subject.name === selectedSubject);
+    if (!stillVisible) setSelectedSubject(visibleSubjects[0]?.name || '');
+  }, [visibleSubjects, selectedSubject]);
+
+  const selectedClass = visibleClasses.find((schoolClass) => Number(schoolClass.id) === Number(selectedClassId));
+  const studentsInClass = students.filter((student: any) => {
+    if (!selectedClassId) return false;
+    if (student.classId != null) return Number(student.classId) === Number(selectedClassId);
+    return student.class === selectedClass?.name;
+  });
 
   const gradesByStudent = useMemo(() => {
     const studentAverages = new Map<number, { total: number; count: number; grades: Grade[] }>();
-    
+
     grades
-      .filter(g => g.classId === selectedClassId && g.subject === selectedSubject)
+      .filter(g => Number(g.classId) === Number(selectedClassId) && g.subject === selectedSubject)
       .forEach(grade => {
         if (!studentAverages.has(grade.studentId)) {
           studentAverages.set(grade.studentId, { total: 0, count: 0, grades: [] });
@@ -70,20 +87,19 @@ const GradesManagementPage: React.FC<GradesManagementPageProps> = ({
     if (!selectedStudentForComments) return new Map<string, Grade[]>();
     const grouped = new Map<string, Grade[]>();
     subjects.forEach(subject => grouped.set(subject.name, []));
-    
+
     grades
-      .filter(g => g.studentId === selectedStudentForComments.id)
+      .filter(g => Number(g.studentId) === Number(selectedStudentForComments.id))
       .forEach(grade => {
-        if (!grouped.has(grade.subject)) {
-          grouped.set(grade.subject, []);
-        }
+        if (!grouped.has(grade.subject)) grouped.set(grade.subject, []);
         grouped.get(grade.subject)!.push(grade);
       });
     return grouped;
   }, [grades, selectedStudentForComments, subjects]);
 
   const handleSaveGrade = (grade: Grade) => {
-    onSaveGrade({ ...grade, classId: selectedClassId as number });
+    if (!selectedClassId || !selectedSubject) return;
+    onSaveGrade({ ...grade, classId: selectedClassId as number, subject: selectedSubject });
     setIsGradeModalOpen(false);
   };
 
@@ -97,13 +113,17 @@ const GradesManagementPage: React.FC<GradesManagementPageProps> = ({
     setIsCommentsModalOpen(false);
   };
 
+  const existingComments = selectedStudentForComments
+    ? reportCardComments.find(c => Number(c.studentId) === Number(selectedStudentForComments.id))
+    : undefined;
+
   return (
     <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
       <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Gestion des Notes</h2>
         <button
           onClick={() => setIsGradeModalOpen(true)}
-          disabled={!selectedClassId || !selectedSubject}
+          disabled={!selectedClassId || !selectedSubject || studentsInClass.length === 0}
           className="flex items-center gap-2 px-4 py-2 bg-[#1F4A59] text-white rounded-lg hover:bg-[#2c5a6e] transition-colors disabled:bg-gray-400"
         >
           <PlusCircleIcon />
@@ -111,15 +131,22 @@ const GradesManagementPage: React.FC<GradesManagementPageProps> = ({
         </button>
       </div>
 
+      {currentUserRole === 'Enseignant' && visibleClasses.length === 0 && (
+        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800">
+          Aucune classe ne vous est affectée. La saisie des notes reste désactivée jusqu’à l’affectation d’une classe.
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row gap-4 mb-6 p-4 bg-gray-50 rounded-lg border">
         <div>
           <label htmlFor="class-select" className="block text-sm font-medium text-gray-700">Classe</label>
           <select
             id="class-select"
             value={selectedClassId}
-            onChange={e => setSelectedClassId(Number(e.target.value))}
+            onChange={e => setSelectedClassId(e.target.value ? Number(e.target.value) : '')}
             className="mt-1 block w-full sm:w-64 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
           >
+            {visibleClasses.length === 0 && <option value="">Aucune classe affectée</option>}
             {visibleClasses.map(c => <option key={c.id} value={c.id!}>{c.name}</option>)}
           </select>
         </div>
@@ -131,7 +158,8 @@ const GradesManagementPage: React.FC<GradesManagementPageProps> = ({
             onChange={e => setSelectedSubject(e.target.value)}
             className="mt-1 block w-full sm:w-64 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
           >
-            {subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+            {visibleSubjects.length === 0 && <option value="">Aucune matière affectée</option>}
+            {visibleSubjects.map(s => <option key={s.id ?? s.name} value={s.name}>{s.name}</option>)}
           </select>
         </div>
       </div>
@@ -154,21 +182,24 @@ const GradesManagementPage: React.FC<GradesManagementPageProps> = ({
                 <tr key={student.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{student.name}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {studentData?.grades.map(g => (
-                      <span key={g.id} className="mr-2 p-1 bg-gray-200 rounded-md" title={g.assignment}>
-                        {g.score}
-                      </span>
-                    )) || 'Aucune note'}
+                    {studentData?.grades.length
+                      ? studentData.grades.map(g => (
+                        <span key={g.id} className="mr-2 p-1 bg-gray-200 rounded-md" title={g.assignment}>{g.score}</span>
+                      ))
+                      : 'Aucune note'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-semibold text-gray-800">{average}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-center">
                     <button onClick={() => handleOpenCommentsModal(student)} className="text-indigo-600 hover:text-indigo-800" title="Gérer les appréciations du bulletin">
-                        <PencilIcon />
+                      <PencilIcon />
                     </button>
                   </td>
                 </tr>
               );
             })}
+            {selectedClassId && studentsInClass.length === 0 && (
+              <tr><td colSpan={4} className="px-6 py-8 text-center text-sm text-gray-500">Aucun élève inscrit dans cette classe.</td></tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -184,17 +215,17 @@ const GradesManagementPage: React.FC<GradesManagementPageProps> = ({
 
       <Modal isOpen={isCommentsModalOpen} onClose={() => setIsCommentsModalOpen(false)} title={`Appréciations pour ${selectedStudentForComments?.name}`}>
         {selectedStudentForComments && (
-            <ReportCardCommentsForm
-                student={selectedStudentForComments}
-                subjects={subjects}
-                existingComments={reportCardComments.find(c => c.studentId === selectedStudentForComments.id)}
-                onSave={handleSaveComments}
-                onCancel={() => setIsCommentsModalOpen(false)}
-                onGenerateBulletin={() => {
-                  setIsCommentsModalOpen(false);
-                  setIsBulletinOpen(true);
-                }}
-            />
+          <ReportCardCommentsForm
+            student={selectedStudentForComments}
+            subjects={subjects}
+            existingComments={existingComments}
+            onSave={handleSaveComments}
+            onCancel={() => setIsCommentsModalOpen(false)}
+            onGenerateBulletin={() => {
+              setIsCommentsModalOpen(false);
+              setIsBulletinOpen(true);
+            }}
+          />
         )}
       </Modal>
 
@@ -203,7 +234,7 @@ const GradesManagementPage: React.FC<GradesManagementPageProps> = ({
           <Bulletin
             student={selectedStudentForComments}
             gradesBySubject={selectedStudentGradesBySubject}
-            comments={reportCardComments.find(c => c.studentId === selectedStudentForComments.id)}
+            comments={existingComments}
             schoolSettings={schoolSettings}
             onClose={() => setIsBulletinOpen(false)}
           />
