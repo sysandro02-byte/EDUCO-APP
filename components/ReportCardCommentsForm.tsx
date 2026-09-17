@@ -24,24 +24,44 @@ interface ReportCardCommentsFormProps {
     onGenerateBulletin?: () => void;
 }
 
+const getCurrentAcademicYear = () => {
+    const now = new Date();
+    const startYear = now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1;
+    return `${startYear}-${startYear + 1}`;
+};
+
 const ReportCardCommentsForm: React.FC<ReportCardCommentsFormProps> = ({ student, subjects, existingComments, onSave, onCancel, onGenerateBulletin }) => {
     const [formData, setFormData] = useState<ReportCardComments>({
         studentId: student.id!,
         period: 'Trimestre 1',
-        year: '2023-2024',
+        year: getCurrentAcademicYear(),
         generalAppreciation: '',
         subjectComments: []
     });
 
     useEffect(() => {
         if (existingComments) {
-            setFormData(existingComments);
+            setFormData({
+                ...existingComments,
+                studentId: student.id!,
+                period: existingComments.period || 'Trimestre 1',
+                year: existingComments.year || getCurrentAcademicYear(),
+                subjectComments: subjects.map(subject => ({
+                    subject: subject.name,
+                    comment: existingComments.subjectComments?.find(item => item.subject === subject.name)?.comment || ''
+                }))
+            });
         } else {
-            // Initialize with all subjects
             const initialComments = subjects.map(s => ({ subject: s.name, comment: '' }));
-            setFormData(prev => ({ ...prev, subjectComments: initialComments }));
+            setFormData({
+                studentId: student.id!,
+                period: 'Trimestre 1',
+                year: getCurrentAcademicYear(),
+                generalAppreciation: '',
+                subjectComments: initialComments
+            });
         }
-    }, [existingComments, subjects]);
+    }, [existingComments, subjects, student.id]);
 
     const handleGeneralChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setFormData(prev => ({ ...prev, generalAppreciation: e.target.value }));
@@ -50,7 +70,7 @@ const ReportCardCommentsForm: React.FC<ReportCardCommentsFormProps> = ({ student
     const handleSubjectCommentChange = (subject: string, comment: string) => {
         setFormData(prev => ({
             ...prev,
-            subjectComments: prev.subjectComments.map(sc => 
+            subjectComments: (prev.subjectComments || []).map(sc =>
                 sc.subject === subject ? { ...sc, comment } : sc
             )
         }));
@@ -58,28 +78,61 @@ const ReportCardCommentsForm: React.FC<ReportCardCommentsFormProps> = ({ student
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSave(formData);
+        if (!formData.period.trim() || !/^\d{4}-\d{4}$/.test(formData.year.trim())) return;
+        onSave({ ...formData, period: formData.period.trim(), year: formData.year.trim() });
     };
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label htmlFor="report-period" className="block text-sm font-medium text-gray-700">Période</label>
+                    <select
+                        id="report-period"
+                        value={formData.period}
+                        onChange={(e) => setFormData(prev => ({ ...prev, period: e.target.value }))}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm"
+                        required
+                    >
+                        <option value="Trimestre 1">Trimestre 1</option>
+                        <option value="Trimestre 2">Trimestre 2</option>
+                        <option value="Trimestre 3">Trimestre 3</option>
+                        <option value="Semestre 1">Semestre 1</option>
+                        <option value="Semestre 2">Semestre 2</option>
+                    </select>
+                </div>
+                <div>
+                    <label htmlFor="report-year" className="block text-sm font-medium text-gray-700">Année scolaire</label>
+                    <input
+                        id="report-year"
+                        type="text"
+                        value={formData.year}
+                        onChange={(e) => setFormData(prev => ({ ...prev, year: e.target.value }))}
+                        pattern="\d{4}-\d{4}"
+                        placeholder="2026-2027"
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm"
+                        required
+                    />
+                </div>
+            </div>
+
             <div>
                 <label className="block text-sm font-medium text-gray-700">Appréciation Générale</label>
                 <textarea
-                    value={formData.generalAppreciation}
+                    value={formData.generalAppreciation || ''}
                     onChange={handleGeneralChange}
                     rows={4}
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
-                    placeholder="Évaluation globale du trimestre..."
+                    placeholder="Évaluation globale de la période..."
                 />
             </div>
-            
+
             <div className="space-y-3">
                 <h4 className="font-semibold text-gray-800">Appréciations par Matière</h4>
                 {subjects.map(subject => {
-                    const comment = formData.subjectComments.find(sc => sc.subject === subject.name)?.comment || '';
+                    const comment = (formData.subjectComments || []).find(sc => sc.subject === subject.name)?.comment || '';
                     return (
-                        <div key={subject.id}>
+                        <div key={subject.id ?? subject.name}>
                             <label className="block text-sm font-medium text-gray-700">{subject.name}</label>
                             <input
                                 type="text"
@@ -89,31 +142,20 @@ const ReportCardCommentsForm: React.FC<ReportCardCommentsFormProps> = ({ student
                                 placeholder={`Commentaire pour ${subject.name}...`}
                             />
                         </div>
-                    )
+                    );
                 })}
             </div>
 
             <div className="flex justify-end items-center gap-2 pt-4 border-t border-slate-100 dark:border-slate-800 mt-4">
                 {onGenerateBulletin && (
-                    <button 
-                        type="button" 
-                        onClick={onGenerateBulletin} 
-                        className="px-3.5 py-2 bg-emerald-600 dark:bg-emerald-700 hover:bg-emerald-700 dark:hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-all active:scale-95 shadow-xs shrink-0 cursor-pointer"
-                    >
+                    <button type="button" onClick={onGenerateBulletin} className="px-3.5 py-2 bg-emerald-600 dark:bg-emerald-700 hover:bg-emerald-700 dark:hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-all active:scale-95 shadow-xs shrink-0 cursor-pointer">
                         Générer le Bulletin
                     </button>
                 )}
-                <button 
-                    type="button" 
-                    onClick={onCancel} 
-                    className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl transition-all active:scale-95 border border-slate-200 dark:border-slate-700 shrink-0 cursor-pointer"
-                >
+                <button type="button" onClick={onCancel} className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl transition-all active:scale-95 border border-slate-200 dark:border-slate-700 shrink-0 cursor-pointer">
                     Annuler
                 </button>
-                <button 
-                    type="submit" 
-                    className="px-3.5 py-2 bg-[#1F4A59] dark:bg-sky-500 hover:bg-[#163844] dark:hover:bg-sky-600 text-white dark:text-slate-950 text-xs font-bold rounded-xl transition-all active:scale-95 shadow-xs shrink-0 cursor-pointer"
-                >
+                <button type="submit" className="px-3.5 py-2 bg-[#1F4A59] dark:bg-sky-500 hover:bg-[#163844] dark:hover:bg-sky-600 text-white dark:text-slate-950 text-xs font-bold rounded-xl transition-all active:scale-95 shadow-xs shrink-0 cursor-pointer">
                     Sauvegarder
                 </button>
             </div>
