@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
+import InstitutionalEntryApp from './components/InstitutionalEntryApp';
 import './src/index.css';
 import './index.css';
 import { GoogleOAuthProvider } from '@react-oauth/google';
@@ -105,7 +105,7 @@ const root = ReactDOM.createRoot(rootElement);
 root.render(
   <AppErrorBoundary>
     <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || 'dummy-client-id'}>
-      <App />
+      <InstitutionalEntryApp />
       <PwaInstallPrompt />
       <Analytics />
     </GoogleOAuthProvider>
