@@ -6,6 +6,7 @@ import {
   normalizeAccountStatus,
   normalizeEmail,
 } from '../src/services/userAccountWorkflow.ts';
+import { registerGradeMutationGuard } from './gradeGuard.ts';
 
 const STUDENT_ROLE = 'Élève';
 const CREATOR_ROLES = new Set([
@@ -52,6 +53,8 @@ async function cashierCanRegister(client: any, schoolId: number) {
 }
 
 export function registerStudentEnrollment(app: Express, requireAuth: any, getUser: any, getClient: any) {
+  registerGradeMutationGuard(app, requireAuth, getUser, getClient);
+
   app.post('/api/enrollments/students', requireAuth, async (req: any, res) => {
     const client = getClient(req);
     let createdAuthUid: string | null = null;
@@ -191,8 +194,6 @@ export function registerStudentEnrollment(app: Express, requireAuth: any, getUse
 
       return res.status(201).json(mapStudentUser(userInsert.data, studentInsert.data, classRow));
     } catch (error: any) {
-      // Compensating rollback: a new enrollment must never leave an orphaned
-      // public.users row or an Auth identity after a later step fails.
       try {
         if (createdUserId && client) await client.from('users').delete().eq('id', createdUserId).throwOnError();
       } catch (rollbackUserError) {
