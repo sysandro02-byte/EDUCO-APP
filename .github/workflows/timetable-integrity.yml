@@ -1,0 +1,33 @@
+name: Timetable Integrity
+
+on:
+  pull_request:
+    paths:
+      - 'server/timetableRoutes.ts'
+      - 'server/operations.ts'
+      - 'components/TimetablePage.tsx'
+      - 'supabase/migrations/20260917_timetable_integrity.sql'
+      - 'tests/timetable-integrity.test.ts'
+      - '.github/workflows/timetable-integrity.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'server/timetableRoutes.ts'
+      - 'server/operations.ts'
+      - 'components/TimetablePage.tsx'
+      - 'supabase/migrations/20260917_timetable_integrity.sql'
+      - 'tests/timetable-integrity.test.ts'
+      - '.github/workflows/timetable-integrity.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsx --test tests/timetable-integrity.test.ts
+      - run: npm run build
