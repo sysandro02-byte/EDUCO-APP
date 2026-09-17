@@ -190,20 +190,24 @@ export function registerMessagingRoutes(app: Express, requireAuth: any, getUser:
       const title = normalizeMessage(req.body?.title || req.body?.type || 'Notification').slice(0, 250);
       const type = normalizeMessage(req.body?.type || 'Information').slice(0, 120);
       const link = normalizeMessage(req.body?.link).slice(0, 500) || null;
-      const requestedRoles = Array.isArray(req.body?.roles)
-        ? [...new Set(req.body.roles.map((value: any) => canonicalizeRole(String(value || '').trim())).filter(Boolean))].slice(0, 30)
+      const requestedRoles: string[] = Array.isArray(req.body?.roles)
+        ? Array.from(new Set<string>(
+            req.body.roles
+              .map((value: any) => canonicalizeRole(String(value || '').trim()))
+              .filter((value: string) => Boolean(value)),
+          )).slice(0, 30)
         : [];
       if (!message || message.length > 4000 || !requestedRoles.length) {
         return res.status(400).json({ success: false, error: 'Le message et les destinataires sont obligatoires.' });
       }
 
-      const platformAudience = requestedRoles.every((targetRole) => PLATFORM_ROLES.has(targetRole));
+      const platformAudience = requestedRoles.every((targetRole: string) => PLATFORM_ROLES.has(targetRole));
       if (platformAudience) {
         if (!PLATFORM_ROLES.has(role)) return res.status(403).json({ success: false, error: 'Audience plateforme non autorisée.' });
       } else {
         if (!user?.schoolId) return res.status(403).json({ success: false, error: 'Compte sans établissement associé.' });
         if (PERSONAL_ROLES.has(role)) return res.status(403).json({ success: false, error: 'La diffusion par rôle est réservée au personnel autorisé.' });
-        if (requestedRoles.some((targetRole) => PLATFORM_ROLES.has(targetRole))) {
+        if (requestedRoles.some((targetRole: string) => PLATFORM_ROLES.has(targetRole))) {
           return res.status(403).json({ success: false, error: 'Les audiences établissement et plateforme ne peuvent pas être mélangées.' });
         }
       }
