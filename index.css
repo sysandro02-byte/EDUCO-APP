@@ -15,6 +15,39 @@ html.dark {
 
 html, body, #root {
   min-height: 100%;
+  width: 100%;
+  max-width: 100%;
+}
+
+html, body {
+  overflow-x: hidden;
+}
+
+#root {
+  overflow-x: clip;
+}
+
+*, ::before, ::after {
+  box-sizing: border-box;
+}
+
+/* Prevent intrinsic flex/grid widths from pushing mobile layouts outside the viewport. */
+#root :where(.flex, .grid) > * {
+  min-width: 0;
+}
+
+#root :where(input, select, textarea, button, img, video, canvas) {
+  max-width: 100%;
+}
+
+#root :where(h1, h2, h3, h4, h5, h6, p, label, button, a) {
+  overflow-wrap: anywhere;
+}
+
+/* Wide datasets remain horizontally scrollable inside their own container instead of the page. */
+#root :where(.overflow-x-auto, .overflow-auto) {
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
 }
 
 html, body, #root, button, input, select, textarea {
@@ -22,9 +55,25 @@ html, body, #root, button, input, select, textarea {
 }
 
 body {
+  margin: 0;
   background-color: #f1f5f9;
   color: #1e293b;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Keep dialogs inside small phones, including devices with safe-area insets. */
+@media (max-width: 640px) {
+  #root [role="dialog"] {
+    max-width: calc(100vw - 0.75rem);
+  }
+
+  #root .fixed.inset-0 {
+    max-width: 100vw;
+  }
+
+  #root table {
+    font-size: 0.8125rem;
+  }
 }
 
 /* Custom scrollbar */
