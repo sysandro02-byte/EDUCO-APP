@@ -14,6 +14,8 @@ import {
   isValidInstitutionAccessContext,
 } from '../src/institutional/accessContext.ts';
 import { getInstitutionalAccountRequestConfig } from '../src/institutional/accountRequestConfig.ts';
+import { getHigherEducationFields } from '../src/institutional/higherEducationRequestConfig.ts';
+import { cabinetScopeForRole } from '../server/institutionalAccountReview.ts';
 
 test('state portal exposes MEPSA, MES and METP using sigles', () => {
   assert.deepEqual(MINISTRIES.map((ministry) => ministry.code), ['MEPSA', 'MES', 'METP']);
@@ -71,6 +73,31 @@ test('every state entity has contextual account-request fields', () => {
   }
 });
 
+test('public and private higher-education dossiers use distinct state-adapted fields', () => {
+  const publicKeys = new Set(getHigherEducationFields('PUBLIC').map((item) => item.key));
+  const privateKeys = new Set(getHigherEducationFields('PRIVATE').map((item) => item.key));
+
+  for (const common of ['officialName', 'promoterOrInitiator', 'officialEmail', 'department', 'plannedCapacity', 'programsSummary']) {
+    assert.ok(publicKeys.has(common), `Le dossier public doit contenir ${common}`);
+    assert.ok(privateKeys.has(common), `Le dossier privé doit contenir ${common}`);
+  }
+  for (const key of ['publicInterestStudy', 'creationRationale', 'nonDuplicationAnalysis', 'statutesDraft', 'initialEndowment']) {
+    assert.ok(publicKeys.has(key), `Le dossier public doit contenir ${key}`);
+    assert.equal(privateKeys.has(key), false, `${key} ne doit pas être imposé comme champ privé`);
+  }
+  for (const key of ['legalForm', 'institutionalEvaluation', 'accreditedPrograms', 'siteLegalBasis', 'financialCapacity']) {
+    assert.ok(privateKeys.has(key), `Le dossier privé doit contenir ${key}`);
+  }
+});
+
+test('cabinet review scope is ministry-bound and ETAT_ADMIN remains cross-ministry', () => {
+  assert.deepEqual(cabinetScopeForRole('MEPSA_CABINET'), { all: false, ministry: 'MEPSA', cabinet: true });
+  assert.deepEqual(cabinetScopeForRole('MES_ADMIN'), { all: false, ministry: 'MES', cabinet: false });
+  assert.deepEqual(cabinetScopeForRole('ETAT_ADMIN'), { all: true, ministry: null, cabinet: false });
+  assert.equal(cabinetScopeForRole('MEPSA_DGEB'), null);
+  assert.equal(cabinetScopeForRole('Directeur Général'), null);
+});
+
 test('visual selection never grants government access to an unrelated role', () => {
   const context: InstitutionAccessContext = {
     sector: 'STATE',
@@ -96,7 +123,6 @@ test('institutional context validation rejects tampering and unknown destination
     label: 'CABINET / MES',
   }), true);
 
-  // Une direction MEPSA ne peut pas être injectée sous le MES.
   assert.equal(isValidInstitutionAccessContext({
     sector: 'STATE',
     ministry: 'MES',
