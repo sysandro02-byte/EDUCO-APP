@@ -30,6 +30,20 @@ export interface GovernmentRecordDraft {
   data?: Record<string, unknown>;
 }
 
+export interface GovernmentRecordEvent {
+  id: number;
+  ministry: string;
+  entity: string;
+  domain: string;
+  record_id: number;
+  action: string;
+  from_status?: string | null;
+  to_status?: string | null;
+  actor_uid?: string | null;
+  details?: Record<string, unknown> | null;
+  created_at?: string | null;
+}
+
 const validateContext = (context: InstitutionAccessContext) => {
   if (context.sector !== 'STATE' || !context.ministry || !context.entity) {
     throw new Error('Contexte institutionnel invalide.');
@@ -69,6 +83,44 @@ export async function saveGovernmentRecord(
   if (error) throw new Error(error.message || 'Impossible d’enregistrer le dossier.');
   if (!data || typeof data !== 'object') throw new Error('Réponse de sauvegarde invalide.');
   return data as GovernmentRecord;
+}
+
+export async function transitionGovernmentRecord(
+  context: InstitutionAccessContext,
+  domain: GovernmentDomain,
+  id: number,
+  status: string,
+): Promise<GovernmentRecord> {
+  const { ministry, entity } = validateContext(context);
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase.rpc('government_module_transition', {
+    p_ministry: ministry,
+    p_entity: entity,
+    p_domain: domain,
+    p_id: id,
+    p_status: status,
+  });
+  if (error) throw new Error(error.message || 'Impossible de faire évoluer le dossier.');
+  if (!data || typeof data !== 'object') throw new Error('Réponse de workflow invalide.');
+  return data as GovernmentRecord;
+}
+
+export async function listGovernmentRecordHistory(
+  context: InstitutionAccessContext,
+  domain: GovernmentDomain,
+  id: number,
+): Promise<GovernmentRecordEvent[]> {
+  const { ministry, entity } = validateContext(context);
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase.rpc('government_module_history', {
+    p_ministry: ministry,
+    p_entity: entity,
+    p_domain: domain,
+    p_id: id,
+  });
+  if (error) throw new Error(error.message || 'Impossible de charger l’historique.');
+  const rows = data && typeof data === 'object' && Array.isArray((data as any).rows) ? (data as any).rows : [];
+  return rows as GovernmentRecordEvent[];
 }
 
 export async function deleteGovernmentRecord(
