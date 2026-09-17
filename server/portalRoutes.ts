@@ -3,7 +3,7 @@ import { canonicalizeRole } from '../src/services/userAccountWorkflow.ts';
 
 const PERSONAL_ROLES = new Set(['Parent', 'Parent d’élève', 'Parent d\'élève', 'Parent/Tuteur', 'Élève']);
 const same = (a: any, b: any) => a != null && b != null && String(a) !== '' && String(a) === String(b);
-const normalizeEmail = (value: unknown) => String(value || '').trim().toLowerCase();
+const normalizePhone = (value: unknown) => String(value || '').replace(/\D/g, '');
 const isActiveAccount = (status: unknown) => ['active', 'actif'].includes(String(status || '').trim().toLowerCase());
 
 const mapUser = (row: any) => ({
@@ -14,14 +14,11 @@ const mapUser = (row: any) => ({
   role: canonicalizeRole(row.role),
   status: row.status,
   isAccountActivated: isActiveAccount(row.status),
-  studentId: row.student_id || row.matricule,
-  matricule: row.matricule || row.student_id,
-  classId: row.class_id,
-  class: row.class,
-  parentName: row.parent_name,
-  parentEmail: row.parent_email,
-  parentPhone: row.parent_phone,
   avatar: row.avatar,
+  class: row.class_name,
+  phone: row.phone,
+  contact: row.phone,
+  parentPhone: row.parent_phone,
 });
 
 const mapStudent = (row: any) => ({
@@ -29,17 +26,17 @@ const mapStudent = (row: any) => ({
   userId: row.user_id,
   schoolId: row.school_id,
   classId: row.class_id,
-  studentId: row.student_id || row.matricule,
-  matricule: row.matricule || row.student_id,
+  studentId: row.student_id,
+  matricule: row.student_id,
   parentName: row.parent_name,
-  parentEmail: row.parent_email,
   parentPhone: row.parent_phone,
+  address: row.address,
+  dob: row.date_of_birth,
+  enrollmentDate: row.enrollment_date,
+  status: row.status,
 });
 
 export function registerPortalRoutes(app: Express, requireAuth: any, getUser: any, getClient: any) {
-  // Existing clients historically used the admin export endpoint for the
-  // Parent/Élève dashboard. Redirect only personal accounts to the minimal
-  // portal response; staff/admin continue to the legacy export handler.
   app.get('/api/admin/export-data', requireAuth, async (req: any, res: any, next: any) => {
     try {
       const user = await getUser(req);
@@ -68,12 +65,11 @@ export function registerPortalRoutes(app: Express, requireAuth: any, getUser: an
         .eq('school_id', schoolId);
       if (studentsError) throw studentsError;
 
-      const parentEmail = normalizeEmail(user.email);
+      const accountPhone = normalizePhone(user.phone || user.contact || user.parentPhone);
       const linkedStudents = (allStudents || []).filter((student: any) => {
         if (role === 'Élève') return same(student.user_id, user.id);
-        const byMatricule = user.studentId && same(student.student_id || student.matricule, user.studentId);
-        const byParentEmail = parentEmail && normalizeEmail(student.parent_email) === parentEmail;
-        return Boolean(byMatricule || byParentEmail);
+        const studentParentPhone = normalizePhone(student.parent_phone);
+        return Boolean(accountPhone && studentParentPhone && accountPhone === studentParentPhone);
       });
 
       const studentRecordIds = linkedStudents.map((row: any) => Number(row.id)).filter((id: number) => Number.isSafeInteger(id) && id > 0);
@@ -87,29 +83,27 @@ export function registerPortalRoutes(app: Express, requireAuth: any, getUser: an
         .maybeSingle();
       if (schoolError) throw schoolError;
       const operations = school?.settings?.operations || {};
+      const schoolPrefs = school?.settings?.schoolSettings || {};
       const publicSchoolSettings = {
         name: school?.name || '',
         address: school?.address || '',
         contact: school?.phone || '',
         email: school?.email || '',
         logo: school?.logo || '',
-        currency: operations.schoolSettings?.currency || school?.settings?.schoolSettings?.currency || 'FCFA',
-        themeColor: operations.schoolSettings?.themeColor || school?.settings?.schoolSettings?.themeColor || '#1F4A59',
-        slogan: operations.schoolSettings?.slogan || school?.settings?.schoolSettings?.slogan || '',
-        currentYear: operations.schoolSettings?.currentYear || school?.settings?.schoolSettings?.currentYear || '',
-        academicYear: operations.schoolSettings?.academicYear || school?.settings?.schoolSettings?.academicYear || '',
-        defaultLanguage: operations.schoolSettings?.defaultLanguage || school?.settings?.schoolSettings?.defaultLanguage || 'Français',
+        currency: operations.schoolSettings?.currency || schoolPrefs.currency || 'FCFA',
+        themeColor: operations.schoolSettings?.themeColor || schoolPrefs.themeColor || '#1F4A59',
+        slogan: operations.schoolSettings?.slogan || schoolPrefs.slogan || '',
+        currentYear: operations.schoolSettings?.currentYear || schoolPrefs.currentYear || '',
+        academicYear: operations.schoolSettings?.academicYear || schoolPrefs.academicYear || '',
+        defaultLanguage: operations.schoolSettings?.defaultLanguage || schoolPrefs.defaultLanguage || 'Français',
       };
 
       if (!studentRecordIds.length) {
-        return res.json({
-          users: [], students: [], classes: [], subjects: [], grades: [], payments: [], transactions: [], fees: [], attendance: [], timetable: [], homeworkDiary: [], reportCardComments: [], messages: [],
-          schoolSettings: publicSchoolSettings,
-        });
+        return res.json({ users: [], students: [], classes: [], subjects: [], grades: [], payments: [], transactions: [], fees: [], attendance: [], timetable: [], homeworkDiary: [], reportCardComments: [], messages: [], schoolSettings: publicSchoolSettings });
       }
 
       const results = await Promise.all([
-        client.from('users').select('id,school_id,name,email,role,status,student_id,matricule,class_id,class,parent_name,parent_email,parent_phone,avatar').eq('school_id', schoolId).in('id', studentUserIds),
+        client.from('users').select('id,school_id,name,email,role,status,avatar,class_name,parent_phone,phone').eq('school_id', schoolId).in('id', studentUserIds),
         client.from('classes').select('id,school_id,name,level,section,teacher_id,status').eq('school_id', schoolId).in('id', classIds),
         client.from('grades').select('*').in('student_id', studentRecordIds),
         client.from('payments').select('*').eq('school_id', schoolId).in('student_id', studentRecordIds),
@@ -128,19 +122,18 @@ export function registerPortalRoutes(app: Express, requireAuth: any, getUser: an
         return {
           ...studentUser,
           studentRecordId: student?.id,
-          studentId: student?.student_id || student?.matricule || studentUser.studentId,
-          matricule: student?.matricule || student?.student_id || studentUser.matricule,
+          studentId: student?.student_id,
+          matricule: student?.student_id,
           classId: student?.class_id,
           class: cls?.name || studentUser.class,
-          parentName: student?.parent_name || studentUser.parentName,
-          parentEmail: student?.parent_email || studentUser.parentEmail,
+          parentName: student?.parent_name,
           parentPhone: student?.parent_phone || studentUser.parentPhone,
+          address: student?.address,
+          dob: student?.date_of_birth,
+          enrollmentDate: student?.enrollment_date,
         };
       });
 
-      // Financial status remains visible before activation so registration and
-      // outstanding fees can be resolved. Pedagogical data requires an active
-      // student account, matching the Parent dashboard's activation notice.
       const activeUserIds = new Set(linkedUsers.filter((row: any) => row.isAccountActivated).map((row: any) => String(row.id)));
       const activeRecordIds = new Set(linkedStudents.filter((student: any) => activeUserIds.has(String(student.user_id))).map((student: any) => String(student.id)));
       const activeClassIds = new Set(linkedStudents.filter((student: any) => activeUserIds.has(String(student.user_id))).map((student: any) => String(student.class_id)));
@@ -149,33 +142,20 @@ export function registerPortalRoutes(app: Express, requireAuth: any, getUser: an
       const visibleGrades = gradeRows.filter((row: any) => activeRecordIds.has(String(row.student_id)));
       const visibleAttendance = attendanceRows.filter((row: any) => activeRecordIds.has(String(row.student_id)));
       const visibleTimetable = timetableRows.filter((row: any) => activeClassIds.has(String(row.class_id)));
-      const relevantSubjectIds = new Set([
-        ...visibleGrades.map((row: any) => String(row.subject_id)),
-        ...visibleTimetable.map((row: any) => String(row.subject_id)),
-      ]);
+      const relevantSubjectIds = new Set([...visibleGrades.map((row: any) => String(row.subject_id)), ...visibleTimetable.map((row: any) => String(row.subject_id))]);
       const visibleSubjects = subjectRows.filter((row: any) => relevantSubjectIds.has(String(row.id)));
       const subjectById = new Map(visibleSubjects.map((subject: any) => [Number(subject.id), subject.name]));
       const linkedClassRefs = new Set(classIds.map(String));
       const linkedClassNames = new Set(classRows.map((row: any) => String(row.name || '').trim()).filter(Boolean));
 
       const personalTransactions = paymentRows.map((payment: any) => ({
-        id: String(payment.receipt_number || payment.id),
-        schoolId,
-        type: 'Revenu',
-        category: 'Scolarité',
-        amount: Number(payment.amount || payment.amount_paid || 0),
-        description: `Paiement scolarité — élève #${payment.student_id}`,
-        date: payment.payment_date || payment.created_at || '',
-        paymentMethod: payment.payment_method || 'Non renseigné',
-        status: payment.status || 'paid',
+        id: String(payment.receipt_number || payment.id), schoolId, type: 'Revenu', category: 'Scolarité', amount: Number(payment.amount || payment.amount_paid || 0), description: `Paiement scolarité — élève #${payment.student_id}`, date: payment.payment_date || payment.created_at || '', paymentMethod: payment.payment_method || 'Non renseigné', status: payment.status || 'paid',
       }));
 
       const visibleMessages = messageRows.filter((row: any) => {
         const involved = Number(row.sender_id) === Number(user.id) || Number(row.recipient_id) === Number(user.id);
         return (row.message_type === 'direct' || row.recipient_id != null) && involved;
-      }).map((row: any) => ({
-        id: String(row.id), type: 'internal', channelId: row.channel_id, senderId: row.sender_id, senderName: row.sender_name, senderRole: row.sender_role, recipientId: row.recipient_id, text: row.text, timestamp: row.created_at,
-      }));
+      }).map((row: any) => ({ id: String(row.id), type: 'internal', channelId: row.channel_id, senderId: row.sender_id, senderName: row.sender_name, senderRole: row.sender_role, recipientId: row.recipient_id, text: row.text, timestamp: row.created_at }));
 
       return res.json({
         users: linkedUsers,
@@ -186,13 +166,9 @@ export function registerPortalRoutes(app: Express, requireAuth: any, getUser: an
         payments: paymentRows.map((row: any) => ({ id: row.id, schoolId: row.school_id, studentRecordId: row.student_id, studentId: linkedStudents.find((student: any) => same(student.id, row.student_id))?.user_id || row.student_id, feeId: row.fee_id, amount: Number(row.amount || row.amount_paid || 0), amountPaid: Number(row.amount || row.amount_paid || 0), paymentDate: row.payment_date || row.created_at, receiptNumber: row.receipt_number, paymentMethod: row.payment_method, status: row.status || 'paid' })),
         transactions: personalTransactions,
         fees: feeRows.filter((fee: any) => {
-          const hasClassId = fee.class_id != null && String(fee.class_id) !== '';
-          const className = String(fee.class || fee.class_name || '').trim();
-          const hasClassName = Boolean(className);
-          return (!hasClassId && !hasClassName)
-            || (hasClassId && linkedClassRefs.has(String(fee.class_id)))
-            || (hasClassName && linkedClassNames.has(className));
-        }).map((row: any) => ({ id: row.id, schoolId: row.school_id, name: row.name || row.title, title: row.title || row.name, amount: Number(row.amount || 0), dueDate: row.due_date, type: row.type, class: row.class || row.class_name, classId: row.class_id })),
+          const className = String(fee.class_name || '').trim();
+          return !className || linkedClassNames.has(className);
+        }).map((row: any) => ({ id: row.id, schoolId: row.school_id, name: row.name || row.fee_type, title: row.name || row.fee_type, amount: Number(row.amount || 0), dueDate: row.due_date, type: row.type || row.fee_type, class: row.class_name })),
         attendance: visibleAttendance.map((row: any) => ({ id: row.id, studentId: linkedStudents.find((student: any) => same(student.id, row.student_id))?.user_id || row.student_id, classId: row.class_id, date: row.date, status: row.status, recordedBy: row.recorded_by })),
         timetable: visibleTimetable.map((row: any) => ({ id: String(row.id), classId: row.class_id, subjectId: row.subject_id, teacherId: row.teacher_id, day: row.day_of_week, startTime: row.start_time, endTime: row.end_time, room: row.room || undefined })),
         homeworkDiary: Array.isArray(operations.homeworkDiary) ? operations.homeworkDiary.filter((row: any) => activeClassIds.has(String(row.classId))) : [],
