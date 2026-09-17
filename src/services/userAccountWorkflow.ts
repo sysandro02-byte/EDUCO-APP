@@ -12,12 +12,23 @@ const canonicalRolesByNormalized = new Map<string, string>([
   ['promoteur', 'Promoteur'],
   ['directeur general', 'Directeur Général'],
   ['directeur', 'Directeur Général'],
+  ['dg', 'Directeur Général'],
   ['directeur des etudes', 'Directeur des Etudes'],
+  ['directeur etudes', 'Directeur des Etudes'],
   ['de', 'Directeur des Etudes'],
   ['directeur du primaire', 'Directeur du Primaire'],
+  ['directeur primaire', 'Directeur du Primaire'],
+  ['dp', 'Directeur du Primaire'],
   ['responsable des finances', 'Responsable des finances'],
   ['responsable administratif et financier', 'Responsable des finances'],
+  ['responsable administratif financier', 'Responsable des finances'],
   ['raf', 'Responsable des finances'],
+  ['surveillant general', 'Surveillant Général'],
+  ['surveillant', 'Surveillant Général'],
+  ['sg', 'Surveillant Général'],
+  ['surveillant general adjoint', 'Surveillant Général Adjoint'],
+  ['surveillant adjoint', 'Surveillant Général Adjoint'],
+  ['sga', 'Surveillant Général Adjoint'],
   ['caissiere', 'Caissière'],
   ['caissier', 'Caissière'],
   ['caisse', 'Caissière'],
@@ -60,6 +71,28 @@ export const canDeleteAccount = (actorRole?: string | null, targetRole?: string 
 /** Full grade data is reserved for academic roles; parents and students use their personal space. */
 export const canViewGrades = (role?: string | null) => [
   'Admin', 'Co-admin', 'Promoteur', 'Directeur Général', 'Directeur des Etudes', 'Directeur du Primaire', 'Enseignant',
+].includes(canonicalizeRole(role));
+
+/** Attendance entry is shared by school direction, surveillance and teachers. */
+export const canManageAttendance = (role?: string | null) => [
+  'Admin',
+  'Co-admin',
+  'Promoteur',
+  'Directeur Général',
+  'Directeur des Etudes',
+  'Directeur du Primaire',
+  'Surveillant Général',
+  'Surveillant Général Adjoint',
+  'Enseignant',
+].includes(canonicalizeRole(role));
+
+/** Financial workflows are restricted to the direction/finance chain. */
+export const canManageFinance = (role?: string | null) => [
+  'Admin',
+  'Co-admin',
+  'Promoteur',
+  'Directeur Général',
+  'Responsable des finances',
 ].includes(canonicalizeRole(role));
 
 export const normalizeAccountStatus = (status?: string | null) => {
