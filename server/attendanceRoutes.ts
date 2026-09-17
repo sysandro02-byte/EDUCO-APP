@@ -106,13 +106,15 @@ export function registerAttendanceRoutes(app: Express, requireAuth: any, getUser
         .in('user_id', userIds);
       if (studentResult.error) throw studentResult.error;
       const students = studentResult.data || [];
-      const studentByUserId = new Map(students.map((student: any) => [Number(student.user_id), student]));
+      const studentByUserId = new Map<number, any>(
+        students.map((student: any) => [Number(student.user_id), student] as [number, any]),
+      );
       if (normalizedRecords.some((record: any) => !studentByUserId.has(record.userId))) {
         return res.status(400).json({ error: 'La feuille contient un élève qui n’est pas inscrit dans cette classe.' });
       }
 
       const rows = normalizedRecords.map((record: any) => ({
-        student_id: studentByUserId.get(record.userId).id,
+        student_id: studentByUserId.get(record.userId)!.id,
         class_id: classId,
         status: record.status,
         date,

@@ -1,0 +1,30 @@
+name: Institutional Portal Integrity
+
+on:
+  pull_request:
+    paths:
+      - 'index.tsx'
+      - 'components/InstitutionAccessPortal.tsx'
+      - 'components/InstitutionalEntryApp.tsx'
+      - 'components/GovernmentDashboard.tsx'
+      - 'src/institutional/**'
+      - 'tests/institutional-access.test.ts'
+      - '.github/workflows/institutional-portal-integrity.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Institutional access tests
+        run: npx tsx --test tests/institutional-access.test.ts
+      - name: TypeScript check
+        run: npm run lint
+      - name: Production build
+        run: npm run build
