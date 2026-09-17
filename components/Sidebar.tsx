@@ -5,9 +5,11 @@ import {
 } from './Icons';
 import { ROLE_NAV_ITEMS } from '../constants';
 import { User } from './UserForm';
-import { ShieldCheck, Sparkles, Database, Building2, BarChart3, Settings, LogOut, ChevronRight, Search, Moon, Sun } from 'lucide-react';
+import { ShieldCheck, Search, FileText, Printer } from 'lucide-react';
 import { compressBase64Image } from '../utils/imageCompressor';
+import { getApiUrl } from '../src/lib/apiConfig';
 import UserAvatar from './UserAvatar';
+import AcademicDocumentsModal from './AcademicDocumentsModal';
 
 const NavItem: React.FC<{
   icon: React.ReactNode;
@@ -68,6 +70,41 @@ const Sidebar: React.FC<SidebarProps> = ({
   onOpenSearch 
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [academicDocumentsOpen, setAcademicDocumentsOpen] = React.useState(false);
+  const [cashierBulletinCount, setCashierBulletinCount] = React.useState(0);
+
+  const currentRole = currentUser?.role || '';
+  const canManageAcademicDocuments = currentRole === 'Directeur Général' || currentRole === 'Directeur des Etudes';
+  const isCashier = currentRole === 'Caissière';
+
+  React.useEffect(() => {
+    if (!isCashier) {
+      setCashierBulletinCount(0);
+      return;
+    }
+    let cancelled = false;
+    const refreshCount = async () => {
+      try {
+        const token = localStorage.getItem('EDUCO_USER_TOKEN') || '';
+        const response = await fetch(getApiUrl('/api/academic-documents'), {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (!cancelled) {
+          const pending = Array.isArray(payload?.documents)
+            ? payload.documents.filter((doc: any) => doc.status === 'print_authorized').length
+            : 0;
+          setCashierBulletinCount(pending);
+        }
+      } catch {
+        // The launcher stays hidden until the protected API confirms work to print.
+      }
+    };
+    void refreshCount();
+    const interval = window.setInterval(refreshCount, 30000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [isCashier, academicDocumentsOpen]);
   
   if (!currentUser) {
     return null;
@@ -267,6 +304,34 @@ const Sidebar: React.FC<SidebarProps> = ({
                   />
                 ))}
               </ul>
+
+              {canManageAcademicDocuments ? (
+                <div className="mt-4 pt-4 border-t border-white/10 px-1">
+                  <p className="px-2 mb-2 text-[10px] uppercase font-extrabold tracking-wider text-emerald-300/80">Documents officiels</p>
+                  <button
+                    type="button"
+                    onClick={() => { setAcademicDocumentsOpen(true); if (window.innerWidth < 1024) setIsOpen(false); }}
+                    className="w-full flex items-center gap-3 px-3.5 py-3 rounded-xl bg-emerald-400/15 border border-emerald-300/20 hover:bg-emerald-400/25 text-emerald-100 text-xs font-black transition-all text-left"
+                  >
+                    <FileText className="w-4 h-4 text-emerald-300" />
+                    <span>Rapports & Bulletins</span>
+                  </button>
+                </div>
+              ) : null}
+
+              {isCashier && cashierBulletinCount > 0 ? (
+                <div className="mt-4 pt-4 border-t border-white/10 px-1">
+                  <p className="px-2 mb-2 text-[10px] uppercase font-extrabold tracking-wider text-emerald-300/80">Documents autorisés</p>
+                  <button
+                    type="button"
+                    onClick={() => { setAcademicDocumentsOpen(true); if (window.innerWidth < 1024) setIsOpen(false); }}
+                    className="w-full flex items-center justify-between gap-3 px-3.5 py-3 rounded-xl bg-emerald-400 text-[#163540] hover:bg-emerald-300 text-xs font-black transition-all text-left shadow-lg shadow-emerald-950/20"
+                  >
+                    <span className="flex items-center gap-3"><Printer className="w-4 h-4" />Bulletins à imprimer</span>
+                    <span className="min-w-6 h-6 px-1.5 rounded-full bg-[#163540] text-white flex items-center justify-center text-[10px]">{cashierBulletinCount}</span>
+                  </button>
+                </div>
+              ) : null}
             </div>
           )}
         </div>
@@ -286,6 +351,13 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
       </aside>
+
+      {academicDocumentsOpen ? (
+        <AcademicDocumentsModal
+          currentUser={currentUser}
+          onClose={() => setAcademicDocumentsOpen(false)}
+        />
+      ) : null}
     </>
   );
 };
