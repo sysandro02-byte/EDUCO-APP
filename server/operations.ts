@@ -4,6 +4,7 @@ import { canonicalizeRole } from '../src/services/userAccountWorkflow.ts';
 import { registerPushNotifications } from './push.ts';
 import { registerAccountLifecycle } from './accountLifecycle.ts';
 import { registerStudentEnrollment } from './studentEnrollment.ts';
+import { registerTimetableRoutes } from './timetableRoutes.ts';
 
 const direction = ['Promoteur', 'Directeur Général', 'Directeur des Etudes', 'Directeur du Primaire'];
 const finance = ['Promoteur', 'Directeur Général', 'Responsable des finances'];
@@ -93,6 +94,9 @@ export function registerOperations(app: Express, requireAuth: any, getUser: any,
   registerPushNotifications(app, requireAuth, getUser, getClient);
   registerAccountLifecycle(app, requireAuth, getUser, getClient);
   registerStudentEnrollment(app, requireAuth, getUser, getClient);
+  // Register the exact timetable route before /api/operations/:key so timetable
+  // mutations are persisted in public.timetable instead of school.settings.
+  registerTimetableRoutes(app, requireAuth, getUser, getClient);
   app.post('/api/records/:table/delete', requireAuth, async (req, res) => {
     try {
       const table = String(req.params.table); const allowed: Record<string, string[]> = { classes: direction, fees: finance, personnel: finance };
@@ -122,7 +126,8 @@ export function registerOperations(app: Express, requireAuth: any, getUser: any,
       data.subjects = saved.subjects ?? subjectRows;
       const userIdForStudent = (id: any) => students.find((s: any) => same(s.id, id))?.user_id || id;
       data.attendance = [...(legacy[0].data || []).map((row: any) => ({ ...row, studentId: userIdForStudent(row.student_id), classId: row.class_id })).filter((row: any) => !data.attendance.some((r: any) => same(r.classId, row.classId) && r.date === row.date)), ...data.attendance];
-      data.timetable = saved.timetable ?? (legacy[1].data || []).map((row: any) => ({ id: String(row.id), classId: row.class_id, subjectId: row.subject_id, teacherId: row.teacher_id, day: row.day_of_week, startTime: row.start_time, endTime: row.end_time }));
+      const durableTimetable = (legacy[1].data || []).map((row: any) => ({ id: String(row.id), classId: row.class_id, subjectId: row.subject_id, teacherId: row.teacher_id, day: row.day_of_week, startTime: row.start_time, endTime: row.end_time, room: row.room || undefined }));
+      data.timetable = durableTimetable.length ? durableTimetable : (saved.timetable || []);
       data.schoolSettings = { name: school.name, address: school.address || '', contact: school.phone || '', email: school.email || '', logo: school.logo || '', currency: 'FCFA', ...(school.settings?.schoolSettings || {}), ...(saved.schoolSettings || {}) };
       const userRole = canonicalizeRole(user.role);
       if (personalRole(userRole)) {
@@ -132,7 +137,11 @@ export function registerOperations(app: Express, requireAuth: any, getUser: any,
         for (const key of ['cashierSettings', 'rafSettings', 'communicationSettings', 'budget', 'messageTemplates']) delete data[key];
       } else if (userRole === 'Enseignant') {
         const classIds = classRows.filter((c: any) => same(c.teacher_id, user.id)).map((c: any) => c.id);
-        for (const key of ['attendance', 'timetable', 'homeworkDiary']) data[key] = data[key].filter((row: any) => classIds.some((id: any) => same(id, row.classId)));
+        data.attendance = data.attendance.filter((row: any) => classIds.some((id: any) => same(id, row.classId)));
+        data.homeworkDiary = data.homeworkDiary.filter((row: any) => classIds.some((id: any) => same(id, row.classId)));
+        // A subject teacher can teach classes for which they are not the homeroom
+        // teacher, so timetable visibility follows teacher_id on each course.
+        data.timetable = data.timetable.filter((row: any) => same(row.teacherId, user.id));
         for (const key of ['cashierSettings', 'rafSettings', 'communicationSettings', 'budget']) delete data[key];
       }
       res.json(data);
