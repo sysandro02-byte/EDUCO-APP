@@ -6,6 +6,9 @@
 alter table public.classes
   drop constraint if exists classes_name_key;
 
+alter table public.classes
+  drop constraint if exists classes_name_unique;
+
 drop index if exists public.classes_name_unique;
 
 create unique index if not exists classes_school_name_unique_idx

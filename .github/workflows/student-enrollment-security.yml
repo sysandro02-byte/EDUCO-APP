@@ -1,0 +1,22 @@
+name: Student Enrollment Security
+on:
+  pull_request:
+    paths:
+      - 'server/studentEnrollment.ts'
+      - 'server/operations.ts'
+      - 'src/services/api.ts'
+      - 'supabase/migrations/20260917_student_enrollment_integrity.sql'
+      - 'tests/student-enrollment.test.ts'
+      - '.github/workflows/student-enrollment-security.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npx tsx --test tests/student-enrollment.test.ts
+      - run: npm run build
