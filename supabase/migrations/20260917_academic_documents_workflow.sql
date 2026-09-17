@@ -54,8 +54,14 @@ create index if not exists academic_document_prints_school_idx
 alter table public.academic_documents enable row level security;
 alter table public.academic_document_prints enable row level security;
 
--- The EDUCO backend uses the server-side service role for these tables.
--- No policy is created for anon/authenticated, preventing direct Data API access.
+-- The EDUCO backend uses the server-side service role through Supabase's Data API.
+-- New Supabase projects no longer auto-grant Data API access to newly-created tables,
+-- so the server role is granted explicitly while browser roles stay blocked.
+grant select, insert, update, delete on table public.academic_documents to service_role;
+grant select, insert, update, delete on table public.academic_document_prints to service_role;
+grant usage, select on sequence public.academic_document_prints_id_seq to service_role;
+
+-- No policy is created for anon/authenticated, preventing direct browser access.
 revoke all on table public.academic_documents from anon, authenticated;
 revoke all on table public.academic_document_prints from anon, authenticated;
 revoke all on sequence public.academic_document_prints_id_seq from anon, authenticated;
