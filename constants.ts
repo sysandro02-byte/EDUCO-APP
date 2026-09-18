@@ -5,7 +5,7 @@ import {
   TransactionsIcon, GradesIcon, AttendanceIcon, BudgetingIcon,
   TimetableIcon, GlobalStatsIcon, ReportingIcon, UsersIcon, BellIcon,
   TagIcon, CalculatorIcon, ShieldCheckIcon, LogoutIcon, MessageIcon,
-  DatabaseIcon, SparklesIcon
+  DatabaseIcon, SparklesIcon, FileTextIcon
 } from './components/Icons';
 
 export const USER_ROLES = [
