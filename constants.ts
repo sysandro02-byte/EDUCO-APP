@@ -66,6 +66,7 @@ export const ROLE_NAV_ITEMS: { [key: string]: { label: string; icon: React.Eleme
   ],
   'Promoteur': [
     { label: 'Tableau de bord', icon: DashboardIcon },
+    { label: 'Démarches administratives', icon: BuildingLibraryIcon },
     { label: 'Messagerie', icon: MessageIcon },
     { label: 'Sondages & Enquêtes Parents', icon: ReportingIcon },
     { label: 'Inscriptions & Élèves', icon: StudentsIcon },
@@ -83,6 +84,7 @@ export const ROLE_NAV_ITEMS: { [key: string]: { label: string; icon: React.Eleme
   ],
   'Directeur Général': [
     { label: 'Tableau de bord', icon: DashboardIcon },
+    { label: 'Démarches administratives', icon: BuildingLibraryIcon },
     { label: 'Messagerie', icon: MessageIcon },
     { label: 'Sondages & Enquêtes Parents', icon: ReportingIcon },
     { label: 'Inscriptions & Élèves', icon: StudentsIcon },
@@ -112,6 +114,7 @@ export const ROLE_NAV_ITEMS: { [key: string]: { label: string; icon: React.Eleme
   ],
   'Responsable des finances': [
     { label: 'Tableau de bord', icon: DashboardIcon },
+    { label: 'Démarches administratives', icon: BuildingLibraryIcon },
     { label: 'Messagerie', icon: MessageIcon },
     { label: 'Sondages & Enquêtes Parents', icon: ReportingIcon },
     { label: 'Inscriptions & Élèves', icon: StudentsIcon },
@@ -136,6 +139,7 @@ export const ROLE_NAV_ITEMS: { [key: string]: { label: string; icon: React.Eleme
   ],
   'Directeur des Etudes': [
     { label: 'Tableau de bord', icon: DashboardIcon },
+    { label: 'Démarches administratives', icon: BuildingLibraryIcon },
     { label: 'Messagerie', icon: MessageIcon },
     { label: 'Sondages & Enquêtes Parents', icon: ReportingIcon },
     { label: 'Inscriptions & Élèves', icon: StudentsIcon },
