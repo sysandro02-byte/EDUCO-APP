@@ -107,6 +107,7 @@ import FloatingAIChatbot from './components/FloatingAIChatbot';
 import AdminDiagnosticPage from './components/AdminDiagnosticPage';
 import AdministrativeServicesPage from './components/AdministrativeServicesPage';
 import MinistryAdministrativeBackoffice from './components/MinistryAdministrativeBackoffice';
+import VerifyAdministrativeDocument from './components/VerifyAdministrativeDocument';
 
 export interface Personnel {
   id: number | null;
@@ -3416,6 +3417,8 @@ const App: React.FC = () => {
         return <AdministrativeServicesPage currentUser={currentUser} />;
       case 'Dossiers administratifs':
         return <MinistryAdministrativeBackoffice currentUser={currentUser} />;
+      case 'Vérifier un document':
+        return <VerifyAdministrativeDocument />;
       case 'Paiements':
         return <PaymentsPage 
                   payments={payments}
