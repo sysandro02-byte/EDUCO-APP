@@ -46,3 +46,5 @@ returns public.administrative_official_documents language sql security invoker s
 as $$ select private.issue_administrative_document_secure(p_application_id,p_storage_path,p_sha256) $$;
 revoke all on function public.issue_administrative_document(uuid,text,text) from public,anon;
 grant execute on function public.issue_administrative_document(uuid,text,text) to authenticated;
+
+-- Preview deployment refresh: 2026-09-18
