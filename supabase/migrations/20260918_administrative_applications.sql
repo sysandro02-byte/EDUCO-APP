@@ -34,3 +34,36 @@ insert into storage.buckets(id,name,public) values ('administrative-applications
 create policy "applicant uploads administrative files" on storage.objects for insert to authenticated with check (bucket_id='administrative-applications' and (storage.foldername(name))[1]=(select auth.uid())::text);
 create policy "applicant reads administrative files" on storage.objects for select to authenticated using (bucket_id='administrative-applications' and (storage.foldername(name))[1]=(select auth.uid())::text);
 create policy "applicant deletes administrative files" on storage.objects for delete to authenticated using (bucket_id='administrative-applications' and (storage.foldername(name))[1]=(select auth.uid())::text);
+
+-- Harden submission and storage access.
+-- Applicants cannot transition status directly: submission is exposed through a narrow RPC.
+drop policy if exists "applicant edits drafts" on public.administrative_applications;
+create policy "applicant edits drafts" on public.administrative_applications for update to authenticated
+using ((select auth.uid())=applicant_uid and status in ('DRAFT','MISSING_DOCUMENTS'))
+with check ((select auth.uid())=applicant_uid and status in ('DRAFT','MISSING_DOCUMENTS'));
+
+create or replace function public.submit_administrative_application(p_id uuid)
+returns public.administrative_applications
+language plpgsql
+security definer
+set search_path=''
+as $$
+declare v_row public.administrative_applications;
+begin
+ update public.administrative_applications
+ set status='SUBMITTED', submitted_at=now(), updated_at=now()
+ where id=p_id and applicant_uid=(select auth.uid()) and status in ('DRAFT','MISSING_DOCUMENTS')
+ returning * into v_row;
+ if v_row.id is null then raise exception 'Dossier introuvable ou non soumissible'; end if;
+ return v_row;
+end $$;
+revoke all on function public.submit_administrative_application(uuid) from public;
+grant execute on function public.submit_administrative_application(uuid) to authenticated;
+
+-- A file row must belong to an application owned by the same caller.
+drop policy if exists "owner adds files" on public.administrative_application_files;
+create policy "owner adds files" on public.administrative_application_files for insert to authenticated
+with check ((select auth.uid())=owner_uid and exists (
+ select 1 from public.administrative_applications a
+ where a.id=application_id and a.applicant_uid=(select auth.uid()) and a.status in ('DRAFT','MISSING_DOCUMENTS')
+));
