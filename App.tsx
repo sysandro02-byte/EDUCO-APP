@@ -108,6 +108,7 @@ import AdminDiagnosticPage from './components/AdminDiagnosticPage';
 import AdministrativeServicesPage from './components/AdministrativeServicesPage';
 import MinistryAdministrativeBackoffice from './components/MinistryAdministrativeBackoffice';
 import VerifyAdministrativeDocument from './components/VerifyAdministrativeDocument';
+import MyOfficialDocuments from './components/MyOfficialDocuments';
 
 export interface Personnel {
   id: number | null;
@@ -3419,6 +3420,8 @@ const App: React.FC = () => {
         return <MinistryAdministrativeBackoffice currentUser={currentUser} />;
       case 'Vérifier un document':
         return <VerifyAdministrativeDocument />;
+      case 'Mes documents officiels':
+        return <MyOfficialDocuments />;
       case 'Paiements':
         return <PaymentsPage 
                   payments={payments}
