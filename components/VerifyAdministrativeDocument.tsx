@@ -1,4 +1,4 @@
-import React,{useState} from 'react'; import {ShieldCheck,Search,AlertTriangle} from 'lucide-react'; import {getSupabaseClient} from '../lib/supabase';
+import React,{useState} from 'react'; import {ShieldCheck,Search,AlertTriangle} from 'lucide-react'; import {getSupabaseClient} from '../src/lib/supabase';
 export default function VerifyAdministrativeDocument(){
  const [token,setToken]=useState(''),[doc,setDoc]=useState<any>(null),[msg,setMsg]=useState('');
  const verify=async()=>{setMsg('');setDoc(null);const s=getSupabaseClient();if(!s)return;const {data,error}=await s.rpc('verify_administrative_document',{p_token:token.trim()});if(error||!data?.length)setMsg('Document introuvable ou jeton invalide.');else setDoc(data[0])};
