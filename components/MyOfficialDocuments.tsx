@@ -1,4 +1,4 @@
-import React,{useEffect,useState} from 'react'; import {FileCheck2,Download,ShieldCheck,RefreshCw} from 'lucide-react'; import {getSupabaseClient} from '../lib/supabase';
+import React,{useEffect,useState} from 'react'; import {FileCheck2,Download,ShieldCheck,RefreshCw} from 'lucide-react'; import {getSupabaseClient} from '../src/lib/supabase';
 export default function MyOfficialDocuments(){
  const [docs,setDocs]=useState<any[]>([]),[busy,setBusy]=useState(false),[msg,setMsg]=useState('');
  const load=async()=>{setBusy(true);const s=getSupabaseClient();if(!s)return;const {data,error}=await s.from('administrative_official_documents').select('id,document_number,document_type,ministry,status,issued_at,storage_path,verification_token,signer_name,signer_title').order('issued_at',{ascending:false});setBusy(false);if(error)setMsg(error.message);else setDocs(data||[])};
