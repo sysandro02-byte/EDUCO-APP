@@ -57,7 +57,7 @@ begin
  assigned_direction=coalesce(p_direction,assigned_direction),assigned_agent_uid=case when upper(p_action)='ASSIGN' then (select auth.uid()) else assigned_agent_uid end,
  review_note=case when upper(p_action)='REQUEST_MISSING' then p_note else review_note end,
  decision_note=case when upper(p_action) in ('APPROVE','REJECT') then p_note else decision_note end,
- reviewed_at=case when upper(p_action) in ('APPROVE','REJECT') then now() else reviewed_at end,updated_at=now() where id=p_id returning * into v;
+ reviewed_at=case when upper(p_action) in ('APPROVE','REJECT') then now() else reviewed_at end, payment_amount=case when next_status='PAYMENT_DUE' then svc.fee_amount else payment_amount end, payment_currency=case when next_status='PAYMENT_DUE' then svc.fee_currency else payment_currency end, updated_at=now() where id=p_id returning * into v;
  insert into public.administrative_application_events(application_id,action,from_status,to_status,note) values(p_id,upper(p_action),old_status,next_status,p_note);
  return v;
 end $$;
