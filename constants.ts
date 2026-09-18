@@ -5,7 +5,7 @@ import {
   TransactionsIcon, GradesIcon, AttendanceIcon, BudgetingIcon,
   TimetableIcon, GlobalStatsIcon, ReportingIcon, UsersIcon, BellIcon,
   TagIcon, CalculatorIcon, ShieldCheckIcon, LogoutIcon, MessageIcon,
-  DatabaseIcon, SparklesIcon, FileTextIcon
+  DatabaseIcon, SparklesIcon
 } from './components/Icons';
 
 export const USER_ROLES = [
@@ -67,9 +67,9 @@ export const ROLE_NAV_ITEMS: { [key: string]: { label: string; icon: React.Eleme
   'Promoteur': [
     { label: 'Tableau de bord', icon: DashboardIcon },
     { label: 'Démarches administratives', icon: BuildingLibraryIcon },
-    { label: 'Mes démarches', icon: FileTextIcon },
+    { label: 'Mes démarches', icon: ReportingIcon },
     { label: 'Vérifier un document', icon: ShieldCheckIcon },
-    { label: 'Mes documents officiels', icon: FileTextIcon },
+    { label: 'Mes documents officiels', icon: ReportingIcon },
     { label: 'Messagerie', icon: MessageIcon },
     { label: 'Sondages & Enquêtes Parents', icon: ReportingIcon },
     { label: 'Inscriptions & Élèves', icon: StudentsIcon },
@@ -88,9 +88,9 @@ export const ROLE_NAV_ITEMS: { [key: string]: { label: string; icon: React.Eleme
   'Directeur Général': [
     { label: 'Tableau de bord', icon: DashboardIcon },
     { label: 'Démarches administratives', icon: BuildingLibraryIcon },
-    { label: 'Mes démarches', icon: FileTextIcon },
+    { label: 'Mes démarches', icon: ReportingIcon },
     { label: 'Vérifier un document', icon: ShieldCheckIcon },
-    { label: 'Mes documents officiels', icon: FileTextIcon },
+    { label: 'Mes documents officiels', icon: ReportingIcon },
     { label: 'Messagerie', icon: MessageIcon },
     { label: 'Sondages & Enquêtes Parents', icon: ReportingIcon },
     { label: 'Inscriptions & Élèves', icon: StudentsIcon },
@@ -121,9 +121,9 @@ export const ROLE_NAV_ITEMS: { [key: string]: { label: string; icon: React.Eleme
   'Responsable des finances': [
     { label: 'Tableau de bord', icon: DashboardIcon },
     { label: 'Démarches administratives', icon: BuildingLibraryIcon },
-    { label: 'Mes démarches', icon: FileTextIcon },
+    { label: 'Mes démarches', icon: ReportingIcon },
     { label: 'Vérifier un document', icon: ShieldCheckIcon },
-    { label: 'Mes documents officiels', icon: FileTextIcon },
+    { label: 'Mes documents officiels', icon: ReportingIcon },
     { label: 'Messagerie', icon: MessageIcon },
     { label: 'Sondages & Enquêtes Parents', icon: ReportingIcon },
     { label: 'Inscriptions & Élèves', icon: StudentsIcon },
@@ -149,9 +149,9 @@ export const ROLE_NAV_ITEMS: { [key: string]: { label: string; icon: React.Eleme
   'Directeur des Etudes': [
     { label: 'Tableau de bord', icon: DashboardIcon },
     { label: 'Démarches administratives', icon: BuildingLibraryIcon },
-    { label: 'Mes démarches', icon: FileTextIcon },
+    { label: 'Mes démarches', icon: ReportingIcon },
     { label: 'Vérifier un document', icon: ShieldCheckIcon },
-    { label: 'Mes documents officiels', icon: FileTextIcon },
+    { label: 'Mes documents officiels', icon: ReportingIcon },
     { label: 'Messagerie', icon: MessageIcon },
     { label: 'Sondages & Enquêtes Parents', icon: ReportingIcon },
     { label: 'Inscriptions & Élèves', icon: StudentsIcon },
