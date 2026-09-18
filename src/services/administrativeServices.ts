@@ -6,7 +6,7 @@ export async function createAdministrativeApplication(service:any,user:any,formD
 }
 export async function submitAdministrativeApplication(id:string){
  const supabase=getSupabaseClient(); if(!supabase) throw new Error('Supabase indisponible');
- const {data,error}=await supabase.from('administrative_applications').update({status:'SUBMITTED',submitted_at:new Date().toISOString()}).eq('id',id).select().single(); if(error) throw error; return data;
+ const {data,error}=await supabase.rpc('submit_administrative_application',{p_id:id}); if(error) throw error; return data;
 }
 export async function listMyAdministrativeApplications(){
  const supabase=getSupabaseClient(); if(!supabase) return []; const {data,error}=await supabase.from('administrative_applications').select('*').order('created_at',{ascending:false}); if(error) throw error; return data||[];
