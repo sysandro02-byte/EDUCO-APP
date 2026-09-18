@@ -1,4 +1,4 @@
-import React,{useEffect,useState} from 'react'; import {Inbox,CheckCircle2,XCircle,FileWarning,UserCheck} from 'lucide-react'; import {getSupabaseClient} from '../lib/supabase';
+import React,{useEffect,useState} from 'react'; import {Inbox,CheckCircle2,XCircle,FileWarning,UserCheck} from 'lucide-react'; import {getSupabaseClient} from '../src/lib/supabase';
 export default function MinistryAdministrativeBackoffice({currentUser}:{currentUser?:any}){
  const [rows,setRows]=useState<any[]>([]),[busy,setBusy]=useState(false),[msg,setMsg]=useState('');
  const load=async()=>{const s=getSupabaseClient();if(!s)return;const {data,error}=await s.from('administrative_applications').select('*').neq('status','DRAFT').order('created_at',{ascending:false});if(error)setMsg(error.message);else setRows(data||[])};
