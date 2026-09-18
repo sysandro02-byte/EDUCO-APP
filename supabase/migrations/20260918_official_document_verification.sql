@@ -9,6 +9,8 @@ alter table public.administrative_official_documents add column if not exists le
 alter table public.administrative_official_documents add column if not exists replaced_by uuid references public.administrative_official_documents(id);
 create index if not exists administrative_official_documents_verification_idx on public.administrative_official_documents(verification_token);
 
+create sequence if not exists public.administrative_document_number_seq;
+
 create or replace function public.issue_administrative_document(p_application_id uuid,p_signer_name text,p_signer_title text,p_storage_path text default null,p_sha256 text default null)
 returns public.administrative_official_documents language plpgsql security invoker set search_path=public as $$
 declare a public.administrative_applications; s public.administrative_services; d public.administrative_official_documents; n text;
@@ -26,7 +28,6 @@ begin
  insert into public.administrative_application_events(application_id,action,from_status,to_status,note) values(a.id,'ISSUE_DOCUMENT',a.status,'DOCUMENT_ISSUED',n);
  return d;
 end $$;
-create sequence if not exists public.administrative_document_number_seq;
 revoke all on function public.issue_administrative_document(uuid,text,text,text,text) from public;
 grant execute on function public.issue_administrative_document(uuid,text,text,text,text) to authenticated;
 
@@ -36,4 +37,5 @@ language sql stable security invoker set search_path=public as $$
  select d.document_number,d.document_type,d.ministry,d.status,d.issued_at,d.signer_name,d.signer_title,d.legal_reference
  from public.administrative_official_documents d where d.verification_token=p_token;
 $$;
-grant execute on function public.verify_administrative_document(uuid) to anon,authenticated;
+revoke all on function public.verify_administrative_document(uuid) from public;
+grant execute on function public.verify_administrative_document(uuid) to authenticated;
