@@ -88,6 +88,7 @@ import { purgeSupabaseDirectly, purgeSchoolSupabaseDirectly, deleteUserFromSupab
 import { getApiUrl } from './src/lib/apiConfig';
 import { getCurrentUser, findUserByEmail, getSchoolSettings, saveUserToDb, deleteUserFromDb, deleteSchoolFromDb, saveActivityLogToDb, fetchActivityLogsFromDb, checkDbConnection, syncInitialData, fetchCurrentSubscription, SchoolSubscriptionInfo, fetchAdminExportData, fetchAdminRegisteredSchools, fetchSchoolOperationalData, saveTransactionToDb, savePaymentToDb, updateTransactionStatusInDb, savePersonnelToDb, saveClassToDb, saveFeeToDb, saveGradeToDb, sendMessageToDb, checkInterSchoolStudentDebt, fetchNotificationsFromDb, dispatchNotificationToRoles, markNotificationAsReadInDb, markAllNotificationsAsReadInDb, deleteNotificationFromDb, clearNotificationsInDb } from './src/services/api';
 import { getAccountCreationKind } from './src/services/userAccountWorkflow';
+import { getMyGovernmentAccount, isGovernmentRole } from './src/services/governmentAccounts';
 import { DbStatus } from './src/services/api';
 import { Database, CheckCircle2, User as UserIcon, Camera, Settings, LogOut, Shield, ChevronDown, Lock, Zap, Sparkles, Key, ShieldCheck, X, AlertCircle, AlertTriangle } from 'lucide-react';
 import LockedFeatureGuard from './components/LockedFeatureGuard';
@@ -108,6 +109,8 @@ import AdminDiagnosticPage from './components/AdminDiagnosticPage';
 import AdministrativeServicesPage from './components/AdministrativeServicesPage';
 import MinistryAdministrativeBackoffice from './components/MinistryAdministrativeBackoffice';
 import AuthorizedSignersPage from './components/AuthorizedSignersPage';
+import GovernmentAccountsPage from './components/GovernmentAccountsPage';
+import GovernmentPasswordSetupPage from './components/GovernmentPasswordSetupPage';
 import VerifyAdministrativeDocument from './components/VerifyAdministrativeDocument';
 import MyOfficialDocuments from './components/MyOfficialDocuments';
 import MyAdministrativeApplications from './components/MyAdministrativeApplications';
@@ -365,6 +368,28 @@ const App: React.FC = () => {
         const data = await loginRes.json().catch(() => null);
         if (!loginRes.ok || !data?.success || !data?.user || !data?.token) return { success: false, error: data?.error || 'Identifiants invalides. Vérifiez votre e-mail et votre mot de passe.' };
         loggedUser = data.user; provenToken = data.token;
+
+        // Keep the browser Supabase session aligned with the server-authenticated EDUCO session.
+        // Government RPCs use auth.uid(), so this session is required for ministry workflows.
+        const supabase = getSupabaseClient();
+        const { data: browserAuth, error: browserAuthError } = await supabase.auth.signInWithPassword({
+          email: trimmedEmail,
+          password,
+        });
+        if (browserAuthError || !browserAuth?.user?.id) {
+          return { success: false, error: 'Connexion EDUCO réussie, mais la session Supabase sécurisée n’a pas pu être initialisée.' };
+        }
+        if (loggedUser?.uid && String(browserAuth.user.id) !== String(loggedUser.uid)) {
+          await supabase.auth.signOut().catch(() => {});
+          return { success: false, error: 'La session Supabase ne correspond pas au compte EDUCO authentifié.' };
+        }
+      }
+      if (isBiometric && isGovernmentRole(loggedUser?.role || '')) {
+        const supabase = getSupabaseClient();
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData?.session) {
+          return { success: false, error: 'Pour accéder à un compte ministériel sur cet appareil, reconnectez-vous d’abord avec votre mot de passe.' };
+        }
       }
       if ((loggedUser.role === 'Admin' || loggedUser.role === 'Co-admin') && !isAdminPortal) return { success: false, error: "Accès refusé : utilisez le portail d’administration dédié." };
       if (isAdminPortal && loggedUser.role !== 'Admin' && loggedUser.role !== 'Co-admin') return { success: false, error: "Accès refusé : ce portail est réservé aux administrateurs et co-administrateurs." };
@@ -395,9 +420,34 @@ const App: React.FC = () => {
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activePage, setActivePage] = useState('Tableau de bord');
+  const [governmentPasswordGate, setGovernmentPasswordGate] = useState<'idle' | 'checking' | 'required' | 'clear' | 'error'>('idle');
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const [viewingStudentId, setViewingStudentId] = useState<number | null>(null); // New state for student profile view
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!currentUser || !isGovernmentRole(currentUser.role || '')) {
+      setGovernmentPasswordGate('clear');
+      return () => { cancelled = true; };
+    }
+
+    setGovernmentPasswordGate('checking');
+    getMyGovernmentAccount()
+      .then((account: any) => {
+        if (cancelled) return;
+        if (!account?.user_uid || account.active === false) {
+          setGovernmentPasswordGate('error');
+          return;
+        }
+        setGovernmentPasswordGate(account.must_change_password ? 'required' : 'clear');
+      })
+      .catch(() => {
+        if (!cancelled) setGovernmentPasswordGate('error');
+      });
+
+    return () => { cancelled = true; };
+  }, [currentUser?.uid, currentUser?.role]);
 
   const [telemetry, setTelemetry] = useState<{
     ipAddress: string;
@@ -3013,6 +3063,37 @@ const App: React.FC = () => {
     );
   }
 
+  if (isGovernmentRole(currentUser.role || '') && governmentPasswordGate === 'checking') {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#EBF3F8]">
+        <LogoIcon className="w-20 h-20 animate-pulse" />
+        <p className="mt-4 text-sm font-semibold text-[#1F4A59]">Vérification de la sécurité du compte ministériel...</p>
+      </div>
+    );
+  }
+
+  if (isGovernmentRole(currentUser.role || '') && governmentPasswordGate === 'required') {
+    return (
+      <GovernmentPasswordSetupPage
+        onComplete={() => setGovernmentPasswordGate('clear')}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  if (isGovernmentRole(currentUser.role || '') && governmentPasswordGate === 'error') {
+    return (
+      <div className="min-h-screen bg-[#EBF3F8] flex items-center justify-center p-4">
+        <div className="max-w-lg bg-white border rounded-3xl p-7 text-center">
+          <ShieldCheck className="w-12 h-12 mx-auto text-amber-600" />
+          <h2 className="text-xl font-black mt-3">Session ministérielle non vérifiée</h2>
+          <p className="text-sm text-slate-500 mt-2">Reconnectez-vous avec votre mot de passe afin de rétablir la session Supabase sécurisée requise pour les opérations ministérielles.</p>
+          <button onClick={handleLogout} className="mt-5 w-full bg-[#1F4A59] text-white rounded-xl py-3 font-black">Se reconnecter</button>
+        </div>
+      </div>
+    );
+  }
+
   const userProfile = { name: currentUser?.name || 'Utilisateur', role: loggedInRole, avatar: currentUser?.avatar || '' };
   const chatEnabledRoles = ['Admin', 'Promoteur', 'Responsable des finances', 'Enseignant', 'Directeur des Etudes'];
 
@@ -3426,6 +3507,8 @@ const App: React.FC = () => {
         return <AdministrativeServicesPage currentUser={currentUser} />;
       case 'Dossiers administratifs':
         return <MinistryAdministrativeBackoffice currentUser={currentUser} />;
+      case 'Comptes ministériels':
+        return <GovernmentAccountsPage currentUser={currentUser} />;
       case 'Signataires habilités':
         return <AuthorizedSignersPage currentUser={currentUser} />;
       case 'Vérifier un document':
