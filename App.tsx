@@ -244,6 +244,7 @@ const App: React.FC = () => {
   const [inactivityNotice, setInactivityNotice] = useState<string | null>(null);
   const [passkeyPromptUser, setPasskeyPromptUser] = useState<{ email: string; userId?: string; name?: string } | null>(null);
   const lastActivityRef = React.useRef<number>(Date.now());
+  const pendingSupabaseCredentialsRef = React.useRef<{ email: string; password: string; expectedUid?: string } | null>(null);
 
   useEffect(() => {
     const initSupabaseAuth = async () => {
@@ -345,6 +346,19 @@ const App: React.FC = () => {
     };
   }, [currentUser, inactivityTimeoutMinutes]);
 
+  const syncBrowserSupabaseSession = async (email: string, password: string, expectedUid?: string) => {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error || !data?.user?.id) {
+      await supabase.auth.signOut().catch(() => {});
+      throw new Error('La session Supabase sécurisée n’a pas pu être initialisée.');
+    }
+    if (expectedUid && String(data.user.id) !== String(expectedUid)) {
+      await supabase.auth.signOut().catch(() => {});
+      throw new Error('La session Supabase ne correspond pas au compte EDUCO authentifié.');
+    }
+  };
+
   const handleLogin = async (email: string, password: string, isBiometric: boolean = false) => {
     const trimmedEmail = (email || '').trim();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -368,20 +382,17 @@ const App: React.FC = () => {
         const data = await loginRes.json().catch(() => null);
         if (!loginRes.ok || !data?.success || !data?.user || !data?.token) return { success: false, error: data?.error || 'Identifiants invalides. Vérifiez votre e-mail et votre mot de passe.' };
         loggedUser = data.user; provenToken = data.token;
-
-        // Keep the browser Supabase session aligned with the server-authenticated EDUCO session.
-        // Government RPCs use auth.uid(), so this session is required for ministry workflows.
-        const supabase = getSupabaseClient();
-        const { data: browserAuth, error: browserAuthError } = await supabase.auth.signInWithPassword({
+        pendingSupabaseCredentialsRef.current = {
           email: trimmedEmail,
           password,
-        });
-        if (browserAuthError || !browserAuth?.user?.id) {
-          return { success: false, error: 'Connexion EDUCO réussie, mais la session Supabase sécurisée n’a pas pu être initialisée.' };
-        }
-        if (loggedUser?.uid && String(browserAuth.user.id) !== String(loggedUser.uid)) {
-          await supabase.auth.signOut().catch(() => {});
-          return { success: false, error: 'La session Supabase ne correspond pas au compte EDUCO authentifié.' };
+          expectedUid: loggedUser?.uid ? String(loggedUser.uid) : undefined,
+        };
+
+        // If OTP was already validated for the current browser session, synchronize immediately.
+        // Otherwise the Supabase session is created only after OTP validation below.
+        if (otpVerified) {
+          await syncBrowserSupabaseSession(trimmedEmail, password, loggedUser?.uid ? String(loggedUser.uid) : undefined);
+          pendingSupabaseCredentialsRef.current = null;
         }
       }
       if (isBiometric && isGovernmentRole(loggedUser?.role || '')) {
@@ -412,6 +423,7 @@ const App: React.FC = () => {
     localStorage.removeItem('EDUCO_CURRENT_USER');
     localStorage.removeItem('EDUCO_USER_TOKEN');
     sessionStorage.removeItem('EDUCO_SESSION_ACTIVE');
+    pendingSupabaseCredentialsRef.current = null;
     setCurrentUser(null);
     setPendingOtpUser(null);
     setOtpVerified(false);
@@ -3022,17 +3034,48 @@ const App: React.FC = () => {
       <OtpValidationPage
         email={pendingOtpUser.email}
         mode="login"
-        onValidate={() => {
-          setOtpVerified(true);
-          sessionStorage.setItem('otpVerified', 'true');
-          setCurrentUser(pendingOtpUser);
-          setPendingOtpUser(null);
-          setActivePage('Tableau de bord');
+        onValidate={async () => {
+          try {
+            const pendingCredentials = pendingSupabaseCredentialsRef.current;
+            if (pendingCredentials) {
+              await syncBrowserSupabaseSession(
+                pendingCredentials.email,
+                pendingCredentials.password,
+                pendingCredentials.expectedUid,
+              );
+              pendingSupabaseCredentialsRef.current = null;
+            } else if (isGovernmentRole(pendingOtpUser.role || '')) {
+              const supabase = getSupabaseClient();
+              const { data: sessionData } = await supabase.auth.getSession();
+              if (!sessionData?.session) {
+                throw new Error('Session ministérielle Supabase absente.');
+              }
+            }
+
+            setOtpVerified(true);
+            sessionStorage.setItem('otpVerified', 'true');
+            setCurrentUser(pendingOtpUser);
+            setPendingOtpUser(null);
+            setActivePage('Tableau de bord');
+          } catch (error: any) {
+            pendingSupabaseCredentialsRef.current = null;
+            await getSupabaseClient().auth.signOut().catch(() => {});
+            setPendingOtpUser(null);
+            setOtpVerified(false);
+            sessionStorage.removeItem('otpVerified');
+            sessionStorage.removeItem('EDUCO_SESSION_ACTIVE');
+            localStorage.removeItem('EDUCO_CURRENT_USER');
+            localStorage.removeItem('EDUCO_USER_TOKEN');
+            setInactivityNotice(error?.message || 'La session sécurisée n’a pas pu être initialisée. Reconnectez-vous.');
+          }
         }}
         onCancel={() => {
+          pendingSupabaseCredentialsRef.current = null;
+          void getSupabaseClient().auth.signOut().catch(() => {});
           setPendingOtpUser(null);
           setOtpVerified(false);
           sessionStorage.removeItem('otpVerified');
+          sessionStorage.removeItem('EDUCO_SESSION_ACTIVE');
           localStorage.removeItem('EDUCO_CURRENT_USER');
           localStorage.removeItem('EDUCO_USER_TOKEN');
         }}
