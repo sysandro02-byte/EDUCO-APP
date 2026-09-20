@@ -110,6 +110,7 @@ import AdministrativeServicesPage from './components/AdministrativeServicesPage'
 import MinistryAdministrativeBackoffice from './components/MinistryAdministrativeBackoffice';
 import AuthorizedSignersPage from './components/AuthorizedSignersPage';
 import GovernmentAccountsPage from './components/GovernmentAccountsPage';
+import CatalogValidationPage from './components/CatalogValidationPage';
 import GovernmentPasswordSetupPage from './components/GovernmentPasswordSetupPage';
 import VerifyAdministrativeDocument from './components/VerifyAdministrativeDocument';
 import MyOfficialDocuments from './components/MyOfficialDocuments';
@@ -3550,6 +3551,8 @@ const App: React.FC = () => {
         return <AdministrativeServicesPage currentUser={currentUser} />;
       case 'Dossiers administratifs':
         return <MinistryAdministrativeBackoffice currentUser={currentUser} />;
+      case 'Catalogue ministériel':
+        return <CatalogValidationPage currentUser={currentUser} />;
       case 'Comptes ministériels':
         return <GovernmentAccountsPage currentUser={currentUser} />;
       case 'Signataires habilités':
