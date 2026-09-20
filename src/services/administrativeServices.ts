@@ -17,3 +17,8 @@ export async function uploadAdministrativeFile(applicationId:string,file:File){
  const {error:up}=await supabase.storage.from('administrative-applications').upload(path,file,{contentType:file.type,upsert:false}); if(up) throw up;
  const {error}=await supabase.from('administrative_application_files').insert({application_id:applicationId,owner_uid:user.id,file_name:file.name,storage_path:path,mime_type:file.type,size_bytes:file.size}); if(error) throw error; return path;
 }
+
+export async function resubmitAdministrativeApplication(id:string){
+ const supabase=getSupabaseClient(); if(!supabase) throw new Error('Supabase indisponible');
+ const {data,error}=await supabase.rpc('resubmit_administrative_application',{p_id:id}); if(error) throw error; return data;
+}
