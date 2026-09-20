@@ -5,7 +5,7 @@ import {
 } from './Icons';
 import { ROLE_NAV_ITEMS } from '../constants';
 import { User } from './UserForm';
-import { ShieldCheck, Search, FileText, Printer } from 'lucide-react';
+import { ShieldCheck, Search, FileText, Printer, LogOut } from 'lucide-react';
 import { compressBase64Image } from '../utils/imageCompressor';
 import { getApiUrl } from '../src/lib/apiConfig';
 import UserAvatar from './UserAvatar';
@@ -110,7 +110,16 @@ const Sidebar: React.FC<SidebarProps> = ({
     return null;
   }
   
-  const navItems = ROLE_NAV_ITEMS[currentUser.role] || [];
+  const normalizedGovernmentRole = String(currentRole || '').trim().toUpperCase().replace(/[ -]+/g, '_');
+  const isGovernmentRole = normalizedGovernmentRole === 'ETAT_ADMIN' || /^(MEPSA|MES|METP|MFP)_/.test(normalizedGovernmentRole);
+  const canManageGovernmentSigners = normalizedGovernmentRole === 'ETAT_ADMIN' || /^(MEPSA|MES|METP|MFP)_(CABINET|DG|DIRECTEUR_GENERAL|MINISTRE|SECRETAIRE_GENERAL|SIGNER_ADMIN)$/.test(normalizedGovernmentRole);
+  const governmentNavItems = isGovernmentRole ? [
+    { label: 'Dossiers administratifs', icon: FileText },
+    ...(canManageGovernmentSigners ? [{ label: 'Signataires habilités', icon: ShieldCheck }] : []),
+    { label: 'Vérifier un document', icon: ShieldCheck },
+    { label: 'Déconnexion', icon: LogOut },
+  ] : [];
+  const navItems = ROLE_NAV_ITEMS[currentUser.role] || governmentNavItems;
 
   const handleNavClick = (label: string) => {
     if (label === 'Déconnexion') {
