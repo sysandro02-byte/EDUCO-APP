@@ -2940,6 +2940,12 @@ const App: React.FC = () => {
   }, [loggedInRole, schoolSettings, users, classes, fees, payments, transactions, personnel, budget, academicYear, subjects, grades, reportCardComments, attendance, activityLog, messageTemplates, cashierSettings, rafSettings,
       communicationSettings, timetable, homeworkDiary, financialEvents, addActivityLog]);
 
+  // Public QR verification must remain reachable without an EDUCO account.
+  const publicVerificationToken = new URLSearchParams(window.location.search).get('token');
+  if (publicVerificationToken) {
+    return <VerifyAdministrativeDocument />;
+  }
+
   if (loadingAuth || loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-[#EBF3F8]">
