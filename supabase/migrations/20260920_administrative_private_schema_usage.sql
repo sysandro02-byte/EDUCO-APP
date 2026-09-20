@@ -1,0 +1,1 @@
+-- Allow exposed wrappers to resolve vetted helper functions in the unexposed private schema.\ngrant usage on schema private to anon, authenticated;\n
