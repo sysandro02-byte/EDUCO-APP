@@ -5,7 +5,7 @@ import {
 } from './Icons';
 import { ROLE_NAV_ITEMS } from '../constants';
 import { User } from './UserForm';
-import { ShieldCheck, Search, FileText, Printer, LogOut, UserCog } from 'lucide-react';
+import { ShieldCheck, Search, FileText, Printer, LogOut, UserCog, BookOpenCheck } from 'lucide-react';
 import { compressBase64Image } from '../utils/imageCompressor';
 import { getApiUrl } from '../src/lib/apiConfig';
 import UserAvatar from './UserAvatar';
@@ -114,8 +114,10 @@ const Sidebar: React.FC<SidebarProps> = ({
   const isGovernmentRole = normalizedGovernmentRole === 'ETAT_ADMIN' || /^(MEPSA|MES|METP|MFP)_/.test(normalizedGovernmentRole);
   const canManageGovernmentSigners = normalizedGovernmentRole === 'ETAT_ADMIN' || /^(MEPSA|MES|METP|MFP)_(CABINET|DG|DIRECTEUR_GENERAL|MINISTRE|SECRETAIRE_GENERAL|SIGNER_ADMIN)$/.test(normalizedGovernmentRole);
   const canManageGovernmentAccounts = normalizedGovernmentRole === 'ETAT_ADMIN' || /^(MEPSA|MES|METP|MFP)_(CABINET|DG|DIRECTEUR_GENERAL|MINISTRE|SECRETAIRE_GENERAL)$/.test(normalizedGovernmentRole);
+  const canManageMinistryCatalog = /^(MEPSA|MES|METP|MFP)_(DIRECTEUR|FINANCE|DG|DIRECTEUR_GENERAL|SECRETAIRE_GENERAL|CABINET|MINISTRE)$/.test(normalizedGovernmentRole);
   const governmentNavItems = isGovernmentRole ? [
     { label: 'Dossiers administratifs', icon: FileText },
+    ...(canManageMinistryCatalog ? [{ label: 'Catalogue ministériel', icon: BookOpenCheck }] : []),
     ...(canManageGovernmentAccounts ? [{ label: 'Comptes ministériels', icon: UserCog }] : []),
     ...(canManageGovernmentSigners ? [{ label: 'Signataires habilités', icon: ShieldCheck }] : []),
     { label: 'Vérifier un document', icon: ShieldCheck },
