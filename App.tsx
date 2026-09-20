@@ -106,7 +106,7 @@ import AdminAIManagerPage from './components/AdminAIManagerPage';
 import FloatingAIChatbot from './components/FloatingAIChatbot';
 import AdminDiagnosticPage from './components/AdminDiagnosticPage';
 import AdministrativeServicesPage from './components/AdministrativeServicesPage';
-import MinistryAdministrativeBackoffice from './components/MinistryAdministrativeBackoffice';
+import MinistryAdministrativeBackoffice from './components/MinistryAdministrativeBackoffice';\nimport AuthorizedSignersPage from './components/AuthorizedSignersPage';
 import VerifyAdministrativeDocument from './components/VerifyAdministrativeDocument';
 import MyOfficialDocuments from './components/MyOfficialDocuments';
 import MyAdministrativeApplications from './components/MyAdministrativeApplications';
@@ -3424,7 +3424,7 @@ const App: React.FC = () => {
       case 'Démarches administratives':
         return <AdministrativeServicesPage currentUser={currentUser} />;
       case 'Dossiers administratifs':
-        return <MinistryAdministrativeBackoffice currentUser={currentUser} />;
+        return <MinistryAdministrativeBackoffice currentUser={currentUser} />;\n      case 'Signataires habilités':\n        return <AuthorizedSignersPage currentUser={currentUser} />;
       case 'Vérifier un document':
         return <VerifyAdministrativeDocument />;
       case 'Mes documents officiels':
