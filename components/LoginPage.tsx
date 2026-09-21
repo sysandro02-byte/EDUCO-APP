@@ -872,6 +872,16 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
               Créez votre compte parent
             </button>
           </p>
+          <p>
+            Vous représentez un ministère ?{' '}
+            <button
+              type="button"
+              onClick={() => { window.location.href = '/?institutional-access=1'; }}
+              className="font-bold text-[#1F4A59] dark:text-sky-400 hover:underline cursor-pointer"
+            >
+              Demander un accès institutionnel
+            </button>
+          </p>
         </div>
       </div>
 
