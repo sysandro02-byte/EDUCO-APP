@@ -1067,7 +1067,7 @@ async function startServer() {
   });
 
   // User and School Management
-  app.post('/api/auth/register-school', async (req: AuthRequest, res) => {
+  app.post('/api/auth/register-school', rateLimit('school-registration', 5, 30 * 60 * 1000), async (req: AuthRequest, res) => {
     try {
       const { 
         schoolName, 
@@ -1083,21 +1083,33 @@ async function startServer() {
         statutesDoc,
         adminPassword,
         password,
-        uid
+        otpCode
       } = req.body;
-      const firebaseUser = req.user;
 
-      const resolvedEmail = promoterEmail || firebaseUser?.email || `promoter@example.com`;
+      const resolvedEmail = normalizeEmail(promoterEmail);
       const rawAdminPassword = adminPassword || password;
+      if (!resolvedEmail || !schoolName || !schoolAddress || !promoterName) {
+        return res.status(400).json({ error: 'Établissement, responsable et adresse e-mail valides sont requis.' });
+      }
+      const passwordError = getNewPasswordError(rawAdminPassword);
+      if (passwordError) return res.status(400).json({ error: passwordError });
+      const otpVerification = otpManager.verifyOtp(resolvedEmail, String(otpCode || ''), 'school_registration' as any);
+      if (!otpVerification.valid) {
+        return res.status(400).json({ error: otpVerification.error || 'Code OTP invalide ou expiré.' });
+      }
+
       const supabaseAdmin = getSupabaseAdmin(req);
-      let resolvedUid = uid || firebaseUser?.uid || null;
+      if (!supabaseAdmin || getSupabaseServerKeyRole(req) !== 'service_role') {
+        return res.status(503).json({ error: 'Service sécurisé de création d’établissement indisponible.' });
+      }
+      let resolvedUid: string | null = null;
 
       // A registration retry must reuse the existing dossier instead of creating
       // a second school with a new identifier.  Previously a retry could leave
       // two rows for the same promoter, while the account pointed at only one
       // of them; this is why the identifier shown in the subscription modal
       // could differ from the identifier shown in the admin directory.
-      if (supabaseAdmin && resolvedEmail && resolvedEmail !== 'promoter@example.com') {
+      if (supabaseAdmin && resolvedEmail) {
         const normalizedEmail = resolvedEmail.trim().toLowerCase();
         const normalizedSchoolName = String(schoolName || '').trim().toLocaleLowerCase();
         const [{ data: account }, { data: schoolsByEmail }, { data: schoolsByPromoterEmail }] = await Promise.all([
@@ -1153,20 +1165,12 @@ async function startServer() {
             schoolIdentifier
         };
         const keyRole = getSupabaseServerKeyRole(req);
-        const authResult = keyRole === 'service_role'
-          ? await supabaseAdmin.auth.admin.createUser({
-              email: resolvedEmail,
-              password: rawAdminPassword,
-              email_confirm: true,
-              user_metadata: authMetadata
-            })
-          : await supabaseAdmin.auth.signUp({
-              email: resolvedEmail,
-              password: rawAdminPassword,
-              options: {
-                data: authMetadata
-              }
-            });
+        const authResult = await supabaseAdmin.auth.admin.createUser({
+          email: resolvedEmail,
+          password: rawAdminPassword,
+          email_confirm: true,
+          user_metadata: authMetadata
+        });
 
         const authData = authResult.data;
         const authError = authResult.error;
@@ -1231,11 +1235,11 @@ async function startServer() {
         identifier: schoolIdentifier,
         address: schoolAddress,
         phone: schoolPhone || null,
-        email: promoterEmail || firebaseUser?.email || null,
+        email: resolvedEmail,
         creationDate: creationDate || null,
-        promoterName: promoterName || firebaseUser?.name || 'Promoteur',
+        promoterName: promoterName || 'Promoteur',
         promoterContact: promoterContact || schoolPhone || null,
-        promoterEmail: promoterEmail || firebaseUser?.email || null,
+        promoterEmail: resolvedEmail,
         levels: levels || {},
         openingAuthorizationDoc: openingAuthorizationDoc || (req.body.hasOpeningDoc ? 'Autorisation_Ouverture_Ministère.pdf' : null),
         promoterIdDoc: promoterIdDoc || (req.body.hasPromoterDoc ? 'Piece_Identite_Promoteur.pdf' : null),
@@ -1305,7 +1309,7 @@ async function startServer() {
         adminUser = await getOrCreateUser(
           resolvedUid,
           resolvedEmail,
-          promoterName || firebaseUser?.name || 'Promoteur',
+          promoterName || 'Promoteur',
           'Promoteur',
           newSchool.id
         );
@@ -1491,9 +1495,9 @@ async function startServer() {
   });
 
   // Public Parent Account Registration using School Matricule
-  app.post('/api/auth/register-parent', async (req, res) => {
+  app.post('/api/auth/register-parent', rateLimit('parent-registration', 8, 30 * 60 * 1000), async (req, res) => {
     try {
-      const { schoolMatricule, studentMatricule, parentName, parentEmail, parentPhone, password, studentName } = req.body;
+      const { schoolMatricule, studentMatricule, parentName, parentEmail, parentPhone, password, studentName, otpCode } = req.body;
 
       const normalizedParentPhone = normalizePhoneIdentity(parentPhone);
       if (!schoolMatricule || !parentName || !parentEmail || normalizedParentPhone.length < 7) {
@@ -1503,9 +1507,13 @@ async function startServer() {
       if (parentPasswordError) {
         return res.status(400).json({ error: parentPasswordError });
       }
+      const normalizedParentEmail = normalizeEmail(parentEmail);
+      const otpVerification = otpManager.verifyOtp(normalizedParentEmail, String(otpCode || ''), 'general' as any);
+      if (!otpVerification.valid) {
+        return res.status(400).json({ error: otpVerification.error || 'Code OTP invalide ou expiré.' });
+      }
 
       const formattedMatricule = schoolMatricule.trim().toUpperCase();
-      const normalizedParentEmail = String(parentEmail).trim().toLowerCase();
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin?.auth?.admin) {
         return res.status(503).json({ error: 'Service sécurisé de création de compte indisponible.' });
