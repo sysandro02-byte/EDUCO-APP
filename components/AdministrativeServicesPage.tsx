@@ -14,8 +14,10 @@ type RequiredDocument={
  allowed_mime_types?:string[];max_size_bytes?:number;sort_order:number;
 };
 type Service={
- code:string;ministry:string;name:string;audience?:string;legal_status:string;legal_reference?:string;
- fee_amount?:number;fee_currency?:string;fee_status:string;payment_enabled:boolean;output_document?:string;
+ code:string;ministry:string;name:string;audience?:string;legal_status:string;legal_reference?:string;legal_source_url?:string;
+ competent_direction?:string;competent_service?:string;
+ fee_amount?:number;fee_currency?:string;fee_status:string;fee_reference?:string;fee_source_url?:string;
+ payment_enabled:boolean;processing_days?:number;processing_days_status?:string;output_document?:string;
  publication_status:string;requirements_status:string;request_enabled:boolean;form_version:number;
  form_fields:FormField[];required_documents:RequiredDocument[];
 };
@@ -155,7 +157,11 @@ export default function AdministrativeServicesPage({currentUser}:{currentUser?:a
      <p><b>Demandeur :</b> {selected.audience||'—'}</p>
      <p><b>Document final :</b> {selected.output_document||'—'}</p>
      <p><b>Tarif :</b> {feeLabel(selected)}</p>
+     {selected.fee_reference&&<p><b>Référence tarifaire :</b> {selected.fee_reference}</p>}
      <p><b>Référence :</b> {selected.legal_reference||'À valider'}</p>
+     {selected.legal_source_url&&<p><b>Source juridique :</b> <a href={selected.legal_source_url} target="_blank" rel="noreferrer" className="underline text-sky-700">consulter la source officielle</a></p>}
+     {selected.fee_source_url&&<p><b>Source tarifaire :</b> <a href={selected.fee_source_url} target="_blank" rel="noreferrer" className="underline text-sky-700">consulter la source officielle</a></p>}
+     <p><b>Délai :</b> {selected.processing_days_status==='VERIFIED'&&selected.processing_days!=null?(selected.processing_days+' jour(s) — vérifié'):'À confirmer'}</p>
      <p><b>Publication :</b> {selected.publication_status} · <b>Exigences :</b> {selected.requirements_status}</p>
     </div>
 
