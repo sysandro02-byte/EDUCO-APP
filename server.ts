@@ -6651,7 +6651,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/parent-receipts/send', async (req, res) => {
+  app.post('/api/parent-receipts/send', requireAuth, rateLimit('parent-receipt-send', 30, 10 * 60 * 1000), async (req: AuthRequest, res) => {
     const normalizeWhatsAppPhone = (phone?: string) => {
       const digits = String(phone || '').replace(/\D/g, '');
       if (!digits) return '';
@@ -6760,33 +6760,75 @@ async function startServer() {
     };
 
     try {
-      const {
-        recipient,
-        message,
-        subject,
-        schoolName,
-        filename = `recu-parent-${Date.now()}.pdf`,
-        pdfBase64,
-      } = req.body || {};
+      const actor = await getRequestUser(req);
+      const role = canonicalizeRole(actor?.role);
+      const allowedRoles = new Set(['Promoteur','Directeur Général','Responsable des finances','Caissière']);
+      if (!actor?.schoolId || !allowedRoles.has(role)) {
+        return res.status(403).json({ success: false, error: 'Envoi de reçu non autorisé pour ce compte.' });
+      }
 
-      const parentPhone = recipient?.phone || recipient?.parentPhone || '';
-      const parentEmail = recipient?.email || recipient?.parentEmail || '';
-      const parentName = recipient?.name || recipient?.parentName || 'Parent/Tuteur';
+      const client = getSupabaseAdmin(req);
+      if (!client) return res.status(503).json({ success: false, error: 'Service de données indisponible.' });
+
+      const recipient = req.body?.recipient || {};
+      const requestedEmail = normalizeEmail(recipient.email || recipient.parentEmail);
+      const requestedPhone = normalizePhoneIdentity(recipient.phone || recipient.parentPhone);
+      if (!requestedEmail && !requestedPhone) {
+        return res.status(400).json({ success: false, error: 'Parent destinataire requis.' });
+      }
+
+      const { data: school, error: schoolError } = await client
+        .from('schools').select('id,name').eq('id', Number(actor.schoolId)).maybeSingle();
+      if (schoolError) throw schoolError;
+      if (!school) return res.status(404).json({ success: false, error: 'Établissement introuvable.' });
+
+      const { data: studentsRows, error: studentsError } = await client
+        .from('students')
+        .select('id,name,parent_name,parent_email,parent_phone')
+        .eq('school_id', Number(actor.schoolId))
+        .limit(1000);
+      if (studentsError) throw studentsError;
+
+      const linkedStudent = (studentsRows || []).find((student: any) => {
+        const emailMatch = requestedEmail && normalizeEmail(student.parent_email) === requestedEmail;
+        const phoneMatch = requestedPhone && normalizePhoneIdentity(student.parent_phone) === requestedPhone;
+        return Boolean(emailMatch || phoneMatch);
+      });
+      if (!linkedStudent) {
+        return res.status(403).json({ success: false, error: 'Ce destinataire n’est pas rattaché à un élève de votre établissement.' });
+      }
+
+      const message = String(req.body?.message || '').trim();
+      const subject = String(req.body?.subject || '').trim();
+      const pdfBase64 = req.body?.pdfBase64 ? String(req.body.pdfBase64) : '';
+      const filename = String(req.body?.filename || ('recu-parent-' + Date.now() + '.pdf'))
+        .replace(/[^A-Za-z0-9._-]/g, '_')
+        .slice(0, 120);
+      if (!message || message.length > 5000) {
+        return res.status(400).json({ success: false, error: 'Message de reçu invalide.' });
+      }
+      if (pdfBase64 && pdfBase64.length > 12 * 1024 * 1024) {
+        return res.status(413).json({ success: false, error: 'Reçu PDF trop volumineux.' });
+      }
+
+      const parentPhone = String(linkedStudent.parent_phone || '');
+      const parentEmail = normalizeEmail(linkedStudent.parent_email);
+      const parentName = String(linkedStudent.parent_name || 'Parent/Tuteur');
 
       const whatsappResult = parentPhone
-        ? await sendWhatsAppDocument({ to: parentPhone, message, filename, pdfBase64 })
-        : { success: false, channel: 'whatsapp', error: 'Aucun numéro WhatsApp parent fourni.' };
+        ? await sendWhatsAppDocument({ to: parentPhone, message, filename, pdfBase64: pdfBase64 || undefined })
+        : { success: false, channel: 'whatsapp', error: 'Aucun numéro WhatsApp parent enregistré.' };
 
       let emailResult: any = null;
       if (!whatsappResult.success && parentEmail) {
         emailResult = await sendBrevoEmail({
           to: [{ email: parentEmail, name: parentName }],
-          subject: subject || `Reçu de paiement - ${schoolName || 'EDUCO'}`,
+          subject: subject || `Reçu de paiement - ${school.name || 'EDUCO'}`,
           htmlContent: `
             <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
               <h2 style="color:#1F4A59">Reçu de paiement</h2>
-              <p>Bonjour <strong>${parentName}</strong>,</p>
-              <p>${String(message || '').replace(/\n/g, '<br>')}</p>
+              <p>Bonjour <strong>${escapeHtml(parentName)}</strong>,</p>
+              <p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>
               <p>Le reçu PDF est joint à ce message.</p>
             </div>
           `,
@@ -6796,16 +6838,16 @@ async function startServer() {
       }
 
       return res.json({
-        success: whatsappResult.success || !!emailResult?.success,
+        success: whatsappResult.success || Boolean(emailResult?.success),
         whatsapp: whatsappResult,
         email: emailResult,
-        fallbackUsed: !whatsappResult.success && !!emailResult?.success,
+        fallbackUsed: !whatsappResult.success && Boolean(emailResult?.success),
       });
     } catch (error: any) {
       console.error('Parent receipt delivery error:', error);
       return res.status(500).json({
         success: false,
-        error: error?.message || 'Erreur lors de l’envoi du reçu parent.',
+        error: 'Erreur lors de l’envoi du reçu parent.',
       });
     }
   });
