@@ -62,6 +62,7 @@ import {
   normalizeEmail,
   normalizeRole,
 } from './src/services/userAccountWorkflow.ts';
+import { getNewPasswordError } from './src/services/passwordPolicy.ts';
 import { buildStudentPaymentLedger } from './src/services/cashierWorkflow.ts';
 import { registerAdministrativePaymentRoutes, registerLoukaPayWebhook } from './server/administrativePayments.ts';
 
@@ -1702,6 +1703,10 @@ async function startServer() {
       if (!schoolMatricule || !parentName || !parentEmail || normalizedParentPhone.length < 7) {
         return res.status(400).json({ error: 'Le N° Matricule d\'établissement, le nom, l\'adresse e-mail et un numéro de téléphone valide sont obligatoires.' });
       }
+      const parentPasswordError = getNewPasswordError(password);
+      if (parentPasswordError) {
+        return res.status(400).json({ error: parentPasswordError });
+      }
 
       const formattedMatricule = schoolMatricule.trim().toUpperCase();
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -1781,7 +1786,7 @@ async function startServer() {
           try {
             const { data: authUser, error: createError } = await adminClient.auth.admin.createUser({
               email: parentEmail,
-              password: password || 'Parent123!',
+              password,
               email_confirm: true,
               user_metadata: {
                 name: parentName,
@@ -2485,7 +2490,7 @@ async function startServer() {
       if ((targetUser.role === 'Admin' || targetUser.role === 'Co-admin') && actor?.role !== 'Admin') {
         return res.status(403).json({ error: 'Seul l’Admin peut réinitialiser un compte de l’administration centrale.' });
       }
-      const tempPass = `Educo${Math.floor(1000 + Math.random() * 9000)}!`;
+      const tempPass = `Educo!7${crypto.randomBytes(16).toString('base64url')}`;
 
       if (supabaseAdmin && targetUser?.uid) {
         try {
@@ -6354,8 +6359,9 @@ async function startServer() {
         return res.status(400).json({ error: 'Le nom, l\'adresse email et le mot de passe sont obligatoires.' });
       }
 
-      if (password.length < 6) {
-        return res.status(400).json({ error: 'Le mot de passe doit comporter au moins 6 caractères.' });
+      const passwordError = getNewPasswordError(password);
+      if (passwordError) {
+        return res.status(400).json({ error: passwordError });
       }
 
       const cleanEmail = email.toLowerCase().trim();
@@ -6467,9 +6473,11 @@ async function startServer() {
         return res.status(403).json({ error: 'Seul le compte Admin unique peut créer un Co-admin.' });
       }
       const { name, email, phone, password } = req.body;
-      if (!name || !email || !password || String(password).length < 6) {
-        return res.status(400).json({ error: 'Nom, e-mail et mot de passe (6 caractères minimum) requis.' });
+      if (!name || !email || !password) {
+        return res.status(400).json({ error: 'Nom, e-mail et mot de passe requis.' });
       }
+      const passwordError = getNewPasswordError(password);
+      if (passwordError) return res.status(400).json({ error: passwordError });
       const cleanEmail = String(email).toLowerCase().trim();
       const adminClient = getSupabaseAdmin(req);
       if (!adminClient) return res.status(503).json({ error: 'Supabase Admin est requis.' });
@@ -6724,8 +6732,9 @@ async function startServer() {
         return res.status(400).json({ error: "Email, code OTP et nouveau mot de passe requis." });
       }
 
-      if (newPassword.length < 6) {
-        return res.status(400).json({ error: "Le mot de passe doit contenir au moins 6 caractères." });
+      const passwordError = getNewPasswordError(newPassword);
+      if (passwordError) {
+        return res.status(400).json({ error: passwordError });
       }
 
       const cleanEmail = String(email).toLowerCase().trim();
