@@ -18,6 +18,7 @@ const nativePaymentServer = fs.readFileSync(new URL('../server/administrativePay
 const nativePaymentMigration = fs.readFileSync(new URL('../supabase/migrations/20260921_loukapay_native_integration.sql', import.meta.url), 'utf8');
 const officialCatalog = fs.readFileSync(new URL('../supabase/migrations/20260921_official_catalog_rollout.sql', import.meta.url), 'utf8');
 const signerScopes = fs.readFileSync(new URL('../supabase/migrations/20260921_signer_scope_and_rollout_readiness.sql', import.meta.url), 'utf8');
+const paymentTransitions = fs.readFileSync(new URL('../supabase/migrations/20260921_payment_final_transition_hardening.sql', import.meta.url), 'utf8');
 
 test('government public RPCs are invoker wrappers over private capability checks', () => {
   for (const fn of [
@@ -118,4 +119,12 @@ test('official signers require a live assignment matching the competent service 
   assert.match(signerScopes, /competent_direction/);
   assert.match(signerScopes, /signer_authorization_current_secure/);
   assert.match(signerScopes, /government_rollout_readiness/);
+});
+
+
+test('confirmed payments cannot be downgraded by contradictory provider callbacks', () => {
+  assert.match(paymentTransitions, /current_user<>'service_role'/);
+  assert.match(paymentTransitions, /t\.status='PAID' and normalized_status<>'REFUNDED'/);
+  assert.match(paymentTransitions, /Montant ou devise du fournisseur non conforme/);
+  assert.match(paymentTransitions, /t\.status in \('FAILED','CANCELLED','REFUNDED'\)/);
 });
