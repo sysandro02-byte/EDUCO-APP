@@ -532,14 +532,14 @@ const CommunicationTab: React.FC<{
     };
 
     const handleSaveLocalSettings = () => {
-        onSaveSettings(localSettings);
+        onSaveSettings({ ...localSettings, brevoApiKey: '' });
         alert('Paramètres de communication sauvegardés avec succès !');
     };
 
     const handleCheckSender = async () => {
         setSenderCheck({ loading: true, checked: false, configuredEmail: localSettings.emailFrom || 'contacts@loukatech.com', isVerified: false });
         try {
-            const res = await brevoEmailService.getSenders(localSettings.brevoApiKey);
+            const res = await brevoEmailService.getSenders();
             setSenderCheck({
                 loading: false,
                 checked: true,
@@ -569,7 +569,6 @@ const CommunicationTab: React.FC<{
         setTestStatus({ loading: true });
         try {
             const res = await brevoEmailService.testBrevoConnection({
-                apiKey: localSettings.brevoApiKey,
                 senderEmail: localSettings.emailFrom || 'contacts@loukatech.com',
                 senderName: localSettings.emailFromName || 'EDUCO',
                 toEmail: testEmail.trim(),
@@ -608,16 +607,9 @@ const CommunicationTab: React.FC<{
                     <MessageIcon /> <span className="ml-2">Intégration API de Messagerie (E-mail & SMS)</span>
                 </h3>
                 <div className="space-y-4">
-                    <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-1">Clé API Service de Messagerie</label>
-                        <input 
-                            type="password" 
-                            value={localSettings.brevoApiKey || ''} 
-                            onChange={(e) => setLocalSettings({...localSettings, brevoApiKey: e.target.value})} 
-                            className="w-full input-style font-mono"
-                            placeholder="xkeysib-..."
-                        />
-                        <p className="text-xs text-slate-500 mt-1">Fournie par votre service d'envoi d'e-mails transactionnels. Utilisée pour l'envoi direct de vos e-mails.</p>
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                        <div className="text-sm font-black text-emerald-900">Clé API gérée côté serveur</div>
+                        <p className="text-xs text-emerald-800 mt-1">Les secrets Brevo ne sont plus saisis ni stockés dans le navigateur ou les paramètres d’établissement. Ils doivent être configurés uniquement dans l’environnement sécurisé du serveur.</p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
