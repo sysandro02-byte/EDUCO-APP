@@ -47,3 +47,35 @@ test('client creation and government setup use the same policy', () => {
   assert.match(userForm, /generateStrongPassword\(18\)/);
   assert.match(userForm, /getNewPasswordError\(formData\.password/);
 });
+
+
+test('legacy login compatibility never caches plaintext credentials or bypasses WebAuthn', () => {
+  assert.doesNotMatch(server, /registeredAccountsStore/);
+  assert.doesNotMatch(server, /entry\.password\s*===\s*password/);
+  const start = server.indexOf("app.post('/api/users/login'");
+  assert.ok(start >= 0, 'compatibility login route must exist');
+  const route = server.slice(start, start + 5000);
+  assert.match(route, /auth\.signInWithPassword/);
+  assert.match(route, /isBiometric/);
+  assert.match(route, /WebAuthn dédiée/);
+  assert.match(route, /createLocalSessionToken\(user\)/);
+});
+
+test('parent registration is backend-authoritative and rolls back Auth on profile failure', () => {
+  const start = server.indexOf("app.post('/api/auth/register-parent'");
+  const end = server.indexOf('// Public Endpoint to Verify School Matricule', start);
+  assert.ok(start >= 0 && end > start);
+  const route = server.slice(start, end);
+  assert.doesNotMatch(route, /req\.body\.uid/);
+  assert.match(route, /auth\.admin\.createUser/);
+  assert.match(route, /auth\.admin\.deleteUser\(uid\)/);
+  assert.match(route, /existingParentEmail/);
+  assert.match(route, /existingParentPhone/);
+
+  const clientStart = loginPage.indexOf('const handleVerifyParentOtpAndSubmit');
+  const clientEnd = loginPage.indexOf('const handleForgotPasswordSubmit', clientStart);
+  const clientFlow = loginPage.slice(clientStart, clientEnd);
+  assert.doesNotMatch(clientFlow, /auth\.signUp/);
+  assert.doesNotMatch(clientFlow, /uid:\s*userUid/);
+  assert.match(clientFlow, /\/api\/auth\/register-parent/);
+});
