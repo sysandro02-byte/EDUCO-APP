@@ -24,6 +24,7 @@ const variantFeeWorkflow = fs.readFileSync(new URL('../supabase/migrations/20260
 const catalogVariantValidation = fs.readFileSync(new URL('../supabase/migrations/20260921_catalog_variant_fee_double_validation.sql', import.meta.url), 'utf8');
 const editableFeeVariants = fs.readFileSync(new URL('../supabase/migrations/20260921_catalog_fee_variants_double_validation.sql', import.meta.url), 'utf8');
 const mesProgramRequirements = fs.readFileSync(new URL('../supabase/migrations/20260921_mes_program_opening_verified_requirements.sql', import.meta.url), 'utf8');
+const serviceRoleAcl = fs.readFileSync(new URL('../supabase/migrations/20260921_service_role_function_acl_correction.sql', import.meta.url), 'utf8');
 const administrativeServicesPage = fs.readFileSync(new URL('../components/AdministrativeServicesPage.tsx', import.meta.url), 'utf8');
 const catalogValidationPage = fs.readFileSync(new URL('../components/CatalogValidationPage.tsx', import.meta.url), 'utf8');
 const catalogValidationClient = fs.readFileSync(new URL('../src/services/catalogValidation.ts', import.meta.url), 'utf8');
@@ -70,10 +71,13 @@ test('published paid services require source-backed legal and tariff verificatio
 });
 
 test('payment confirmation is service-role only and exact amount/currency are enforced', () => {
-  assert.match(payments, /auth\.role\(\)<>'service_role'/);
-  assert.match(payments, /revoke all on function public\.confirm_administrative_payment_provider[\s\S]*authenticated/i);
-  assert.match(payments, /p_amount is distinct from t\.amount/);
-  assert.match(payments, /upper\(trim\(p_currency\)\)<>upper\(t\.currency\)/);
+  assert.match(serviceRoleAcl, /revoke all on function public\.confirm_administrative_payment_provider[\s\S]*authenticated/i);
+  assert.match(serviceRoleAcl, /grant execute on function public\.confirm_administrative_payment_provider[\s\S]*to service_role/i);
+  assert.match(serviceRoleAcl, /revoke all on function private\.confirm_administrative_payment_provider_secure[\s\S]*authenticated/i);
+  assert.match(serviceRoleAcl, /grant execute on function private\.confirm_administrative_payment_provider_secure[\s\S]*to service_role/i);
+  assert.match(serviceRoleAcl, /p_amount is distinct from t\.amount/);
+  assert.match(serviceRoleAcl, /upper\(trim\(p_currency\)\)<>upper\(t\.currency\)/);
+  assert.doesNotMatch(serviceRoleAcl, /current_user<>'service_role'/);
   assert.match(paymentClient, /\/api\/administrative-payments\/\$\{encodeURIComponent\(applicationId\)\}\/initiate/);
   assert.doesNotMatch(paymentClient, /functions\.invoke\('initiate-administrative-payment'/);
 });
@@ -131,10 +135,9 @@ test('official signers require a live assignment matching the competent service 
 
 
 test('confirmed payments cannot be downgraded by contradictory provider callbacks', () => {
-  assert.match(paymentTransitions, /current_user<>'service_role'/);
-  assert.match(paymentTransitions, /t\.status='PAID' and normalized_status<>'REFUNDED'/);
-  assert.match(paymentTransitions, /Montant ou devise du fournisseur non conforme/);
-  assert.match(paymentTransitions, /t\.status in \('FAILED','CANCELLED','REFUNDED'\)/);
+  assert.match(serviceRoleAcl, /t\.status='PAID' and normalized_status<>'REFUNDED'/);
+  assert.match(serviceRoleAcl, /Montant ou devise du fournisseur non conforme/);
+  assert.match(serviceRoleAcl, /t\.status in \('FAILED','CANCELLED','REFUNDED'\)/);
 });
 
 
