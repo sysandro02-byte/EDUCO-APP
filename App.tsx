@@ -462,7 +462,7 @@ const App: React.FC = () => {
       });
 
     return () => { cancelled = true; };
-  }, [currentUser?.uid, currentUser?.role]);
+  }, [(currentUser as any)?.uid, currentUser?.role]);
 
   const [telemetry, setTelemetry] = useState<{
     ipAddress: string;
