@@ -1709,7 +1709,11 @@ async function startServer() {
       }
 
       const formattedMatricule = schoolMatricule.trim().toUpperCase();
+      const normalizedParentEmail = String(parentEmail).trim().toLowerCase();
       const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin?.auth?.admin) {
+        return res.status(503).json({ error: 'Service sécurisé de création de compte indisponible.' });
+      }
       let schoolObj: any = null;
       try {
         const matchingSchools = await db.select().from(schools).where(eq(schools.identifier, formattedMatricule));
@@ -1779,39 +1783,52 @@ async function startServer() {
         }
       }
 
-      let resolvedUid = req.body.uid;
-      if (!resolvedUid) {
-        const adminClient = supabaseAdmin || getSupabaseAdmin(req);
-        if (adminClient && parentEmail) {
-          try {
-            const { data: authUser, error: createError } = await adminClient.auth.admin.createUser({
-              email: parentEmail,
-              password,
-              email_confirm: true,
-              user_metadata: {
-                name: parentName,
-                role: 'Parent',
-                schoolId: schoolObj.id,
-              }
-            });
-            if (authUser?.user?.id) {
-              resolvedUid = authUser.user.id;
-            } else if (createError) {
-              console.warn("Supabase Admin parent createUser notice:", createError.message);
-            }
-          } catch (e: any) {
-            console.warn("Could not create parent in Supabase Admin:", e.message);
-          }
-        }
+      const { data: existingParentEmail, error: existingParentEmailError } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .eq('email', normalizedParentEmail)
+        .limit(1)
+        .maybeSingle();
+      if (existingParentEmailError) throw existingParentEmailError;
+      if (existingParentEmail?.id) {
+        return res.status(409).json({ error: 'Cette adresse e-mail est déjà associée à un compte.' });
       }
 
-      const uid = resolvedUid || `parent_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      const { data: existingParentPhone, error: existingParentPhoneError } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .eq('phone_normalized', normalizedParentPhone)
+        .limit(1)
+        .maybeSingle();
+      if (existingParentPhoneError) throw existingParentPhoneError;
+      if (existingParentPhone?.id) {
+        return res.status(409).json({ error: 'Ce numéro de téléphone est déjà associé à un compte.' });
+      }
 
+      const { data: authUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+        email: normalizedParentEmail,
+        password,
+        email_confirm: true,
+        user_metadata: {
+          name: parentName,
+          role: 'Parent',
+          schoolId: schoolObj.id,
+        }
+      });
+      if (createError || !authUser?.user?.id) {
+        const message = String(createError?.message || '');
+        if (/already|registered|exists|duplicate/i.test(message)) {
+          return res.status(409).json({ error: 'Cette adresse e-mail est déjà associée à un compte.' });
+        }
+        throw createError || new Error('Impossible de créer l’identité de connexion du parent.');
+      }
+
+      const uid = authUser.user.id;
       const parentValues = {
         uid,
         schoolId: schoolObj.id,
         name: parentName,
-        email: parentEmail,
+        email: normalizedParentEmail,
         phone: normalizedParentPhone,
         role: 'Parent',
         status: 'active',
@@ -1819,28 +1836,30 @@ async function startServer() {
 
       let newParent: any;
       try {
-        [newParent] = await db.insert(users).values(parentValues).returning();
-      } catch (dbParentErr) {
-        if (!supabaseAdmin) throw dbParentErr;
-        console.warn('Postgres parent insert failed, falling back to Supabase REST:', dbParentErr);
-        const { data: sbParent, error: sbParentError } = await supabaseAdmin
-          .from('users')
-          .insert([{
-            uid,
-            school_id: schoolObj.id,
-            name: parentName,
-            email: parentEmail,
-            phone: normalizedParentPhone,
-            role: 'Parent',
-            status: 'active',
-          }])
-          .select('*')
-          .single();
+        try {
+          [newParent] = await db.insert(users).values(parentValues).returning();
+        } catch (dbParentErr) {
+          console.warn('Postgres parent insert failed, falling back to Supabase REST:', dbParentErr);
+          const { data: sbParent, error: sbParentError } = await supabaseAdmin
+            .from('users')
+            .insert([{
+              uid,
+              school_id: schoolObj.id,
+              name: parentName,
+              email: normalizedParentEmail,
+              phone: normalizedParentPhone,
+              role: 'Parent',
+              status: 'active',
+            }])
+            .select('*')
+            .single();
 
-        if (sbParentError || !sbParent) {
-          throw sbParentError || dbParentErr;
+          if (sbParentError || !sbParent) throw sbParentError || dbParentErr;
+          newParent = mapSupabaseUser(sbParent);
         }
-        newParent = mapSupabaseUser(sbParent);
+      } catch (profileError) {
+        await supabaseAdmin.auth.admin.deleteUser(uid).catch(() => undefined);
+        throw profileError;
       }
 
       if (supabaseAdmin && studentMatricule) {
@@ -1850,7 +1869,7 @@ async function startServer() {
             .update({
               parent_name: parentName,
               parent_phone: parentPhone || '',
-              parent_email: parentEmail
+              parent_email: normalizedParentEmail
             })
             .eq('school_id', schoolObj.id)
             .eq('student_id', studentMatricule.trim());
