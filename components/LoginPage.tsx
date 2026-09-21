@@ -239,25 +239,12 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
 
     setIsSubmittingParent(true);
     try {
-      // 1. Verify OTP with backend
-      const verifyRes = await brevoEmailService.verifyOtp({
-        email: parentForm.parentEmail,
-        otpCode: parentOtpCode.trim(),
-        purpose: 'general'
-      });
-
-      if (!verifyRes.success) {
-        setParentRegError(verifyRes.error || 'Code OTP invalide ou expiré.');
-        setIsSubmittingParent(false);
-        return;
-      }
-
-      // 2. Complete registration through the authoritative backend.
-      // The browser never chooses or creates the Auth uid.
+      // Complete registration through the authoritative backend.
+      // OTP verification and Auth identity creation happen atomically on the server.
       const res = await fetch(getApiUrl('/api/auth/register-parent'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(parentForm)
+        body: JSON.stringify({ ...parentForm, otpCode: parentOtpCode.trim() })
       });
       const data = await res.json();
 
