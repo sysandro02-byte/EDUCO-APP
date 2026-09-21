@@ -12,6 +12,7 @@ import { compressBase64Image } from '../utils/imageCompressor';
 import UserAvatar from './UserAvatar';
 import { BiometricDevicesSettingsCard } from './auth/BiometricDevicesSettingsCard';
 import { getApiUrl } from '../src/lib/apiConfig';
+import { getNewPasswordError, NEW_PASSWORD_MIN_LENGTH } from '../src/services/passwordPolicy';
 
 type SchoolSettings = typeof initialSchoolSettings;
 type MessageTemplate = typeof initialMessageTemplates[0];
@@ -2132,8 +2133,9 @@ const PasswordChangeCard: React.FC<{ email: string }> = ({ email }) => {
             setFeedback({ text: 'Saisissez le code OTP à 6 chiffres reçu par e-mail.', error: true });
             return;
         }
-        if (newPassword.length < 6) {
-            setFeedback({ text: 'Le nouveau mot de passe doit comporter au moins 6 caractères.', error: true });
+        const passwordError = getNewPasswordError(newPassword);
+        if (passwordError) {
+            setFeedback({ text: passwordError, error: true });
             return;
         }
         if (newPassword !== confirmation) {
@@ -2179,8 +2181,8 @@ const PasswordChangeCard: React.FC<{ email: string }> = ({ email }) => {
             ) : (
                 <form onSubmit={changePassword} className="space-y-3">
                     <input value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" placeholder="Code OTP à 6 chiffres" className="input-style font-mono tracking-widest" required />
-                    <input value={newPassword} onChange={(e) => setNewPassword(e.target.value)} type="password" autoComplete="new-password" placeholder="Nouveau mot de passe" className="input-style" required minLength={6} />
-                    <input value={confirmation} onChange={(e) => setConfirmation(e.target.value)} type="password" autoComplete="new-password" placeholder="Confirmer le nouveau mot de passe" className="input-style" required minLength={6} />
+                    <input value={newPassword} onChange={(e) => setNewPassword(e.target.value)} type="password" autoComplete="new-password" placeholder="Nouveau mot de passe" className="input-style" required minLength={NEW_PASSWORD_MIN_LENGTH} />
+                    <input value={confirmation} onChange={(e) => setConfirmation(e.target.value)} type="password" autoComplete="new-password" placeholder="Confirmer le nouveau mot de passe" className="input-style" required minLength={NEW_PASSWORD_MIN_LENGTH} />
                     <div className="flex gap-3">
                         <button type="submit" disabled={busy} className="btn-primary disabled:opacity-50">{busy ? 'Validation...' : 'Modifier le mot de passe'}</button>
                         <button type="button" onClick={() => { setStep('request'); setFeedback(null); }} className="btn-secondary">Annuler</button>
