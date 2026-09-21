@@ -894,9 +894,10 @@ export async function submitSurveyResponse(surveyId: number, data: {
   comment?: string;
 }) {
   try {
+    const headers = await getAuthHeaders();
     const res = await fetch(getApiUrl(`/api/surveys/${surveyId}/respond`), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(data),
     });
     return await res.json();
