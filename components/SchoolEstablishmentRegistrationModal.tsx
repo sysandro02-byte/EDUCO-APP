@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { AlertCircle, Building2, CheckCircle2, KeyRound, Loader2, ShieldCheck, Upload, X } from 'lucide-react';
 import { brevoEmailService } from '../src/services/brevoEmailService';
 import { getApiUrl } from '../src/lib/apiConfig';
+import { getNewPasswordError, NEW_PASSWORD_MIN_LENGTH } from '../src/services/passwordPolicy';
 
 type Ownership = 'PUBLIC' | 'PRIVATE';
 
@@ -64,7 +65,8 @@ const SchoolEstablishmentRegistrationModal: React.FC<{ onClose: () => void }> = 
     if (!files.openingAuthorization) return setError("L’autorisation ministérielle d’ouverture est obligatoire.");
     if (!files.promoterId) return setError("La pièce du responsable légal / promoteur est obligatoire.");
     if (!values.promoterName.trim() || !values.adminEmail.trim()) return setError('Renseignez le responsable et son adresse e-mail.');
-    if (values.adminPassword.length < 6) return setError('Le mot de passe doit contenir au moins 6 caractères.');
+    const passwordError = getNewPasswordError(values.adminPassword);
+    if (passwordError) return setError(passwordError);
 
     setBusy(true);
     try {
@@ -88,9 +90,6 @@ const SchoolEstablishmentRegistrationModal: React.FC<{ onClose: () => void }> = 
     if (!/^\d{6}$/.test(otp)) return setError('Saisissez le code OTP à 6 chiffres.');
     setBusy(true);
     try {
-      const verified = await brevoEmailService.verifyOtp({ email: values.adminEmail.trim(), otpCode: otp, purpose: 'school_registration' });
-      if (!verified.success) throw new Error(verified.error || 'Code OTP invalide ou expiré.');
-
       const response = await fetch(getApiUrl('/api/auth/register-school'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -103,6 +102,7 @@ const SchoolEstablishmentRegistrationModal: React.FC<{ onClose: () => void }> = 
           promoterContact: values.promoterContact.trim(),
           promoterEmail: values.adminEmail.trim().toLowerCase(),
           adminPassword: values.adminPassword,
+          otpCode: otp,
           levels: { ...levels, __ownershipType: ownership },
           openingAuthorizationDoc: files.openingAuthorization?.name || null,
           promoterIdDoc: files.promoterId?.name || null,
@@ -164,7 +164,7 @@ const SchoolEstablishmentRegistrationModal: React.FC<{ onClose: () => void }> = 
               ['openingAuthorization', 'Autorisation d’ouverture *'], ['promoterId', 'Pièce responsable *'], ['statutes', 'Statuts / acte (optionnel)'],
             ] as const).map(([key, label]) => <label key={key} className="rounded-xl border border-dashed border-slate-300 bg-white p-4"><span className="flex items-center gap-2 text-xs font-black text-slate-700"><Upload className="h-4 w-4" />{label}</span><input type="file" className="mt-3 block w-full text-xs" onChange={(e) => setFiles(current => ({ ...current, [key]: e.target.files?.[0] || null }))} /></label>)}</div>
 
-            <div className="mt-6 grid gap-4 md:grid-cols-2"><label><span className="mb-1 block text-xs font-black text-slate-600">Responsable / promoteur *</span><input className={inputClass} value={values.promoterName} onChange={(e) => setValues(v => ({ ...v, promoterName: e.target.value }))} /></label><label><span className="mb-1 block text-xs font-black text-slate-600">Téléphone responsable</span><input type="tel" className={inputClass} value={values.promoterContact} onChange={(e) => setValues(v => ({ ...v, promoterContact: e.target.value }))} /></label><label><span className="mb-1 block text-xs font-black text-slate-600">E-mail de connexion *</span><input type="email" className={inputClass} value={values.adminEmail} onChange={(e) => setValues(v => ({ ...v, adminEmail: e.target.value }))} /></label><label><span className="mb-1 block text-xs font-black text-slate-600">Mot de passe initial *</span><input type="password" minLength={6} className={inputClass} value={values.adminPassword} onChange={(e) => setValues(v => ({ ...v, adminPassword: e.target.value }))} /></label></div>
+            <div className="mt-6 grid gap-4 md:grid-cols-2"><label><span className="mb-1 block text-xs font-black text-slate-600">Responsable / promoteur *</span><input className={inputClass} value={values.promoterName} onChange={(e) => setValues(v => ({ ...v, promoterName: e.target.value }))} /></label><label><span className="mb-1 block text-xs font-black text-slate-600">Téléphone responsable</span><input type="tel" className={inputClass} value={values.promoterContact} onChange={(e) => setValues(v => ({ ...v, promoterContact: e.target.value }))} /></label><label><span className="mb-1 block text-xs font-black text-slate-600">E-mail de connexion *</span><input type="email" className={inputClass} value={values.adminEmail} onChange={(e) => setValues(v => ({ ...v, adminEmail: e.target.value }))} /></label><label><span className="mb-1 block text-xs font-black text-slate-600">Mot de passe initial *</span><input type="password" minLength={NEW_PASSWORD_MIN_LENGTH} className={inputClass} value={values.adminPassword} onChange={(e) => setValues(v => ({ ...v, adminPassword: e.target.value }))} /></label></div>
 
             <div className="mt-7 flex justify-end gap-3 border-t border-slate-200 pt-5"><button type="button" onClick={onClose} className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-black">Annuler</button><button type="submit" disabled={busy} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-black text-white disabled:opacity-60">{busy && <Loader2 className="h-4 w-4 animate-spin" />}{busy ? 'Envoi du code…' : 'Vérifier l’e-mail & continuer'}</button></div>
           </form>
