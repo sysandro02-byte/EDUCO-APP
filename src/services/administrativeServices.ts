@@ -57,3 +57,11 @@ export async function resubmitAdministrativeApplication(id:string){
  const {data,error}=await supabase.rpc('resubmit_administrative_application',{p_id:id});
  if(error) throw error; return data;
 }
+
+
+export async function listAdministrativeServiceFeeVariants(serviceCode:string){
+ const supabase=getSupabaseClient(); if(!supabase) throw new Error('Supabase indisponible');
+ const {data,error}=await supabase.rpc('list_administrative_service_fee_variants',{p_service_code:serviceCode});
+ if(error) throw error;
+ return data||[];
+}

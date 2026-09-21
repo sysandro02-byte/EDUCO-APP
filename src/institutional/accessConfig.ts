@@ -275,6 +275,13 @@ export const MINISTRIES: MinistryConfig[] = [
         workflows: ['Planifier une inspection', 'Saisir un rapport', 'Suivre une recommandation', 'Contrôler la conformité'],
       },
       {
+        code: 'ETABLISSEMENTS_PRIVES',
+        label: 'Direction des établissements privés',
+        description: 'Création, ouverture, agrément, fonctionnement, modification et suivi des établissements privés de l’enseignement technique et professionnel.',
+        modules: ['Demandes de création', 'Demandes d’ouverture', 'Agréments', 'Modifications', 'Contrôle', 'Établissements privés', 'Pièces justificatives', 'Commission d’agrément', 'Décisions', 'Statistiques'],
+        workflows: ['Recevoir un dossier', 'Contrôler les pièces', 'Préparer la commission d’agrément', 'Notifier une décision'],
+      },
+      {
         code: 'EQUIPEMENT_PATRIMOINE',
         label: 'Équipement & Patrimoine',
         description: 'Ateliers, machines, laboratoires, inventaire, maintenance, bâtiments et acquisitions.',

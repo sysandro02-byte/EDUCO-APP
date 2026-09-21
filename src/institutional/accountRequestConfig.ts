@@ -277,6 +277,13 @@ const ministryEntityFields: Record<MinistryCode, Record<string, InstitutionalAcc
       ]),
       field('inspectionZone', 'Zone / département d’inspection', 'select', CONGO_DEPARTMENTS, false),
     ],
+    ETABLISSEMENTS_PRIVES: [
+      field('responsibilityArea', 'Responsabilité établissements privés', 'select', [
+        'Réception des demandes', 'Création / ouverture', 'Agréments', 'Modification / extension',
+        'Contrôle de fonctionnement', 'Commission d’agrément', 'Décisions', 'Statistiques / suivi',
+      ]),
+      field('institutionScope', 'Établissement(s) ou zone suivie', 'text', undefined, false, 'Établissement privé, département ou zone'),
+    ],
     EQUIPEMENT_PATRIMOINE: [
       field('responsibilityArea', 'Domaine équipement & patrimoine', 'select', [
         'Ateliers', 'Machines', 'Laboratoires', 'Inventaire', 'Maintenance', 'Pièces détachées', 'Bâtiments', 'Achats', 'Réhabilitations',

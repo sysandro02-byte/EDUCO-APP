@@ -123,3 +123,11 @@ export async function getMyGovernmentAssignments(){
   if(error) throw error;
   return data||[];
 }
+
+
+export async function getGovernmentRolloutReadiness(ministry?:string|null){
+  const s=getSupabaseClient(); if(!s) throw new Error('Supabase indisponible');
+  const {data,error}=await s.rpc('government_rollout_readiness',{p_ministry:ministry||null});
+  if(error) throw error;
+  return data||null;
+}

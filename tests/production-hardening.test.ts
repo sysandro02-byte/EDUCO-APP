@@ -14,6 +14,10 @@ const officialDocument = fs.readFileSync(new URL('../supabase/functions/generate
 const accountProvision = fs.readFileSync(new URL('../supabase/functions/provision-government-account/index.ts', import.meta.url), 'utf8');
 const sessionGuard = fs.readFileSync(new URL('../src/services/sessionExpiryGuard.ts', import.meta.url), 'utf8');
 const appEntry = fs.readFileSync(new URL('../index.tsx', import.meta.url), 'utf8');
+const nativePaymentServer = fs.readFileSync(new URL('../server/administrativePayments.ts', import.meta.url), 'utf8');
+const nativePaymentMigration = fs.readFileSync(new URL('../supabase/migrations/20260921_loukapay_native_integration.sql', import.meta.url), 'utf8');
+const officialCatalog = fs.readFileSync(new URL('../supabase/migrations/20260921_official_catalog_rollout.sql', import.meta.url), 'utf8');
+const signerScopes = fs.readFileSync(new URL('../supabase/migrations/20260921_signer_scope_and_rollout_readiness.sql', import.meta.url), 'utf8');
 
 test('government public RPCs are invoker wrappers over private capability checks', () => {
   for (const fn of [
@@ -61,17 +65,21 @@ test('payment confirmation is service-role only and exact amount/currency are en
   assert.match(payments, /revoke all on function public\.confirm_administrative_payment_provider[\s\S]*authenticated/i);
   assert.match(payments, /p_amount is distinct from t\.amount/);
   assert.match(payments, /upper\(trim\(p_currency\)\)<>upper\(t\.currency\)/);
-  assert.match(paymentClient, /functions\.invoke\('initiate-administrative-payment'/);
+  assert.match(paymentClient, /\/api\/administrative-payments\/\$\{encodeURIComponent\(applicationId\)\}\/initiate/);
+  assert.doesNotMatch(paymentClient, /functions\.invoke\('initiate-administrative-payment'/);
 });
 
-test('payment gateway stays server-side and provider callbacks require HMAC', () => {
-  assert.match(paymentInit, /ADMIN_PAYMENT_GATEWAY_URL/);
-  assert.match(paymentInit, /ADMIN_PAYMENT_GATEWAY_TOKEN/);
-  assert.match(paymentInit, /x-educo-idempotency-key/);
-  assert.match(paymentWebhook, /ADMIN_PAYMENT_WEBHOOK_SECRET/);
-  assert.match(paymentWebhook, /HMAC/);
-  assert.match(paymentWebhook, /x-educo-signature/);
-  assert.match(paymentWebhook, /confirm_administrative_payment_provider/);
+test('native LoukaPay gateway stays server-side and callbacks require signed raw bytes', () => {
+  assert.match(nativePaymentServer, /LOUKAPAY_EDUCO_API_KEY/);
+  assert.match(nativePaymentServer, /LOUKAPAY_EDUCO_WEBHOOK_SECRET/);
+  assert.match(nativePaymentServer, /x-loukapay-signature/);
+  assert.match(nativePaymentServer, /createHmac\('sha256'/);
+  assert.match(nativePaymentServer, /express\.raw/);
+  assert.match(nativePaymentServer, /create_administrative_payment_intent_server/);
+  assert.match(nativePaymentServer, /confirm_administrative_payment_provider/);
+  assert.match(nativePaymentMigration, /administrative_payment_webhook_events/);
+  assert.match(nativePaymentMigration, /grant execute on function public\.create_administrative_payment_intent_server[\s\S]*service_role/i);
+  assert.doesNotMatch(paymentClient, /LOUKAPAY_EDUCO_API_KEY|LOUKAPAY_EDUCO_WEBHOOK_SECRET|lp_sk_live_|whsec_/);
 });
 
 test('official document generation closes failed reservations and keeps a lifecycle audit', () => {
@@ -92,4 +100,22 @@ test('installed PWA restores a session only after server-side identity verificat
   assert.match(sessionGuard, /sessionStorage\.setItem\('EDUCO_SESSION_ACTIVE', 'true'\)/);
   assert.match(appEntry, /await restorePersistentSession\(\)/);
   assert.doesNotMatch(appEntry, /restoreInstalledPwaSessionMarker/);
+});
+
+
+test('official rollout keeps historical MEPSA fees non-chargeable and routes METP to its official directorate', () => {
+  assert.match(officialCatalog, /ETABLISSEMENTS_PRIVES/);
+  assert.match(officialCatalog, /Arrêté n°25564 du 17 octobre 2022/);
+  assert.match(officialCatalog, /Arrêté n°8409 du 22 octobre 2010/);
+  assert.match(officialCatalog, /\('MEPSA-CRE','URBAN_PRESCHOOL'[\s\S]*?100000,'XAF','HISTORICAL'/);
+  assert.match(officialCatalog, /'MEPSA-OUV',variant_code,label,attributes,amount,currency,fee_status/);
+  assert.match(officialCatalog, /false,'Autorisation de création','LEGAL_REVIEW','TO_VERIFY'/);
+});
+
+test('official signers require a live assignment matching the competent service direction', () => {
+  assert.match(signerScopes, /resolve_signer_assignment_secure/);
+  assert.match(signerScopes, /documents\.issue/);
+  assert.match(signerScopes, /competent_direction/);
+  assert.match(signerScopes, /signer_authorization_current_secure/);
+  assert.match(signerScopes, /government_rollout_readiness/);
 });
