@@ -1,3 +1,6 @@
+import { getApiUrl } from '../lib/apiConfig';
+import { getSecureAuthHeaders } from './authHeaders';
+
 let installed = false;
 let handlingExpiry = false;
 
@@ -38,6 +41,34 @@ const clearExpiredSession = () => {
     window.setTimeout(() => window.location.reload(), 0);
   }
 };
+
+/**
+ * Rebuild the transient PWA session marker only after the backend verifies a
+ * real persistent credential. Cached profile data alone is never trusted.
+ */
+export async function restorePersistentSession(): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  if (sessionStorage.getItem('EDUCO_SESSION_ACTIVE') === 'true') return true;
+
+  const headers = await getSecureAuthHeaders();
+  if (!headers.Authorization) return false;
+
+  try {
+    const response = await fetch(getApiUrl('/api/auth/me'), { headers });
+    if (!response.ok) return false;
+    const data = await response.json().catch(() => null);
+    if (!data?.user) return false;
+
+    localStorage.setItem('EDUCO_CURRENT_USER', JSON.stringify(data.user));
+    sessionStorage.setItem('EDUCO_SESSION_ACTIVE', 'true');
+    sessionStorage.setItem('otpVerified', 'true');
+    sessionStorage.removeItem('EDUCO_SESSION_EXPIRED');
+    return true;
+  } catch {
+    // Offline startup must stay locked instead of trusting stale cached identity.
+    return false;
+  }
+}
 
 /**
  * Ensures an installed PWA cannot remain in a fake "connected" state after the
