@@ -178,7 +178,7 @@ export default function AdministrativeServicesPage({currentUser}:{currentUser?:a
         <div><div className="text-sm font-bold">{variant.label}</div><div className="text-[11px] text-slate-500">{variant.legal_reference||'Référence historique'}</div></div>
         <div className="text-right"><div className="font-black">{Number(variant.amount).toLocaleString('fr-FR')} {variant.currency||'XAF'}</div><div className="text-[10px] font-black text-amber-700">{variant.fee_status==='HISTORICAL'?'ARCHIVE — NON PAYABLE':variant.fee_status}</div></div>
       </div>)}</div>
-    </div>
+    </div>}
 
     {!selected.request_enabled&&<div className="mt-4 p-3 rounded-xl bg-amber-50 text-amber-900 text-sm flex gap-2"><AlertTriangle className="w-5 h-5 shrink-0"/><span>Cette démarche peut être préparée en brouillon, mais EDUCO bloque sa soumission officielle tant que la base juridique, la publication et les exigences ne sont pas validées par l’autorité compétente.</span></div>}
 
