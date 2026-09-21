@@ -1697,7 +1697,7 @@ async function startServer() {
   });
 
   // Public Endpoint to Verify School Matricule
-  app.get('/api/auth/verify-school-matricule/:matricule', async (req, res) => {
+  app.get('/api/auth/verify-school-matricule/:matricule', rateLimit('school-matricule-verify', 20, 15 * 60 * 1000), async (req, res) => {
     try {
       const matricule = req.params.matricule.trim().toUpperCase();
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -1739,7 +1739,7 @@ async function startServer() {
       }
 
       if (schoolObj) {
-        res.json({ valid: true, school: { id: schoolObj.id, name: schoolObj.name, identifier: schoolObj.identifier, address: schoolObj.address, phone: schoolObj.phone } });
+        res.json({ valid: true, school: { id: schoolObj.id, name: schoolObj.name, identifier: schoolObj.identifier } });
       } else {
         res.json({ valid: false, error: 'Matricule d\'établissement introuvable.' });
       }
@@ -6217,7 +6217,6 @@ async function startServer() {
       }
 
       const otpCode = otpManager.generateOtp(email, purpose || 'general', { name });
-      console.log(`[OTP] /api/email/send-otp called for ${email}. purpose=${purpose || 'general'} brevoKey=${process.env.BREVO_API_KEY ? 'present' : 'missing'}`);
       
       const emailResult = await sendOtpEmail({
         email,
