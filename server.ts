@@ -1749,39 +1749,8 @@ async function startServer() {
   });
 
   // Find user by email (Public)
-  app.get('/api/auth/find-user', async (req, res) => {
-    try {
-      const email = req.query.email as string;
-      if (!email) {
-        return res.status(400).json({ error: 'Email requis.' });
-      }
-
-      const supabaseAdmin = getSupabaseAdmin(req);
-      if (supabaseAdmin) {
-        const { data: sbUser } = await supabaseAdmin
-          .from('users')
-          .select('*')
-          .eq('email', email.toLowerCase().trim())
-          .limit(1)
-          .maybeSingle();
-        return res.json({ user: mapSupabaseUser(sbUser) });
-      }
-      
-      if (!isDbConfigured()) {
-        return res.json({ user: null });
-      }
-
-      const allUsers = await db.select().from(users);
-      const matched = allUsers.find(u => u.email?.toLowerCase().trim() === email.toLowerCase().trim());
-      
-      if (matched) {
-        return res.json({ user: matched });
-      }
-      return res.json({ user: null });
-    } catch (error: any) {
-      console.error('Error finding user by email:', error);
-      res.status(500).json({ error: error.message });
-    }
+  app.get('/api/auth/find-user', rateLimit('find-user-retired', 10, 15 * 60 * 1000), (_req, res) => {
+    return res.status(410).json({ error: 'La recherche publique de comptes est désactivée.' });
   });
 
   app.get('/api/auth/me', requireAuth, async (req: AuthRequest, res) => {
@@ -5606,53 +5575,77 @@ async function startServer() {
     }
   });
 
-  app.post('/api/surveys/:id/respond', async (req, res) => {
+  app.post('/api/surveys/:id/respond', requireAuth, rateLimit('survey-response', 20, 60 * 60 * 1000), async (req: AuthRequest, res) => {
     try {
       const surveyId = Number(req.params.id);
-      const { parentName, parentPhone, parentEmail, studentName, studentClass, channel, answers, comment } = req.body;
-
-      if (!parentName) {
-        return res.status(400).json({ error: 'Le nom du parent est obligatoire.' });
+      if (!Number.isSafeInteger(surveyId) || surveyId <= 0) {
+        return res.status(400).json({ error: 'Sondage invalide.' });
+      }
+      const actor = await getRequestUser(req);
+      const client = getSupabaseAdmin(req);
+      if (!actor || !client || !actor.schoolId) {
+        return res.status(403).json({ error: 'Compte établissement requis pour répondre au sondage.' });
       }
 
-      const supabaseAdmin = getSupabaseAdmin(req);
-      let newResponse: any;
-      if (supabaseAdmin) {
-        const { data, error } = await supabaseAdmin.from('survey_responses').insert([{
-          survey_id: surveyId,
-          parent_name: parentName,
-          parent_phone: parentPhone || '',
-          parent_email: parentEmail || '',
-          student_name: studentName || '',
-          student_class: studentClass || '',
-          channel: channel || 'whatsapp',
-          answers: answers || {},
-          comment: comment || '',
-        }]).select('*').single();
-        if (error) throw error;
-        newResponse = mapSupabaseSurveyResponse(data);
-      } else {
-        [newResponse] = await db.insert(surveyResponses).values({
-          surveyId,
-          parentName,
-          parentPhone: parentPhone || '',
-          parentEmail: parentEmail || '',
-          studentName: studentName || '',
-          studentClass: studentClass || '',
-          channel: channel || 'whatsapp',
-          answers: answers || {},
-          comment: comment || '',
-        }).returning();
+      const { data: surveyRow, error: surveyError } = await client
+        .from('surveys').select('id,school_id,status').eq('id', surveyId).maybeSingle();
+      if (surveyError) throw surveyError;
+      if (!surveyRow) return res.status(404).json({ error: 'Sondage introuvable.' });
+      if (Number(surveyRow.school_id) !== Number(actor.schoolId)) {
+        return res.status(403).json({ error: 'Ce sondage appartient à un autre établissement.' });
+      }
+      if (String(surveyRow.status || '').toLowerCase() === 'closed') {
+        return res.status(409).json({ error: 'Ce sondage est clôturé.' });
       }
 
-      res.json({
+      const answers = req.body?.answers;
+      const comment = String(req.body?.comment || '').slice(0, 4000);
+      if (!answers || typeof answers !== 'object' || Array.isArray(answers)) {
+        return res.status(400).json({ error: 'Réponses de sondage invalides.' });
+      }
+
+      const role = canonicalizeRole(actor.role);
+      const isParent = /parent|tuteur/i.test(role);
+      const parentName = isParent ? String(actor.name || 'Parent/Tuteur') : String(actor.name || 'Utilisateur EDUCO');
+      const parentPhone = isParent ? String(actor.phone || actor.contact || '') : '';
+      const parentEmail = isParent ? normalizeEmail(actor.email) : '';
+      let studentName = '';
+      let studentClass = '';
+
+      if (isParent) {
+        const { data: linkedStudent, error: linkedStudentError } = await client
+          .from('students')
+          .select('name,class,student_id')
+          .eq('school_id', Number(actor.schoolId))
+          .or(`parent_email.eq.${parentEmail},parent_phone.eq.${parentPhone}`)
+          .limit(1)
+          .maybeSingle();
+        if (linkedStudentError) throw linkedStudentError;
+        studentName = String(linkedStudent?.name || '');
+        studentClass = String(linkedStudent?.class || '');
+      }
+
+      const { data, error } = await client.from('survey_responses').insert([{
+        survey_id: surveyId,
+        parent_name: parentName,
+        parent_phone: parentPhone,
+        parent_email: parentEmail,
+        student_name: studentName,
+        student_class: studentClass,
+        channel: 'educo',
+        answers,
+        comment,
+      }]).select('*').single();
+      if (error) throw error;
+
+      return res.json({
         success: true,
-        message: 'Votre participation au sondage a bien été enregistrée. Merci pour votre collaboration !',
-        response: newResponse,
+        message: 'Votre participation au sondage a bien été enregistrée.',
+        response: mapSupabaseSurveyResponse(data),
       });
     } catch (error: any) {
       console.error('Survey Response Error:', error);
-      res.status(500).json({ error: error.message });
+      return res.status(500).json({ error: 'Impossible d’enregistrer la réponse au sondage.' });
     }
   });
 
@@ -5923,50 +5916,59 @@ async function startServer() {
   });
 
   // Groq AI API Proxy
-  app.post('/api/ai/groq/report', async (req, res) => {
+  app.post('/api/ai/groq/report', requireAuth, rateLimit('ai-report-groq', 20, 10 * 60 * 1000), async (req: AuthRequest, res) => {
     try {
-      const { prompt } = req.body;
-      const apiKey = process.env.GROQ_API_KEY;
-      if (!apiKey) {
-        return res.status(500).json({ error: 'GROQ_API_KEY is missing' });
+      const actor = await getRequestUser(req);
+      if (!actor) return res.status(401).json({ error: 'Session requise.' });
+      if (/parent|élève|eleve/i.test(canonicalizeRole(actor.role))) {
+        return res.status(403).json({ error: 'Génération de rapport réservée au personnel autorisé.' });
       }
-      
+      const prompt = String(req.body?.prompt || '').trim();
+      if (!prompt || prompt.length > 12000) return res.status(400).json({ error: 'Prompt de rapport invalide.' });
+      const apiKey = process.env.GROQ_API_KEY;
+      if (!apiKey) return res.status(503).json({ error: 'Service IA non configuré.' });
+
       const groq = new Groq({ apiKey });
       const completion = await groq.chat.completions.create({
         messages: [{ role: 'user', content: prompt }],
         model: 'openai/gpt-oss-20b',
       });
-      
-      res.json({ text: completion.choices[0]?.message?.content || '' });
+      return res.json({ text: completion.choices[0]?.message?.content || '' });
     } catch (error: any) {
       console.error('Groq API Error:', error);
-      res.status(500).json({ error: error.message });
+      return res.status(502).json({ error: 'Service IA temporairement indisponible.' });
     }
   });
 
   // Gemini AI API Proxy
-  app.post('/api/ai/gemini/report', async (req, res) => {
+  // Gemini AI API Proxy
+  app.post('/api/ai/gemini/report', requireAuth, rateLimit('ai-report-gemini', 20, 10 * 60 * 1000), async (req: AuthRequest, res) => {
     try {
-      const { prompt } = req.body;
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.status(500).json({ error: 'GEMINI_API_KEY is missing' });
+      const actor = await getRequestUser(req);
+      if (!actor) return res.status(401).json({ error: 'Session requise.' });
+      if (/parent|élève|eleve/i.test(canonicalizeRole(actor.role))) {
+        return res.status(403).json({ error: 'Génération de rapport réservée au personnel autorisé.' });
       }
-      
+      const prompt = String(req.body?.prompt || '').trim();
+      if (!prompt || prompt.length > 12000) return res.status(400).json({ error: 'Prompt de rapport invalide.' });
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) return res.status(503).json({ error: 'Service IA non configuré.' });
+
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
       });
-      
-      res.json({ text: response.text });
+      return res.json({ text: response.text });
     } catch (error: any) {
       console.error('Gemini API Error:', error);
-      res.status(500).json({ error: error.message });
+      return res.status(502).json({ error: 'Service IA temporairement indisponible.' });
     }
   });
 
+
   // =========================================================================
+  // AUTHENTICATION  // =========================================================================
   // AUTHENTICATION (Admin, Promoteur, Personnel, Parents)
   // =========================================================================
   const adminRoles = new Set(['Admin', 'Co-admin']);
@@ -6039,9 +6041,19 @@ async function startServer() {
   // =========================================================================
   // ONE-TIME ADMIN BOOTSTRAP ENDPOINT. Co-admins are created later by this Admin.
   // =========================================================================
-  app.post('/api/auth/register-admin', async (req, res) => {
+  app.post('/api/auth/register-admin', rateLimit('admin-bootstrap', 5, 60 * 60 * 1000), async (req, res) => {
     try {
       const { name, email, phone, password, securityKey } = req.body;
+      const bootstrapSecret = String(process.env.ADMIN_BOOTSTRAP_SECRET || '');
+      const suppliedSecret = String(securityKey || '');
+      if (!bootstrapSecret || bootstrapSecret.length < 24) {
+        return res.status(503).json({ error: 'Bootstrap Admin désactivé : secret serveur sécurisé non configuré.' });
+      }
+      const expected = Buffer.from(bootstrapSecret);
+      const supplied = Buffer.from(suppliedSecret);
+      if (expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) {
+        return res.status(403).json({ error: 'Clé de bootstrap invalide.' });
+      }
       if (!name || !email || !password) {
         return res.status(400).json({ error: 'Le nom, l\'adresse email et le mot de passe sont obligatoires.' });
       }
@@ -6054,6 +6066,9 @@ async function startServer() {
       const cleanEmail = email.toLowerCase().trim();
 
       const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin || getSupabaseServerKeyRole(req) !== 'service_role') {
+        return res.status(503).json({ error: 'Supabase service_role requis pour le bootstrap Admin.' });
+      }
       let existingAdmins: any[] = [];
       if (supabaseAdmin) {
         const { data, error } = await supabaseAdmin.from('users').select('id,email,uid,role,created_at').eq('role', 'Admin').order('created_at', { ascending: true });
