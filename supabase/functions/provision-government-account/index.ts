@@ -44,7 +44,7 @@ Deno.serve(async(req)=>{
  const ministry=normalize(body.ministry);
  const governmentRole=normalize(body.government_role);
  const direction=normalize(body.direction)||null;
- const officialTitle=String(body.officialTitle||"").trim()||null;
+ const officialTitle=String(body.official_title||"").trim()||null;
 
  if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({error:"Nom ou adresse e-mail invalide"},400);
  if(!ministries.includes(ministry as any)||!roles[ministry]?.includes(governmentRole)) return json({error:"Rôle ministériel invalide"},400);
