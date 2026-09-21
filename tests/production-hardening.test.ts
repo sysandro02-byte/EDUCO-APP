@@ -30,6 +30,7 @@ const catalogValidationPage = fs.readFileSync(new URL('../components/CatalogVali
 const catalogValidationClient = fs.readFileSync(new URL('../src/services/catalogValidation.ts', import.meta.url), 'utf8');
 const paymentReceipts = fs.readFileSync(new URL('../supabase/migrations/20260921210015_administrative_payment_receipts.sql', import.meta.url), 'utf8');
 const paymentReceiptAcl = fs.readFileSync(new URL('../supabase/migrations/20260921210027_administrative_payment_receipt_acl_correction.sql', import.meta.url), 'utf8');
+const paymentReceiptPublicAcl = fs.readFileSync(new URL('../supabase/migrations/20260921210154_administrative_payment_receipt_public_verification_acl.sql', import.meta.url), 'utf8');
 const myAdministrativeApplications = fs.readFileSync(new URL('../components/MyAdministrativeApplications.tsx', import.meta.url), 'utf8');
 
 test('government public RPCs are invoker wrappers over private capability checks', () => {
@@ -199,6 +200,7 @@ test('confirmed administrative payments receive a server-backed receipt without 
   assert.doesNotMatch(paymentReceipts, /applicant_name|applicant_email/);
   assert.match(paymentReceiptAcl, /grant execute on function private\.attach_administrative_fiscal_receipt_secure[\s\S]*to service_role/i);
   assert.match(paymentReceiptAcl, /grant execute on function public\.attach_administrative_fiscal_receipt[\s\S]*to service_role/i);
+  assert.match(paymentReceiptPublicAcl, /grant execute on function private\.verify_administrative_payment_receipt_secure\(uuid\)[\s\S]*to anon, authenticated/i);
   assert.match(paymentClient, /list_my_administrative_payment_receipts/);
   assert.match(myAdministrativeApplications, /ne remplace pas une quittance fiscale ou du Trésor/i);
 });
