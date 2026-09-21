@@ -1,6 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {ClipboardList,RefreshCw,Clock3,CheckCircle2,AlertCircle,UploadCloud,Send} from 'lucide-react';
 import {listMyAdministrativeApplications,resubmitAdministrativeApplication,uploadAdministrativeFile} from '../src/services/administrativeServices';
+import {initiateAdministrativePayment,listAdministrativePaymentProviders} from '../src/services/administrativePayments';
 
 const labels:any={
  DRAFT:'Brouillon',SUBMITTED:'Soumise',UNDER_REVIEW:'En instruction',
@@ -13,14 +14,45 @@ export default function MyAdministrativeApplications(){
  const [busy,setBusy]=useState(false);
  const [msg,setMsg]=useState('');
  const [files,setFiles]=useState<Record<string,File|null>>({});
+ const [paymentProviders,setPaymentProviders]=useState<any[]>([]);
+ const [selectedProvider,setSelectedProvider]=useState<Record<string,string>>({});
 
  const load=async()=>{
   setBusy(true);
-  try{setRows(await listMyAdministrativeApplications());setMsg('')}
+  try{
+   const [applications,providers]=await Promise.all([
+    listMyAdministrativeApplications(),
+    listAdministrativePaymentProviders().catch(()=>[])
+   ]);
+   setRows(applications);
+   setPaymentProviders(providers);
+   setSelectedProvider(prev=>{
+    const next={...prev};
+    for(const row of applications){
+     if(row.status==='PAYMENT_DUE'&&!next[row.id]&&providers[0]?.code)next[row.id]=providers[0].code;
+    }
+    return next;
+   });
+   setMsg('');
+  }
   catch(e:any){setMsg(e?.message||'Chargement impossible')}
   finally{setBusy(false)}
  };
  useEffect(()=>{void load()},[]);
+
+ const startPayment=async(row:any)=>{
+  const providerCode=selectedProvider[row.id];
+  if(!providerCode){setMsg('Aucun canal officiel de paiement n’est disponible.');return}
+  setBusy(true);setMsg('');
+  try{
+   const result=await initiateAdministrativePayment(row.id,providerCode);
+   const checkoutUrl=String(result?.checkout_url||'');
+   if(!/^https:\/\//i.test(checkoutUrl))throw new Error('Lien de paiement invalide.');
+   window.location.assign(checkoutUrl);
+  }catch(error:any){
+   setMsg(error?.message||'Initialisation du paiement impossible.');
+  }finally{setBusy(false)}
+ };
 
  const sendComplement=async(row:any)=>{
   const file=files[row.id];
@@ -66,7 +98,17 @@ export default function MyAdministrativeApplications(){
      <button disabled={busy||!files[r.id]} onClick={()=>sendComplement(r)} className="mt-3 rounded-xl bg-[#1F4A59] text-white px-4 py-2.5 font-black flex items-center gap-2 disabled:opacity-50"><Send className="w-4"/>Envoyer le complément</button>
     </div>}
 
-    {r.status==='PAYMENT_DUE'&&<div className="mt-3 flex gap-2 items-center text-sm text-amber-800"><AlertCircle className="w-4"/><b>{Number(r.payment_amount||0).toLocaleString('fr-FR')} {r.payment_currency||'XAF'}</b> — paiement indisponible tant que le canal officiel n'est pas activé.</div>}
+    {r.status==='PAYMENT_DUE'&&<div className="mt-4 rounded-2xl border bg-amber-50 p-4">
+      <div className="flex gap-2 items-center text-sm text-amber-900"><AlertCircle className="w-4"/><b>{Number(r.payment_amount||0).toLocaleString('fr-FR')} {r.payment_currency||'XAF'}</b></div>
+      {paymentProviders.length===0
+       ?<p className="text-xs text-amber-800 mt-2">Paiement verrouillé : aucun canal officiel vérifié n’est actuellement configuré.</p>
+       :<div className="mt-3 flex flex-col sm:flex-row gap-2">
+         <select value={selectedProvider[r.id]||''} onChange={e=>setSelectedProvider(prev=>({...prev,[r.id]:e.target.value}))} className="flex-1 border rounded-xl px-3 py-2.5 bg-white">
+          {paymentProviders.map((p:any)=><option key={p.code} value={p.code}>{p.display_name} · {p.currency}</option>)}
+         </select>
+         <button disabled={busy||!selectedProvider[r.id]} onClick={()=>startPayment(r)} className="rounded-xl bg-[#1F4A59] text-white px-4 py-2.5 font-black disabled:opacity-50">Payer via le canal officiel</button>
+        </div>}
+     </div>}
     {r.status==='DOCUMENT_ISSUED'&&<div className="mt-3 flex gap-2 text-emerald-700 text-sm font-bold"><CheckCircle2 className="w-4"/>Document disponible dans « Mes documents officiels ».</div>}
    </div>)}
   </div>
