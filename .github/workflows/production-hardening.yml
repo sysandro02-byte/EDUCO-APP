@@ -1,0 +1,38 @@
+name: Production Hardening
+
+on:
+  pull_request:
+    paths:
+      - 'server/**'
+      - 'components/**'
+      - 'src/services/**'
+      - 'src/institutional/**'
+      - 'supabase/functions/**'
+      - 'supabase/migrations/20260921_*.sql'
+      - 'tests/production-hardening.test.ts'
+      - '.github/workflows/production-hardening.yml'
+      - 'package.json'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Production hardening tests
+        run: npm run test:production-hardening
+      - name: Institutional access tests
+        run: npx tsx --test tests/institutional-access.test.ts
+      - name: Student enrollment security tests
+        run: npx tsx --test tests/student-enrollment.test.ts
+      - name: Cashier integrity tests
+        run: npx tsx --test tests/payment-cashier-integrity.test.ts
+      - name: TypeScript check
+        run: npm run lint
+      - name: Production build
+        run: npm run build
