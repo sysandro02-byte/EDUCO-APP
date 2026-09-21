@@ -24,6 +24,7 @@ type Service={
 
 const feeLabel=(s:Service)=>{
  if(s.fee_status==='VERIFIED_CURRENT'&&s.fee_amount!=null)return `${Number(s.fee_amount).toLocaleString('fr-FR')} ${s.fee_currency||'XAF'} — tarif vérifié`;
+ if(s.fee_status==='VERIFIED_CURRENT'&&s.fee_amount==null)return 'Barème officiel vérifié — montant selon le cycle';
  if(s.fee_status==='FREE')return 'Gratuit';
  if(s.fee_status==='HISTORICAL')return 'Tarif historique — paiement bloqué';
  return 'Tarif à confirmer — paiement bloqué';
@@ -64,12 +65,23 @@ export default function AdministrativeServicesPage({currentUser}:{currentUser?:a
  const choose=(s:Service)=>{
   setSelected(s);setDraft(null);setFormData({});setUploaded({});setNotice('');setFeeVariants([]);
   void listAdministrativeServiceFeeVariants(s.code)
-   .then(setFeeVariants)
+   .then((variants:any[])=>{
+    setFeeVariants(variants);
+    const current=variants.filter(v=>v.fee_status==='VERIFIED_CURRENT');
+    if(current.length===1){
+      setFormData(prev=>({...prev,fee_variant_code:current[0].variant_code}));
+    }
+   })
    .catch(()=>setFeeVariants([]));
  };
 
  const start=async()=>{
   if(!selected)return;
+  const currentVariants=feeVariants.filter(v=>v.fee_status==='VERIFIED_CURRENT');
+  if(currentVariants.length>1&&!formData.fee_variant_code){
+   setNotice('Sélectionnez le cycle ou barème officiel applicable avant de créer le brouillon.');
+   return;
+  }
   setBusy(true);
   try{
    const d=await createAdministrativeApplication(selected,currentUser,formData);
@@ -171,12 +183,27 @@ export default function AdministrativeServicesPage({currentUser}:{currentUser?:a
      <p><b>Publication :</b> {selected.publication_status} · <b>Exigences :</b> {selected.requirements_status}</p>
     </div>
 
-    {feeVariants.length>0&&<div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+    {feeVariants.some((v:any)=>v.fee_status==='VERIFIED_CURRENT')&&<div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+      <div className="font-black text-emerald-900">Barème officiel vérifié</div>
+      <p className="text-xs text-emerald-800 mt-1">Le montant est déterminé côté serveur à partir du barème officiel sélectionné et sera figé dans le dossier lors de l’approbation.</p>
+      {feeVariants.filter((v:any)=>v.fee_status==='VERIFIED_CURRENT').length>1&&<label className="block mt-3 text-xs font-black text-emerald-900">Cycle / barème applicable
+        <select value={formData.fee_variant_code||''} onChange={e=>setFormData(prev=>({...prev,fee_variant_code:e.target.value}))} className="mt-1 w-full border border-emerald-200 rounded-xl px-3 py-2.5 bg-white">
+          <option value="">Sélectionner…</option>
+          {feeVariants.filter((v:any)=>v.fee_status==='VERIFIED_CURRENT').map((variant:any)=><option key={variant.variant_code} value={variant.variant_code}>{variant.label} · {Number(variant.amount).toLocaleString('fr-FR')} {variant.currency||'XAF'}</option>)}
+        </select>
+      </label>}
+      <div className="mt-3 space-y-2">{feeVariants.filter((v:any)=>v.fee_status==='VERIFIED_CURRENT').map((variant:any)=><div key={variant.variant_code} className="bg-white/80 border rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
+        <div><div className="text-sm font-bold">{variant.label}</div><div className="text-[11px] text-slate-500">{variant.legal_reference||'Référence officielle'}</div></div>
+        <div className="text-right"><div className="font-black">{Number(variant.amount).toLocaleString('fr-FR')} {variant.currency||'XAF'}</div><div className="text-[10px] font-black text-emerald-700">TARIF COURANT VÉRIFIÉ</div></div>
+      </div>)}</div>
+    </div>}
+
+    {feeVariants.some((v:any)=>v.fee_status==='HISTORICAL')&&<div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
       <div className="font-black text-amber-900">Barèmes archivés</div>
-      <p className="text-xs text-amber-800 mt-1">Ces montants proviennent de textes officiels historiques. Ils sont affichés pour traçabilité et ne peuvent pas déclencher un paiement tant qu’ils ne sont pas revalidés comme tarif courant.</p>
-      <div className="mt-3 space-y-2">{feeVariants.map((variant:any)=><div key={variant.variant_code} className="bg-white/80 border rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
+      <p className="text-xs text-amber-800 mt-1">Ces montants sont conservés pour traçabilité et ne peuvent jamais déclencher un paiement.</p>
+      <div className="mt-3 space-y-2">{feeVariants.filter((v:any)=>v.fee_status==='HISTORICAL').map((variant:any)=><div key={variant.variant_code} className="bg-white/80 border rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
         <div><div className="text-sm font-bold">{variant.label}</div><div className="text-[11px] text-slate-500">{variant.legal_reference||'Référence historique'}</div></div>
-        <div className="text-right"><div className="font-black">{Number(variant.amount).toLocaleString('fr-FR')} {variant.currency||'XAF'}</div><div className="text-[10px] font-black text-amber-700">{variant.fee_status==='HISTORICAL'?'ARCHIVE — NON PAYABLE':variant.fee_status}</div></div>
+        <div className="text-right"><div className="font-black">{Number(variant.amount).toLocaleString('fr-FR')} {variant.currency||'XAF'}</div><div className="text-[10px] font-black text-amber-700">ARCHIVE — NON PAYABLE</div></div>
       </div>)}</div>
     </div>}
 
