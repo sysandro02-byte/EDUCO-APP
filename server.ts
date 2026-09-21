@@ -6202,7 +6202,6 @@ async function startServer() {
         otpCode,
         purpose: purpose || 'school_registration',
         templateId: templateId || null,
-        customApiKey,
       });
 
       if (!emailResult.success) {
@@ -6306,11 +6305,16 @@ async function startServer() {
   });
 
   // 3. Send Welcome Email
-  app.post('/api/email/send-welcome', async (req, res) => {
+  app.post('/api/email/send-welcome', requireAuth, async (req: AuthRequest, res) => {
     try {
+      const actor = await getRequestUser(req);
+      const actorRole = canonicalizeRole(actor?.role);
+      if (!['Admin','Co-admin','Promoteur','Directeur Général','Directeur des Etudes'].includes(actorRole)) {
+        return res.status(403).json({ error: 'Envoi de bienvenue non autorisé pour ce compte.' });
+      }
       const { 
         email, name, role, schoolName, schoolIdentifier, 
-        tempPassword, loginUrl, templateId, customApiKey 
+        tempPassword, loginUrl, templateId
       } = req.body;
 
       if (!email || !schoolName || !schoolIdentifier) {
@@ -6342,7 +6346,7 @@ async function startServer() {
   });
 
   // 4. Send Password Reset OTP Email
-  app.post('/api/email/send-reset-password', async (req, res) => {
+  app.post('/api/email/send-reset-password', rateLimit('password-reset-email', 5, 15 * 60 * 1000), async (req, res) => {
     try {
       const { email, templateId, customApiKey, adminOnly } = req.body;
       if (!email || !email.includes('@')) {
@@ -6398,7 +6402,7 @@ async function startServer() {
   });
 
   // 5. Confirm Password Reset with OTP & Update
-  app.post('/api/email/confirm-reset-password', async (req, res) => {
+  app.post('/api/email/confirm-reset-password', rateLimit('password-reset-confirm', 10, 15 * 60 * 1000), async (req, res) => {
     try {
       const { email, otpCode, newPassword, resetChallenge } = req.body;
       if (!email || !otpCode || !newPassword) {
@@ -6453,10 +6457,11 @@ async function startServer() {
   });
 
   // 6. Get Transactional Email Audit Logs (Brevo API + Dispatched History)
-  app.get('/api/email/logs', async (req, res) => {
+  app.get('/api/email/logs', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const apiKey = (req.query.apiKey as string) || undefined;
-      const logsResult = await getBrevoEmailLogs(apiKey);
+      const platformAdmin = await requirePlatformAdmin(req, res);
+      if (!platformAdmin) return;
+      const logsResult = await getBrevoEmailLogs();
       res.json(logsResult);
     } catch (error: any) {
       console.error("Get Email Logs Error:", error);
@@ -6465,10 +6470,11 @@ async function startServer() {
   });
 
   // 7. Verify Sender Email Address Validation in Brevo Senders Dashboard
-  app.get('/api/email/senders', async (req, res) => {
+  app.get('/api/email/senders', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const apiKey = (req.query.apiKey as string) || undefined;
-      const sendersResult = await getBrevoSenders(apiKey);
+      const platformAdmin = await requirePlatformAdmin(req, res);
+      if (!platformAdmin) return;
+      const sendersResult = await getBrevoSenders();
       res.json(sendersResult);
     } catch (error: any) {
       console.error("Get Brevo Senders Error:", error);
@@ -6477,10 +6483,12 @@ async function startServer() {
   });
 
   // 8. Test Brevo API Connection & Send Test Transactional Email
-  app.post('/api/email/test-brevo', async (req, res) => {
+  app.post('/api/email/test-brevo', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const { apiKey, senderEmail, senderName, toEmail, templateId } = req.body || {};
-      const targetApiKey = apiKey || process.env.BREVO_API_KEY;
+      const platformAdmin = await requirePlatformAdmin(req, res);
+      if (!platformAdmin) return;
+      const { senderEmail, senderName, toEmail, templateId } = req.body || {};
+      const targetApiKey = process.env.BREVO_API_KEY;
       
       // Step A: Interrogate Brevo API (/v3/account) to verify key & connectivity
       const keyCheck = await checkBrevoApiKey(targetApiKey);
@@ -6567,15 +6575,16 @@ async function startServer() {
   });
 
   // 9. Bulk Broadcast Messaging via Configured Brevo Service (Email / SMS / WhatsApp)
-  app.post('/api/messaging/brevo-bulk', async (req, res) => {
+  app.post('/api/messaging/brevo-bulk', requireAuth, async (req: AuthRequest, res) => {
     try {
+      const platformAdmin = await requirePlatformAdmin(req, res);
+      if (!platformAdmin) return;
       const { 
         recipients, 
         channel = 'email', 
         subject, 
         message, 
         schoolName, 
-        apiKey, 
         senderName, 
         senderEmail 
       } = req.body || {};
@@ -6595,7 +6604,6 @@ async function startServer() {
       }
 
       const campaignResult = await sendBulkBrevoCampaign({
-        apiKey,
         channel,
         recipients,
         subject: subject || `Communication Administrative - ${schoolName || 'Établissement'}`,
