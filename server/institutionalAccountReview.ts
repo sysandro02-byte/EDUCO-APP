@@ -5,7 +5,7 @@ import { sendBrevoEmail } from './brevo.ts';
 const MINISTRY_ENTITIES: Record<string, Set<string>> = {
   MEPSA: new Set(['CABINET', 'DGEB', 'DGES', 'DCEG', 'DGRHAS', 'DGAENF', 'INSPECTION', 'DEP', 'DSIC', 'EXAMENS', 'AGREMENTS', 'DDEPSA']),
   MES: new Set(['CABINET', 'DGES', 'DGASOU', 'DEP', 'DIRCOOP', 'DSIC', 'DAEP', 'INSPECTION', 'ACADEMIES']),
-  METP: new Set(['CABINET', 'DGET', 'DGEP', 'DGA_RH', 'EXAMENS_CONCOURS', 'DSIC', 'INSPECTION', 'EQUIPEMENT_PATRIMOINE']),
+  METP: new Set(['CABINET', 'DGET', 'DGEP', 'DGA_RH', 'EXAMENS_CONCOURS', 'DSIC', 'INSPECTION', 'ETABLISSEMENTS_PRIVES', 'EQUIPEMENT_PATRIMOINE']),
 };
 
 const clean = (value: unknown, max = 2000) => String(value ?? '').trim().slice(0, max);
