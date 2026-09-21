@@ -6,44 +6,10 @@ import './index.css';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { Analytics } from '@vercel/analytics/react';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
-import { installSessionExpiryGuard } from './src/services/sessionExpiryGuard';
+import { installSessionExpiryGuard, restorePersistentSession } from './src/services/sessionExpiryGuard';
 
 installSessionExpiryGuard();
 
-// An installed PWA opens in a new browsing context, so sessionStorage is not
-// shared with the browser tab that performed the login. localStorage and the
-// Supabase auth storage are origin-scoped and are shared. Restore only the
-// transient "session active" marker when an authenticated credential exists;
-// App.tsx still performs the normal user/session restoration afterwards.
-const restoreInstalledPwaSessionMarker = () => {
-  if (sessionStorage.getItem('EDUCO_SESSION_ACTIVE') === 'true') return;
-
-  const hasEducoSessionToken = Boolean(localStorage.getItem('EDUCO_USER_TOKEN'));
-  let hasSupabaseSession = false;
-
-  try {
-    for (let i = 0; i < localStorage.length; i += 1) {
-      const key = localStorage.key(i);
-      if (!key || !key.startsWith('sb-') || !key.endsWith('-auth-token')) continue;
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      const stored = JSON.parse(raw);
-      const expiresAt = Number(stored?.expires_at || stored?.currentSession?.expires_at || 0);
-      if (!expiresAt || expiresAt * 1000 > Date.now()) {
-        hasSupabaseSession = true;
-        break;
-      }
-    }
-  } catch {
-    hasSupabaseSession = false;
-  }
-
-  if (hasEducoSessionToken || hasSupabaseSession) {
-    sessionStorage.setItem('EDUCO_SESSION_ACTIVE', 'true');
-  }
-};
-
-restoreInstalledPwaSessionMarker();
 
 class AppErrorBoundary extends React.Component<React.PropsWithChildren, { hasError: boolean }> {
   state = { hasError: false };
@@ -102,12 +68,20 @@ if (!rootElement) {
 }
 const root = ReactDOM.createRoot(rootElement);
 
-root.render(
-  <AppErrorBoundary>
-    <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || 'dummy-client-id'}>
-      <InstitutionalEntryApp />
-      <PwaInstallPrompt />
-      <Analytics />
-    </GoogleOAuthProvider>
-  </AppErrorBoundary>
-);
+const renderApp = async () => {
+  // Installed PWAs open with a fresh sessionStorage. A persistent credential
+  // must be verified by /api/auth/me before EDUCO restores the session marker.
+  await restorePersistentSession();
+
+  root.render(
+    <AppErrorBoundary>
+      <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || 'dummy-client-id'}>
+        <InstitutionalEntryApp />
+        <PwaInstallPrompt />
+        <Analytics />
+      </GoogleOAuthProvider>
+    </AppErrorBoundary>
+  );
+};
+
+void renderApp();
