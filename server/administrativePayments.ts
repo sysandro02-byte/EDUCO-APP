@@ -169,10 +169,14 @@ export function registerLoukaPayWebhook(app: Express, getSupabaseAdmin: (req?: a
         });
         return res.json({ received: true });
       } catch (error: any) {
-        await client.rpc('complete_administrative_payment_webhook', {
-          p_event_id: eventId,
-          p_error: String(error?.message || error).slice(0, 1000),
-        }).catch(() => undefined);
+        try {
+          await client.rpc('complete_administrative_payment_webhook', {
+            p_event_id: eventId,
+            p_error: String(error?.message || error).slice(0, 1000),
+          });
+        } catch {
+          // The original processing error remains authoritative.
+        }
         console.error('LoukaPay webhook processing failed:', error?.message || error);
         return res.status(409).json({ error: 'webhook_processing_failed' });
       }
