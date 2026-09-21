@@ -9,6 +9,7 @@ import { LoadingDots } from './LoadingDots';
 import { brevoEmailService } from '../src/services/brevoEmailService';
 import { getSupabaseClient, getStoredSupabaseConfig, isPlaceholderSupabaseUrl } from '../src/lib/supabase';
 import { getApiUrl } from '../src/lib/apiConfig';
+import { getNewPasswordError, NEW_PASSWORD_MIN_LENGTH } from '../src/services/passwordPolicy';
 
 interface LoginPageProps {
   onLogin: (email: string, password: string, isBiometric?: boolean) => Promise<{ success: boolean; error?: string }>;
@@ -199,8 +200,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
       setParentRegError('Veuillez renseigner un numéro de téléphone principal valide.');
       return;
     }
-    if (!parentForm.password || parentForm.password.length < 6) {
-      setParentRegError('Le mot de passe doit contenir au moins 6 caractères.');
+    const parentPasswordError = getNewPasswordError(parentForm.password);
+    if (parentPasswordError) {
+      setParentRegError(parentPasswordError);
       return;
     }
 
@@ -344,8 +346,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
     e.preventDefault();
     setResetMessage('');
     setError('');
-    if (newPassword.length < 6) {
-      setError('Le mot de passe doit contenir au moins 6 caractères.');
+    const resetPasswordError = getNewPasswordError(newPassword);
+    if (resetPasswordError) {
+      setError(resetPasswordError);
       return;
     }
     setResetLoading(true);
@@ -690,7 +693,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
-                  Nouveau Mot de passe (min. 6 car.)
+                  Nouveau Mot de passe (min. {NEW_PASSWORD_MIN_LENGTH} car.)
                 </label>
                 <div className="relative">
                   <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -699,7 +702,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
                   <input
                     type="password"
                     required
-                    minLength={6}
+                    minLength={NEW_PASSWORD_MIN_LENGTH}
                     className="w-full pl-10 pr-3 py-3 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-white rounded-xl placeholder-slate-400 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#1F4A59]"
                     placeholder="••••••••"
                     value={newPassword}
@@ -710,7 +713,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
 
               <button
                 type="submit"
-                disabled={resetLoading || resetOtpCode.length < 4 || newPassword.length < 6}
+                disabled={resetLoading || resetOtpCode.length < 4 || Boolean(getNewPasswordError(newPassword))}
                 className="w-full py-3.5 px-4 text-sm font-bold text-white bg-[#1F4A59] hover:bg-[#153440] rounded-xl transition-all shadow-md active:scale-98 cursor-pointer disabled:opacity-50"
               >
                 {resetLoading ? 'Réinitialisation...' : 'Changer mon mot de passe'}
