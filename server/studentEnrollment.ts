@@ -6,6 +6,7 @@ import {
   normalizeAccountStatus,
   normalizeEmail,
 } from '../src/services/userAccountWorkflow.ts';
+import { getNewPasswordError } from '../src/services/passwordPolicy.ts';
 import { registerGradeMutationGuard } from './gradeGuard.ts';
 
 const STUDENT_ROLE = 'Élève';
@@ -92,7 +93,8 @@ export function registerStudentEnrollment(app: Express, requireAuth: any, getUse
       const phone = cleanPhone(req.body?.phone || req.body?.contact);
       if (!name) return res.status(400).json({ error: 'Le nom complet de l’élève est obligatoire.' });
       if (!email) return res.status(400).json({ error: 'Une adresse e-mail de connexion valide est obligatoire.' });
-      if (password.length < 6) return res.status(400).json({ error: 'Le mot de passe initial doit contenir au moins 6 caractères.' });
+      const passwordError = getNewPasswordError(password);
+      if (passwordError) return res.status(400).json({ error: passwordError });
       if (phone.length < 7) return res.status(400).json({ error: 'Un numéro de téléphone principal valide est obligatoire.' });
 
       const { data: school, error: schoolError } = await client
