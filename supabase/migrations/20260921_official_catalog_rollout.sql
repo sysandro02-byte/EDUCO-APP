@@ -56,7 +56,7 @@ values
   'VERIFIED','Arrêté n°8409 du 22 octobre 2010 ; décret n°96-221 du 13 mai 1996 modifié ; décret n°2008-127 du 23 juin 2008',
   'https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
   null,'XAF','HISTORICAL','Arrêté n°8409 du 22 octobre 2010','https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
-  false,'Autorisation de création','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1,true),
+  false,'Autorisation de création','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1),
 
  ('MEPSA-OUV','MEPSA','AGREMENTS','AGREMENTS','Autorisation d’ouvrir un établissement privé d’enseignement général','Établissements privés',
   'VERIFIED','Arrêté n°8409 du 22 octobre 2010 ; décret n°96-221 du 13 mai 1996 modifié ; décret n°2008-127 du 23 juin 2008',
