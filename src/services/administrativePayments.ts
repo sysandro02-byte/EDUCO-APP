@@ -29,6 +29,22 @@ export async function listMyAdministrativePayments(){
  return data||[];
 }
 
+export async function listMyAdministrativePaymentReceipts(){
+ const s=getSupabaseClient();if(!s)throw new Error('Supabase indisponible');
+ const {data,error}=await s.rpc('list_my_administrative_payment_receipts');
+ if(error)throw error;
+ return data||[];
+}
+
+export async function verifyAdministrativePaymentReceipt(token:string){
+ const s=getSupabaseClient();if(!s)throw new Error('Supabase indisponible');
+ const normalized=String(token||'').trim();
+ if(!normalized)throw new Error('Jeton de vérification requis.');
+ const {data,error}=await s.rpc('verify_administrative_payment_receipt',{p_token:normalized});
+ if(error)throw error;
+ return Array.isArray(data)?(data[0]||null):data;
+}
+
 /**
  * LoukaPay is initiated only by the EDUCO backend. The browser carries the
  * authenticated EDUCO session but never receives the LoukaPay merchant key.
