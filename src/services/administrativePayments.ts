@@ -41,8 +41,15 @@ export async function listMyAdministrativePayments(){
  * checkout handshake remains server-side so no secret is ever shipped to the browser.
  */
 export async function initiateAdministrativePayment(applicationId:string,providerCode:string){
+ const s=getSupabaseClient();if(!s)throw new Error('Supabase indisponible');
  const providers=await listAdministrativePaymentProviders();
  const provider=providers.find((p:any)=>p.code===providerCode);
  if(!provider) throw new Error("Aucun canal officiel de perception n'est activé.");
- return createAdministrativePaymentIntent(applicationId,providerCode);
+ const {data,error}=await s.functions.invoke('initiate-administrative-payment',{body:{
+  application_id:applicationId,provider_code:providerCode
+ }});
+ if(error) throw error;
+ if(data?.error) throw new Error(data.error);
+ if(!data?.checkout_url) throw new Error('La passerelle officielle n’a pas fourni de lien de paiement.');
+ return data;
 }
