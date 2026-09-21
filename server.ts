@@ -5613,16 +5613,27 @@ async function startServer() {
       let studentClass = '';
 
       if (isParent) {
-        const { data: linkedStudent, error: linkedStudentError } = await client
+        const { data: studentRows, error: linkedStudentError } = await client
           .from('students')
-          .select('name,class,student_id')
+          .select('id,user_id,class_id,parent_phone')
           .eq('school_id', Number(actor.schoolId))
-          .or(`parent_email.eq.${parentEmail},parent_phone.eq.${parentPhone}`)
-          .limit(1)
-          .maybeSingle();
+          .limit(1000);
         if (linkedStudentError) throw linkedStudentError;
-        studentName = String(linkedStudent?.name || '');
-        studentClass = String(linkedStudent?.class || '');
+        const linkedStudent = (studentRows || []).find((student: any) =>
+          parentPhone && normalizePhoneIdentity(student.parent_phone) === normalizePhoneIdentity(parentPhone)
+        );
+        if (linkedStudent?.user_id) {
+          const { data: studentUser, error: studentUserError } = await client
+            .from('users').select('name').eq('id', Number(linkedStudent.user_id)).maybeSingle();
+          if (studentUserError) throw studentUserError;
+          studentName = String(studentUser?.name || '');
+        }
+        if (linkedStudent?.class_id) {
+          const { data: linkedClass, error: linkedClassError } = await client
+            .from('classes').select('name').eq('id', Number(linkedStudent.class_id)).maybeSingle();
+          if (linkedClassError) throw linkedClassError;
+          studentClass = String(linkedClass?.name || '');
+        }
       }
 
       const { data, error } = await client.from('survey_responses').insert([{
@@ -6781,20 +6792,45 @@ async function startServer() {
       if (schoolError) throw schoolError;
       if (!school) return res.status(404).json({ success: false, error: 'Établissement introuvable.' });
 
+      let resolvedParentUser: any = null;
+      if (requestedEmail) {
+        const { data: parentUser, error: parentUserError } = await client
+          .from('users')
+          .select('id,name,email,phone,phone_normalized')
+          .eq('school_id', Number(actor.schoolId))
+          .eq('email', requestedEmail)
+          .limit(1)
+          .maybeSingle();
+        if (parentUserError) throw parentUserError;
+        resolvedParentUser = parentUser;
+      }
+
+      const effectivePhone = requestedPhone
+        || normalizePhoneIdentity(resolvedParentUser?.phone_normalized || resolvedParentUser?.phone);
       const { data: studentsRows, error: studentsError } = await client
         .from('students')
-        .select('id,name,parent_name,parent_email,parent_phone')
+        .select('id,user_id,class_id,parent_name,parent_phone')
         .eq('school_id', Number(actor.schoolId))
         .limit(1000);
       if (studentsError) throw studentsError;
 
-      const linkedStudent = (studentsRows || []).find((student: any) => {
-        const emailMatch = requestedEmail && normalizeEmail(student.parent_email) === requestedEmail;
-        const phoneMatch = requestedPhone && normalizePhoneIdentity(student.parent_phone) === requestedPhone;
-        return Boolean(emailMatch || phoneMatch);
-      });
+      const linkedStudent = (studentsRows || []).find((student: any) =>
+        effectivePhone && normalizePhoneIdentity(student.parent_phone) === effectivePhone
+      );
       if (!linkedStudent) {
         return res.status(403).json({ success: false, error: 'Ce destinataire n’est pas rattaché à un élève de votre établissement.' });
+      }
+
+      if (!resolvedParentUser && effectivePhone) {
+        const { data: parentCandidates, error: parentCandidatesError } = await client
+          .from('users')
+          .select('id,name,email,phone,phone_normalized')
+          .eq('school_id', Number(actor.schoolId))
+          .limit(1000);
+        if (parentCandidatesError) throw parentCandidatesError;
+        resolvedParentUser = (parentCandidates || []).find((candidate: any) =>
+          normalizePhoneIdentity(candidate.phone_normalized || candidate.phone) === effectivePhone
+        ) || null;
       }
 
       const message = String(req.body?.message || '').trim();
@@ -6810,9 +6846,9 @@ async function startServer() {
         return res.status(413).json({ success: false, error: 'Reçu PDF trop volumineux.' });
       }
 
-      const parentPhone = String(linkedStudent.parent_phone || '');
-      const parentEmail = normalizeEmail(linkedStudent.parent_email);
-      const parentName = String(linkedStudent.parent_name || 'Parent/Tuteur');
+      const parentPhone = String(linkedStudent.parent_phone || resolvedParentUser?.phone || '');
+      const parentEmail = normalizeEmail(resolvedParentUser?.email || requestedEmail);
+      const parentName = String(linkedStudent.parent_name || resolvedParentUser?.name || 'Parent/Tuteur');
 
       const whatsappResult = parentPhone
         ? await sendWhatsAppDocument({ to: parentPhone, message, filename, pdfBase64: pdfBase64 || undefined })
