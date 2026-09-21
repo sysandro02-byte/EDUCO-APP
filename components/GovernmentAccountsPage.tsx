@@ -148,7 +148,7 @@ export default function GovernmentAccountsPage({currentUser}:{currentUser?:any})
       ['Signataires actifs',readiness.summary.activeSigners],
       ['Démarches publiées',readiness.summary.publishedServices],
       ['En revue juridique',readiness.summary.legalReviewServices],
-      ['Canaux paiement',readiness.summary.readyPaymentProviders],
+      ['Passerelles configurées',readiness.summary.readyPaymentProviders],
     ].map(([label,value])=><div key={String(label)} className="bg-white border rounded-2xl p-4">
       <div className="text-[11px] font-black text-slate-500 uppercase">{label}</div>
       <div className="text-2xl font-black text-[#173F4C] mt-1">{Number(value||0)}</div>
