@@ -9,11 +9,14 @@ export async function listAdministrativeServiceCatalog(){
 
 export async function createAdministrativeApplication(service:any,user:any,formData:any){
  const supabase=getSupabaseClient(); if(!supabase) throw new Error('Supabase indisponible');
- const {data,error}=await supabase.from('administrative_applications').insert({
-  service_code:service.code,ministry:service.ministry,applicant_name:user?.name||'',
-  applicant_email:user?.email||'',form_data:formData||{}
- }).select().single();
- if(error) throw error; return data;
+ const {data,error}=await supabase.rpc('create_administrative_application',{
+  p_service_code:service.code,
+  p_applicant_name:user?.name||'',
+  p_applicant_email:user?.email||'',
+  p_form_data:formData||{},
+ });
+ if(error) throw error;
+ return Array.isArray(data)?data[0]:data;
 }
 
 export async function updateAdministrativeApplicationDraft(id:string,formData:any){
