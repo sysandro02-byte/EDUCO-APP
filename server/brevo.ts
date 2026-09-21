@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 /**
  * Brevo (Sendinblue) Transactional Email Service for EDUCO
  * Handles sending real OTP codes, Welcome emails, Password reset emails,
@@ -64,7 +65,7 @@ class OtpManager {
   ): string {
     const cleanEmail = email.toLowerCase().trim();
     // 6-digit numeric code
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const code = randomInt(100000, 1000000).toString();
     const ttlMs = 10 * 60 * 1000; // 10 minutes
 
     this.store.set(cleanEmail, {
