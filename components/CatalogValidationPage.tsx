@@ -237,6 +237,31 @@ export default function CatalogValidationPage({currentUser}:{currentUser?:any}){
           </div>
         </div>
 
+        {proposal.fee_mode==='VARIANT'&&<div className="bg-white border rounded-2xl p-5">
+          <div className="flex flex-wrap justify-between gap-3">
+            <div><h3 className="font-black">Barème variable</h3><p className="text-xs text-slate-500">Chaque ligne est soumise aux mêmes deux contrôles que le reste du catalogue. Une variante VERIFIED_CURRENT exige une référence et une source officielles.</p></div>
+            {editable&&<button onClick={addFeeVariant} className="h-fit border rounded-xl px-3 py-2 font-bold text-sm flex gap-2"><Plus className="w-4"/>Barème</button>}
+          </div>
+          <div className="space-y-3 mt-4">{feeVariants.map((v,i)=><div key={i} className="border rounded-xl p-4 space-y-3">
+            <div className="grid md:grid-cols-[160px_1fr_160px_140px_auto] gap-2">
+              <input disabled={!editable} value={v.variant_code||''} onChange={e=>setFeeVariants(rows=>rows.map((x,j)=>j===i?{...x,variant_code:e.target.value.toUpperCase()}:x))} className="border rounded-lg px-2 py-2 text-sm disabled:bg-slate-50" placeholder="CYCLE_1"/>
+              <input disabled={!editable} value={v.label||''} onChange={e=>setFeeVariants(rows=>rows.map((x,j)=>j===i?{...x,label:e.target.value}:x))} className="border rounded-lg px-2 py-2 text-sm disabled:bg-slate-50" placeholder="Libellé"/>
+              <input disabled={!editable} type="number" min="0" value={v.amount??''} onChange={e=>setFeeVariants(rows=>rows.map((x,j)=>j===i?{...x,amount:e.target.value}:x))} className="border rounded-lg px-2 py-2 text-sm disabled:bg-slate-50" placeholder="Montant"/>
+              <input disabled={!editable} value={v.currency||'XAF'} onChange={e=>setFeeVariants(rows=>rows.map((x,j)=>j===i?{...x,currency:e.target.value.toUpperCase()}:x))} className="border rounded-lg px-2 py-2 text-sm disabled:bg-slate-50" placeholder="XAF"/>
+              {editable&&<button onClick={()=>setFeeVariants(rows=>rows.filter((_,j)=>j!==i))} className="text-rose-700 p-2"><Trash2 className="w-4"/></button>}
+            </div>
+            <div className="grid md:grid-cols-2 gap-2">
+              <label className="text-[11px] font-black text-slate-600">Statut<select disabled={!editable} value={v.fee_status||'TO_VERIFY'} onChange={e=>setFeeVariants(rows=>rows.map((x,j)=>j===i?{...x,fee_status:e.target.value}:x))} className="mt-1 w-full border rounded-lg px-2 py-2 font-normal disabled:bg-slate-50">{['TO_VERIFY','VERIFIED_CURRENT','HISTORICAL'].map(x=><option key={x}>{x}</option>)}</select></label>
+              <label className="text-[11px] font-black text-slate-600">Référence officielle<input disabled={!editable} value={v.legal_reference||''} onChange={e=>setFeeVariants(rows=>rows.map((x,j)=>j===i?{...x,legal_reference:e.target.value}:x))} className="mt-1 w-full border rounded-lg px-2 py-2 font-normal disabled:bg-slate-50"/></label>
+              <label className="md:col-span-2 text-[11px] font-black text-slate-600">Source officielle<input disabled={!editable} value={v.source_url||''} onChange={e=>setFeeVariants(rows=>rows.map((x,j)=>j===i?{...x,source_url:e.target.value}:x))} className="mt-1 w-full border rounded-lg px-2 py-2 font-normal disabled:bg-slate-50" placeholder="URL SGG / ministère"/></label>
+              <label className="text-[11px] font-black text-slate-600">Valide à partir du<input disabled={!editable} type="date" value={v.valid_from||''} onChange={e=>setFeeVariants(rows=>rows.map((x,j)=>j===i?{...x,valid_from:e.target.value}:x))} className="mt-1 w-full border rounded-lg px-2 py-2 font-normal disabled:bg-slate-50"/></label>
+              <label className="text-[11px] font-black text-slate-600">Valide jusqu’au<input disabled={!editable} type="date" value={v.valid_until||''} onChange={e=>setFeeVariants(rows=>rows.map((x,j)=>j===i?{...x,valid_until:e.target.value}:x))} className="mt-1 w-full border rounded-lg px-2 py-2 font-normal disabled:bg-slate-50"/></label>
+              <label className="text-xs font-bold flex items-center gap-2"><input disabled={!editable} type="checkbox" checked={v.active!==false} onChange={e=>setFeeVariants(rows=>rows.map((x,j)=>j===i?{...x,active:e.target.checked}:x))}/>Active</label>
+            </div>
+          </div>)}</div>
+          {!feeVariants.length&&<div className="mt-4 text-sm text-amber-700">Aucune variante définie. Un tarif VARIANT ne pourra pas être validé comme courant sans au moins une ligne active.</div>}
+        </div>}
+
         <div className="bg-white border rounded-2xl p-5">
           <div className="flex justify-between gap-3"><div><h3 className="font-black">Champs du formulaire</h3><p className="text-xs text-slate-500">Un champ obligatoire doit être marqué « vérifié » avant de pouvoir valider les exigences.</p></div>{editable&&<button onClick={addField} className="h-fit border rounded-xl px-3 py-2 font-bold text-sm flex gap-2"><Plus className="w-4"/>Champ</button>}</div>
           <div className="space-y-3 mt-4">{fields.map((f,i)=><div key={i} className="grid md:grid-cols-[1fr_1fr_150px_auto] gap-2 border rounded-xl p-3">
