@@ -150,13 +150,33 @@ const requireCabinet = async (req: any, res: any, getUser: any) => {
 
 const canReviewMinistry = (scope: { all: boolean; ministry: string | null }, ministry: string) => scope.all || scope.ministry === ministry;
 
+const ensureInstitutionalGovernmentAccount = async (client: any, uid: string, request: any) => {
+  const ministry = clean(request.ministry, 20).toUpperCase();
+  const entity = clean(request.entity, 80).toUpperCase();
+  const requestedRole = normalizeGovernmentRole(request.approved_role || request.requested_role);
+  const { error } = await client.from('administrative_government_accounts').upsert({
+    user_uid: uid,
+    ministry,
+    government_role: requestedRole,
+    direction: entity,
+    official_title: clean(request.function_title, 180) || null,
+    active: true,
+    must_change_password: true,
+    created_by: request.reviewer_uid || null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'user_uid' });
+  if (error) throw error;
+};
+
 const createInstitutionalUser = async (client: any, request: any) => {
   const email = clean(request.official_email, 254).toLowerCase();
-  const requestedRole = clean(request.requested_role, 160);
+  const requestedRole = normalizeGovernmentRole(request.approved_role || request.requested_role);
+  const ministry = clean(request.ministry, 20).toUpperCase();
+  const entity = clean(request.entity, 80).toUpperCase();
   const { data: existingUser, error: lookupError } = await client.from('users').select('*').eq('email', email).limit(1).maybeSingle();
   if (lookupError) throw lookupError;
   if (existingUser) {
-    if (normalizeGovernmentRole(existingUser.role) !== normalizeGovernmentRole(requestedRole)) {
+    if (normalizeGovernmentRole(existingUser.role) !== requestedRole) {
       const error: any = new Error('Cette adresse e-mail est déjà associée à un autre rôle EDUCO.');
       error.statusCode = 409;
       throw error;
@@ -165,7 +185,9 @@ const createInstitutionalUser = async (client: any, request: any) => {
       const { error: activateError } = await client.from('users').update({ status: 'active' }).eq('id', existingUser.id);
       if (activateError) throw activateError;
     }
-    return existingUser.uid || null;
+    if (!existingUser.uid) throw new Error('Le profil institutionnel existant ne possède pas d’identifiant Auth.');
+    await ensureInstitutionalGovernmentAccount(client, existingUser.uid, request);
+    return existingUser.uid;
   }
 
   const temporarySecret = `Educo!${randomBytes(24).toString('base64url')}`;
@@ -175,10 +197,13 @@ const createInstitutionalUser = async (client: any, request: any) => {
     email_confirm: true,
     user_metadata: {
       name: clean(request.full_name, 160),
-      role: requestedRole,
-      ministry: clean(request.ministry, 20),
-      entity: clean(request.entity, 80),
       account_origin: 'cabinet_approved_request',
+    },
+    app_metadata: {
+      account_type: 'government',
+      ministry,
+      entity,
+      government_role: requestedRole,
     },
   });
   if (authError || !authData?.user?.id) throw authError || new Error('Impossible de créer le compte Auth institutionnel.');
@@ -192,10 +217,19 @@ const createInstitutionalUser = async (client: any, request: any) => {
     role: requestedRole,
     status: 'active',
     school_id: null,
+    inactivity_exempt: true,
   }]);
   if (insertError) {
     await client.auth.admin.deleteUser(uid).catch(() => undefined);
     throw insertError;
+  }
+
+  try {
+    await ensureInstitutionalGovernmentAccount(client, uid, request);
+  } catch (error) {
+    await client.from('users').delete().eq('uid', uid).catch(() => undefined);
+    await client.auth.admin.deleteUser(uid).catch(() => undefined);
+    throw error;
   }
   return uid;
 };
