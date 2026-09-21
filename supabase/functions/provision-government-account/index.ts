@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{"content-type":"application/json"}});
-const ministries=["ETAT","MEPSA","MES","METP","MFP"];
+const ministries=["ETAT","MEPSA","MES","METP","MFP"] as const;
 const roles:Record<string,string[]>={
  ETAT:["ETAT_ADMIN"],
  MEPSA:["MEPSA_MINISTRE","MEPSA_CABINET","MEPSA_SECRETAIRE_GENERAL","MEPSA_DG","MEPSA_DIRECTEUR_GENERAL","MEPSA_DIRECTEUR","MEPSA_CHEF_SERVICE","MEPSA_AGENT_INSTRUCTEUR","MEPSA_SIGNATAIRE_HABILITE","MEPSA_SIGNER_ADMIN","MEPSA_FINANCE"],
@@ -10,6 +10,15 @@ const roles:Record<string,string[]>={
  METP:["METP_MINISTRE","METP_CABINET","METP_SECRETAIRE_GENERAL","METP_DG","METP_DIRECTEUR_GENERAL","METP_DIRECTEUR","METP_CHEF_SERVICE","METP_AGENT_INSTRUCTEUR","METP_SIGNATAIRE_HABILITE","METP_SIGNER_ADMIN","METP_FINANCE"],
  MFP:["MFP_MINISTRE","MFP_CABINET","MFP_SECRETAIRE_GENERAL","MFP_DG","MFP_DIRECTEUR_GENERAL","MFP_DIRECTEUR","MFP_CHEF_SERVICE","MFP_AGENT_INSTRUCTEUR","MFP_SIGNATAIRE_HABILITE","MFP_SIGNER_ADMIN","MFP_FINANCE"],
 };
+const entities:Record<string,string[]>={
+ MEPSA:["CABINET","DGEB","DGES","DCEG","DGRHAS","DGAENF","INSPECTION","DEP","DSIC","EXAMENS","AGREMENTS","DDEPSA"],
+ MES:["CABINET","DGES","DGASOU","DEP","DIRCOOP","DSIC","DAEP","INSPECTION","ACADEMIES"],
+ METP:["CABINET","DGET","DGEP","DGA_RH","EXAMENS_CONCOURS","DSIC","INSPECTION","EQUIPEMENT_PATRIMOINE"],
+ MFP:[],
+ ETAT:[],
+};
+const entityScopedSuffixes=new Set(["DIRECTEUR","CHEF_SERVICE","AGENT_INSTRUCTEUR","SIGNATAIRE_HABILITE","SIGNER_ADMIN","FINANCE"]);
+const normalize=(value:unknown)=>String(value||"").trim().toUpperCase().replace(/[^A-Z0-9]+/g,"_").replace(/^_+|_+$/g,"");
 const randomPassword=()=>{
  const alphabet="ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
  const bytes=crypto.getRandomValues(new Uint8Array(24));
@@ -32,13 +41,22 @@ Deno.serve(async(req)=>{
  const body=await req.json().catch(()=>({}));
  const name=String(body.name||"").trim();
  const email=String(body.email||"").trim().toLowerCase();
- const ministry=String(body.ministry||"").trim().toUpperCase();
- const governmentRole=String(body.government_role||"").trim().toUpperCase().replace(/[ -]+/g,"_");
- const direction=String(body.direction||"").trim()||null;
+ const ministry=normalize(body.ministry);
+ const governmentRole=normalize(body.government_role);
+ const direction=normalize(body.direction)||null;
  const officialTitle=String(body.official_title||"").trim()||null;
 
  if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({error:"Nom ou adresse e-mail invalide"},400);
- if(!ministries.includes(ministry)||!roles[ministry]?.includes(governmentRole)) return json({error:"Rôle ministériel invalide"},400);
+ if(!ministries.includes(ministry as any)||!roles[ministry]?.includes(governmentRole)) return json({error:"Rôle ministériel invalide"},400);
+
+ const suffix=governmentRole.startsWith(ministry+"_")?governmentRole.slice(ministry.length+1):governmentRole;
+ const needsEntity=entityScopedSuffixes.has(suffix);
+ if(needsEntity && (!direction||!entities[ministry]?.includes(direction))) {
+   return json({error:"Une direction/entité EDUCO valide est obligatoire pour ce rôle"},400);
+ }
+ if(direction && entities[ministry]?.length && !entities[ministry].includes(direction)) {
+   return json({error:"Direction/entité inconnue pour ce ministère"},400);
+ }
 
  const {data:allowed,error:allowError}=await userClient.rpc("can_provision_government_account",{p_ministry:ministry,p_target_role:governmentRole});
  if(allowError||allowed!==true) return json({error:"Vous n’êtes pas habilité à créer ce rôle"},403);
@@ -49,7 +67,8 @@ Deno.serve(async(req)=>{
  const tempPassword=randomPassword();
  const {data:authData,error:authError}=await admin.auth.admin.createUser({
    email,password:tempPassword,email_confirm:true,
-   user_metadata:{name,account_type:"government",ministry,government_role:governmentRole}
+   user_metadata:{name},
+   app_metadata:{account_type:"government",ministry,government_role:governmentRole,direction}
  });
  if(authError||!authData?.user?.id) return json({error:authError?.message||"Création du compte Auth impossible"},400);
 
