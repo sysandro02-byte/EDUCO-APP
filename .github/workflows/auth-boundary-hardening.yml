@@ -48,7 +48,7 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Auth boundary tests
-        run: npx tsx --test tests/auth-boundaries.test.ts
+        run: npx tsx --test tests/auth-boundaries.test.ts tests/password-policy.test.ts
 
       - name: Existing WebAuthn security tests
         run: |
