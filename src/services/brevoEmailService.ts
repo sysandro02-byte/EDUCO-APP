@@ -143,6 +143,14 @@ class BrevoEmailServiceClient {
 
       if (data && data.success) {
         return { success: true, verified: true };
+
+const getEducoAuthHeaders = () => {
+  const token = typeof window !== 'undefined' ? (localStorage.getItem('EDUCO_USER_TOKEN') || '') : '';
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+  };
+};
       }
       
       if (data && data.error) {
@@ -167,7 +175,7 @@ class BrevoEmailServiceClient {
     try {
       return await safeFetchJson(getApiUrl('/api/email/send-welcome'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getEducoAuthHeaders(),
         body: JSON.stringify(params),
       });
     } catch (err: any) {
@@ -229,10 +237,11 @@ class BrevoEmailServiceClient {
     keyCheck?: any;
   }> {
     try {
+      const { apiKey: _ignoredClientSecret, ...safeParams } = params;
       return await safeFetchJson(getApiUrl('/api/email/test-brevo'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params),
+        headers: getEducoAuthHeaders(),
+        body: JSON.stringify(safeParams),
       });
     } catch (err: any) {
       return { success: false, error: err.message || "Erreur de connexion" };
@@ -261,8 +270,7 @@ class BrevoEmailServiceClient {
     error?: string;
   }> {
     try {
-      const url = apiKey ? `/api/email/logs?apiKey=${encodeURIComponent(apiKey)}` : '/api/email/logs';
-      const response = await fetch(url);
+      const response = await fetch(getApiUrl('/api/email/logs'), { headers: getEducoAuthHeaders() });
       const data = await response.json();
       return data;
     } catch (err: any) {
@@ -281,8 +289,7 @@ class BrevoEmailServiceClient {
     error?: string;
   }> {
     try {
-      const url = apiKey ? `/api/email/senders?apiKey=${encodeURIComponent(apiKey)}` : '/api/email/senders';
-      const response = await fetch(url);
+      const response = await fetch(getApiUrl('/api/email/senders'), { headers: getEducoAuthHeaders() });
       const data = await response.json();
       return data;
     } catch (err: any) {
