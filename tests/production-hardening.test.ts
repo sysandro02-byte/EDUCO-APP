@@ -19,6 +19,15 @@ const nativePaymentMigration = fs.readFileSync(new URL('../supabase/migrations/2
 const officialCatalog = fs.readFileSync(new URL('../supabase/migrations/20260921_official_catalog_rollout.sql', import.meta.url), 'utf8');
 const signerScopes = fs.readFileSync(new URL('../supabase/migrations/20260921_signer_scope_and_rollout_readiness.sql', import.meta.url), 'utf8');
 const paymentTransitions = fs.readFileSync(new URL('../supabase/migrations/20260921_payment_final_transition_hardening.sql', import.meta.url), 'utf8');
+const mesFeeEngine = fs.readFileSync(new URL('../supabase/migrations/20260921_final_mes_verified_fee_engine.sql', import.meta.url), 'utf8');
+const variantFeeWorkflow = fs.readFileSync(new URL('../supabase/migrations/20260921_variant_fee_workflow_snapshots.sql', import.meta.url), 'utf8');
+const catalogVariantValidation = fs.readFileSync(new URL('../supabase/migrations/20260921_catalog_variant_fee_double_validation.sql', import.meta.url), 'utf8');
+const editableFeeVariants = fs.readFileSync(new URL('../supabase/migrations/20260921_catalog_fee_variants_double_validation.sql', import.meta.url), 'utf8');
+const mesProgramRequirements = fs.readFileSync(new URL('../supabase/migrations/20260921_mes_program_opening_verified_requirements.sql', import.meta.url), 'utf8');
+const serviceRoleAcl = fs.readFileSync(new URL('../supabase/migrations/20260921_service_role_function_acl_correction.sql', import.meta.url), 'utf8');
+const administrativeServicesPage = fs.readFileSync(new URL('../components/AdministrativeServicesPage.tsx', import.meta.url), 'utf8');
+const catalogValidationPage = fs.readFileSync(new URL('../components/CatalogValidationPage.tsx', import.meta.url), 'utf8');
+const catalogValidationClient = fs.readFileSync(new URL('../src/services/catalogValidation.ts', import.meta.url), 'utf8');
 
 test('government public RPCs are invoker wrappers over private capability checks', () => {
   for (const fn of [
@@ -62,10 +71,13 @@ test('published paid services require source-backed legal and tariff verificatio
 });
 
 test('payment confirmation is service-role only and exact amount/currency are enforced', () => {
-  assert.match(payments, /auth\.role\(\)<>'service_role'/);
-  assert.match(payments, /revoke all on function public\.confirm_administrative_payment_provider[\s\S]*authenticated/i);
-  assert.match(payments, /p_amount is distinct from t\.amount/);
-  assert.match(payments, /upper\(trim\(p_currency\)\)<>upper\(t\.currency\)/);
+  assert.match(serviceRoleAcl, /revoke all on function public\.confirm_administrative_payment_provider[\s\S]*authenticated/i);
+  assert.match(serviceRoleAcl, /grant execute on function public\.confirm_administrative_payment_provider[\s\S]*to service_role/i);
+  assert.match(serviceRoleAcl, /revoke all on function private\.confirm_administrative_payment_provider_secure[\s\S]*authenticated/i);
+  assert.match(serviceRoleAcl, /grant execute on function private\.confirm_administrative_payment_provider_secure[\s\S]*to service_role/i);
+  assert.match(serviceRoleAcl, /p_amount is distinct from t\.amount/);
+  assert.match(serviceRoleAcl, /upper\(trim\(p_currency\)\)<>upper\(t\.currency\)/);
+  assert.doesNotMatch(serviceRoleAcl, /current_user<>'service_role'/);
   assert.match(paymentClient, /\/api\/administrative-payments\/\$\{encodeURIComponent\(applicationId\)\}\/initiate/);
   assert.doesNotMatch(paymentClient, /functions\.invoke\('initiate-administrative-payment'/);
 });
@@ -123,8 +135,51 @@ test('official signers require a live assignment matching the competent service 
 
 
 test('confirmed payments cannot be downgraded by contradictory provider callbacks', () => {
-  assert.match(paymentTransitions, /current_user<>'service_role'/);
-  assert.match(paymentTransitions, /t\.status='PAID' and normalized_status<>'REFUNDED'/);
-  assert.match(paymentTransitions, /Montant ou devise du fournisseur non conforme/);
-  assert.match(paymentTransitions, /t\.status in \('FAILED','CANCELLED','REFUNDED'\)/);
+  assert.match(serviceRoleAcl, /t\.status='PAID' and normalized_status<>'REFUNDED'/);
+  assert.match(serviceRoleAcl, /Montant ou devise du fournisseur non conforme/);
+  assert.match(serviceRoleAcl, /t\.status in \('FAILED','CANCELLED','REFUNDED'\)/);
+});
+
+
+test('MES official fee engine supports fixed and cycle-based verified tariffs', () => {
+  assert.match(mesFeeEngine, /fee_amount=850000[\s\S]*?where code='MES-CRE'/);
+  assert.match(mesFeeEngine, /'MES-OUV','CYCLE_2'[\s\S]*?550000/);
+  assert.match(mesFeeEngine, /'MES-REN-DIR','CYCLE_2'[\s\S]*?35500/);
+  assert.match(mesFeeEngine, /'MES-REN-ENS','CYCLE_3'[\s\S]*?20000/);
+  assert.match(mesFeeEngine, /resolve_administrative_fee_secure/);
+  assert.match(mesFeeEngine, /requested_variant.*fee_variant_code/);
+  assert.match(mesFeeEngine, /fee_mode in \('FIXED','VARIANT','FREE','UNVERIFIED'\)/);
+  assert.match(mesFeeEngine, /payment_enabled=false/);
+});
+
+test('approved administrative fees are snapshotted and rechecked before LoukaPay initiation', () => {
+  assert.match(variantFeeWorkflow, /fee_reference_snapshot/);
+  assert.match(variantFeeWorkflow, /fee_source_url_snapshot/);
+  assert.match(variantFeeWorkflow, /fee_verified_at_snapshot/);
+  assert.match(variantFeeWorkflow, /resolve_administrative_fee_secure/);
+  assert.match(variantFeeWorkflow, /Le barème officiel a changé depuis l’approbation/);
+  assert.match(administrativeServicesPage, /fee_variant_code/);
+  assert.match(administrativeServicesPage, /TARIF COURANT VÉRIFIÉ/);
+});
+
+test('variable fee schedules participate in three-person catalog validation', () => {
+  assert.match(catalogVariantValidation, /fee_mode not in \('FIXED','VARIANT','FREE','UNVERIFIED'\)/);
+  assert.match(catalogVariantValidation, /Aucun barème variable courant vérifié/);
+  assert.match(editableFeeVariants, /proposed_fee_variants/);
+  assert.match(editableFeeVariants, /validate_catalog_fee_variants_secure/);
+  assert.match(editableFeeVariants, /created_by=auth\.uid\(\) or r\.control_approved_by=auth\.uid\(\)/);
+  assert.match(catalogValidationClient, /p_fee_variants:input\.feeVariants/);
+  assert.match(catalogValidationPage, /Barème variable/);
+  assert.match(catalogValidationPage, /VERIFIED_CURRENT/);
+});
+
+test('MES program-opening dossiers use published decree requirements but stay locked pending fee review', () => {
+  for (const code of ['MES-PROG-BTS-DUT','MES-PROG-LIC','MES-PROG-MAS']) {
+    assert.match(mesProgramRequirements, new RegExp(code));
+  }
+  assert.match(mesProgramRequirements, /Décret n°2022-1300 du 21 septembre 2022/);
+  assert.match(mesProgramRequirements, /'LEGAL_REVIEW','VERIFIED'/);
+  assert.match(mesProgramRequirements, /'BANK_ACCOUNT_ATTESTATION'/);
+  assert.match(mesProgramRequirements, /'INSPECTION_REPORTS'/);
+  assert.match(mesProgramRequirements, /payment_enabled=false/);
 });

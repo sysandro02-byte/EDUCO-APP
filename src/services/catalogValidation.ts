@@ -19,7 +19,7 @@ export async function listCatalogValidationWorkspace(ministry:string){
 }
 
 export async function saveCatalogChangeRequest(input:{
-  requestId?:string|null; serviceCode:string; proposedService:any; formFields:any[]; requiredDocuments:any[];
+  requestId?:string|null; serviceCode:string; proposedService:any; formFields:any[]; requiredDocuments:any[]; feeVariants:any[];
 }){
   const s=getSupabaseClient(); if(!s) throw new Error('Supabase indisponible');
   const {data,error}=await s.rpc('save_catalog_change_request',{
@@ -28,6 +28,7 @@ export async function saveCatalogChangeRequest(input:{
     p_proposed_service:input.proposedService,
     p_form_fields:input.formFields,
     p_required_documents:input.requiredDocuments,
+    p_fee_variants:input.feeVariants||[],
   });
   if(error) throw error;
   return Array.isArray(data)?data[0]:data;
