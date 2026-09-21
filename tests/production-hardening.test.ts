@@ -12,6 +12,8 @@ const paymentInit = fs.readFileSync(new URL('../supabase/functions/initiate-admi
 const paymentWebhook = fs.readFileSync(new URL('../supabase/functions/administrative-payment-webhook/index.ts', import.meta.url), 'utf8');
 const officialDocument = fs.readFileSync(new URL('../supabase/functions/generate-official-document/index.ts', import.meta.url), 'utf8');
 const accountProvision = fs.readFileSync(new URL('../supabase/functions/provision-government-account/index.ts', import.meta.url), 'utf8');
+const sessionGuard = fs.readFileSync(new URL('../src/services/sessionExpiryGuard.ts', import.meta.url), 'utf8');
+const appEntry = fs.readFileSync(new URL('../index.tsx', import.meta.url), 'utf8');
 
 test('government public RPCs are invoker wrappers over private capability checks', () => {
   for (const fn of [
@@ -78,4 +80,16 @@ test('official document generation closes failed reservations and keeps a lifecy
   assert.match(payments, /Habilitation du signataire expirée ou révoquée/);
   assert.match(officialDocument, /failReservation/);
   assert.match(officialDocument, /fail_administrative_document/);
+});
+
+
+test('installed PWA restores a session only after server-side identity verification', () => {
+  assert.match(sessionGuard, /restorePersistentSession/);
+  assert.match(sessionGuard, /getSecureAuthHeaders/);
+  assert.match(sessionGuard, /getApiUrl\('\/api\/auth\/me'\)/);
+  assert.match(sessionGuard, /if \(!response\.ok\) return false/);
+  assert.match(sessionGuard, /if \(!data\?\.user\) return false/);
+  assert.match(sessionGuard, /sessionStorage\.setItem\('EDUCO_SESSION_ACTIVE', 'true'\)/);
+  assert.match(appEntry, /await restorePersistentSession\(\)/);
+  assert.doesNotMatch(appEntry, /restoreInstalledPwaSessionMarker/);
 });
