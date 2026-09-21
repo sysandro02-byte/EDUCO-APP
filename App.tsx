@@ -115,6 +115,8 @@ import GovernmentPasswordSetupPage from './components/GovernmentPasswordSetupPag
 import VerifyAdministrativeDocument from './components/VerifyAdministrativeDocument';
 import MyOfficialDocuments from './components/MyOfficialDocuments';
 import MyAdministrativeApplications from './components/MyAdministrativeApplications';
+import InstitutionalAccessRequestPage from './components/InstitutionalAccessRequestPage';
+import InstitutionalAccessReviewPage from './components/InstitutionalAccessReviewPage';
 
 export interface Personnel {
   id: number | null;
@@ -3004,10 +3006,18 @@ const App: React.FC = () => {
   }, [loggedInRole, schoolSettings, users, classes, fees, payments, transactions, personnel, budget, academicYear, subjects, grades, reportCardComments, attendance, activityLog, messageTemplates, cashierSettings, rafSettings,
       communicationSettings, timetable, homeworkDiary, financialEvents, addActivityLog]);
 
+  const publicParams = new URLSearchParams(window.location.search);
+
   // Public QR verification must remain reachable without an EDUCO account.
-  const publicVerificationToken = new URLSearchParams(window.location.search).get('token');
+  const publicVerificationToken = publicParams.get('token');
   if (publicVerificationToken) {
     return <VerifyAdministrativeDocument />;
+  }
+
+  // Institutional authority onboarding is public by design, but creates no privileged account
+  // until ETAT_ADMIN has verified the request server-side.
+  if (publicParams.get('institutional-access') === '1') {
+    return <InstitutionalAccessRequestPage />;
   }
 
   if (loadingAuth || loading) {
@@ -3551,6 +3561,8 @@ const App: React.FC = () => {
         return <AdministrativeServicesPage currentUser={currentUser} />;
       case 'Dossiers administratifs':
         return <MinistryAdministrativeBackoffice currentUser={currentUser} />;
+      case 'Demandes institutionnelles':
+        return <InstitutionalAccessReviewPage currentUser={currentUser} />;
       case 'Catalogue ministériel':
         return <CatalogValidationPage currentUser={currentUser} />;
       case 'Comptes ministériels':
