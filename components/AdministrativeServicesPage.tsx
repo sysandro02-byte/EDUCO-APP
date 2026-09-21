@@ -1,7 +1,7 @@
 import React,{useEffect,useMemo,useState} from 'react';
 import {FileText,ShieldCheck,Clock,WalletCards,Search,UploadCloud,Send,FolderOpen,Save,AlertTriangle,CheckCircle2} from 'lucide-react';
 import {
- createAdministrativeApplication,listAdministrativeServiceCatalog,submitAdministrativeApplication,
+ createAdministrativeApplication,listAdministrativeServiceCatalog,listAdministrativeServiceFeeVariants,submitAdministrativeApplication,
  updateAdministrativeApplicationDraft,uploadAdministrativeFile
 } from '../src/services/administrativeServices';
 
@@ -46,6 +46,7 @@ export default function AdministrativeServicesPage({currentUser}:{currentUser?:a
  const [uploaded,setUploaded]=useState<Record<string,string>>({});
  const [busy,setBusy]=useState(false);
  const [notice,setNotice]=useState('');
+ const [feeVariants,setFeeVariants]=useState<any[]>([]);
 
  const load=async()=>{
   setBusy(true);
@@ -60,7 +61,12 @@ export default function AdministrativeServicesPage({currentUser}:{currentUser?:a
   (!query||[s.name,s.code,s.ministry].join(' ').toLowerCase().includes(query.toLowerCase()))
  ),[services,ministry,query]);
 
- const choose=(s:Service)=>{setSelected(s);setDraft(null);setFormData({});setUploaded({});setNotice('')};
+ const choose=(s:Service)=>{
+  setSelected(s);setDraft(null);setFormData({});setUploaded({});setNotice('');setFeeVariants([]);
+  void listAdministrativeServiceFeeVariants(s.code)
+   .then(setFeeVariants)
+   .catch(()=>setFeeVariants([]));
+ };
 
  const start=async()=>{
   if(!selected)return;
@@ -163,6 +169,15 @@ export default function AdministrativeServicesPage({currentUser}:{currentUser?:a
      {selected.fee_source_url&&<p><b>Source tarifaire :</b> <a href={selected.fee_source_url} target="_blank" rel="noreferrer" className="underline text-sky-700">consulter la source officielle</a></p>}
      <p><b>Délai :</b> {selected.processing_days_status==='VERIFIED'&&selected.processing_days!=null?(selected.processing_days+' jour(s) — vérifié'):'À confirmer'}</p>
      <p><b>Publication :</b> {selected.publication_status} · <b>Exigences :</b> {selected.requirements_status}</p>
+    </div>
+
+    {feeVariants.length>0&&<div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+      <div className="font-black text-amber-900">Barèmes archivés</div>
+      <p className="text-xs text-amber-800 mt-1">Ces montants proviennent de textes officiels historiques. Ils sont affichés pour traçabilité et ne peuvent pas déclencher un paiement tant qu’ils ne sont pas revalidés comme tarif courant.</p>
+      <div className="mt-3 space-y-2">{feeVariants.map((variant:any)=><div key={variant.variant_code} className="bg-white/80 border rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
+        <div><div className="text-sm font-bold">{variant.label}</div><div className="text-[11px] text-slate-500">{variant.legal_reference||'Référence historique'}</div></div>
+        <div className="text-right"><div className="font-black">{Number(variant.amount).toLocaleString('fr-FR')} {variant.currency||'XAF'}</div><div className="text-[10px] font-black text-amber-700">{variant.fee_status==='HISTORICAL'?'ARCHIVE — NON PAYABLE':variant.fee_status}</div></div>
+      </div>)}</div>
     </div>
 
     {!selected.request_enabled&&<div className="mt-4 p-3 rounded-xl bg-amber-50 text-amber-900 text-sm flex gap-2"><AlertTriangle className="w-5 h-5 shrink-0"/><span>Cette démarche peut être préparée en brouillon, mais EDUCO bloque sa soumission officielle tant que la base juridique, la publication et les exigences ne sont pas validées par l’autorité compétente.</span></div>}
