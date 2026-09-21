@@ -5,7 +5,7 @@ import {
   GOVERNMENT_MINISTRIES,availableGovernmentRoles,canManageGovernmentAccounts,
   changeGovernmentAccountStatus,inferGovernmentMinistry,listGovernmentAccounts,
   listGovernmentJurisdictions,provisionGovernmentAccount,searchJurisdictionCandidateSchools,
-  setGovernmentJurisdiction
+  setGovernmentJurisdiction,getGovernmentRolloutReadiness
 } from '../src/services/governmentAccounts';
 
 const normalize=(value:string)=>String(value||'').trim().toUpperCase().replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'');
@@ -29,6 +29,7 @@ export default function GovernmentAccountsPage({currentUser}:{currentUser?:any})
  const [jurisdictions,setJurisdictions]=useState<any[]>([]);
  const [schoolSearch,setSchoolSearch]=useState('');
  const [schoolResults,setSchoolResults]=useState<any[]>([]);
+ const [readiness,setReadiness]=useState<any>(null);
 
  const allowed=useMemo(()=>canManageGovernmentAccounts(actorRole),[actorRole]);
  const roles=useMemo(()=>availableGovernmentRoles(actorRole,ministry),[actorRole,ministry]);
@@ -58,7 +59,13 @@ export default function GovernmentAccountsPage({currentUser}:{currentUser?:any})
  const load=async()=>{
   if(!allowed)return;
   setBusy(true);setMsg('');
-  try{setRows(await listGovernmentAccounts(ministry));}
+  try{
+    const [accounts,rollout]=await Promise.all([
+      listGovernmentAccounts(ministry),
+      getGovernmentRolloutReadiness(ministry)
+    ]);
+    setRows(accounts);setReadiness(rollout);
+  }
   catch(error:any){setMsg(error?.message||'Chargement impossible.')}
   finally{setBusy(false)}
  };
@@ -117,7 +124,7 @@ export default function GovernmentAccountsPage({currentUser}:{currentUser?:any})
    try{
      await setGovernmentJurisdiction(ministry,scopeEntity,schoolId,active);
      setMsg(active?'Établissement rattaché au périmètre.':'Rattachement désactivé.');
-     await loadJurisdictions(scopeEntity);
+     await Promise.all([loadJurisdictions(scopeEntity),load()]);
    }catch(error:any){setMsg(error?.message||'Modification du périmètre impossible.')}
    finally{setBusy(false)}
  };
@@ -134,6 +141,19 @@ export default function GovernmentAccountsPage({currentUser}:{currentUser?:any})
 
   {global&&<div className="bg-white border rounded-2xl p-4"><label className="text-xs font-black text-slate-600">Périmètre administratif</label><select value={ministry} onChange={e=>setMinistry(e.target.value)} className="mt-2 w-full sm:w-72 border rounded-xl px-3 py-2">{GOVERNMENT_MINISTRIES.filter(m=>m!=='ETAT').map(m=><option key={m}>{m}</option>)}</select></div>}
   {msg&&<div className="bg-white border rounded-xl p-3 text-sm font-semibold">{msg}</div>}
+  {readiness?.summary&&<div className="grid sm:grid-cols-2 lg:grid-cols-6 gap-3">
+    {[
+      ['Comptes / affectations',readiness.summary.activeAssignments],
+      ['Périmètres écoles',readiness.summary.activeJurisdictions],
+      ['Signataires actifs',readiness.summary.activeSigners],
+      ['Démarches publiées',readiness.summary.publishedServices],
+      ['En revue juridique',readiness.summary.legalReviewServices],
+      ['Canaux paiement',readiness.summary.readyPaymentProviders],
+    ].map(([label,value])=><div key={String(label)} className="bg-white border rounded-2xl p-4">
+      <div className="text-[11px] font-black text-slate-500 uppercase">{label}</div>
+      <div className="text-2xl font-black text-[#173F4C] mt-1">{Number(value||0)}</div>
+    </div>)}
+  </div>}
   {temporaryPassword&&<div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5"><div className="text-xs font-black text-amber-800 uppercase">Mot de passe temporaire — affichage unique</div><div className="mt-2 flex gap-2"><code className="flex-1 bg-white border rounded-xl px-3 py-3 break-all font-black">{temporaryPassword}</code><button onClick={()=>navigator.clipboard?.writeText(temporaryPassword)} className="border bg-white rounded-xl px-4"><Copy className="w-5"/></button></div><p className="text-xs text-amber-800 mt-2">Le titulaire devra obligatoirement le remplacer à sa première connexion.</p></div>}
 
   <div className="bg-white border rounded-2xl p-5 space-y-4">
