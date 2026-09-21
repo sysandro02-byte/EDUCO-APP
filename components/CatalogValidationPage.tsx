@@ -25,6 +25,10 @@ const serviceDefaults=(row:WorkspaceRow)=>{
     fee_amount:current.fee_amount??'',
     fee_currency:current.fee_currency||'XAF',
     fee_status:current.fee_status||'TO_VERIFY',
+    fee_reference:current.fee_reference||'',
+    fee_source_url:current.fee_source_url||'',
+    processing_days:current.processing_days??'',
+    processing_days_status:current.processing_days_status||'TO_VERIFY',
     payment_enabled:Boolean(current.payment_enabled),
     output_document:current.output_document||'',
     publication_status:current.publication_status||'DRAFT',
@@ -208,6 +212,10 @@ export default function CatalogValidationPage({currentUser}:{currentUser?:any}){
             <label className="text-xs font-black text-slate-600">Statut tarifaire<select disabled={!editable} value={proposal.fee_status||'TO_VERIFY'} onChange={e=>setService('fee_status',e.target.value)} className="mt-1 w-full border rounded-xl px-3 py-2 font-normal disabled:bg-slate-50">{['TO_VERIFY','VERIFIED_CURRENT','HISTORICAL','FREE'].map(x=><option key={x}>{x}</option>)}</select></label>
             <label className="text-xs font-black text-slate-600">Montant<input disabled={!editable} type="number" min="0" value={proposal.fee_amount??''} onChange={e=>setService('fee_amount',e.target.value)} className="mt-1 w-full border rounded-xl px-3 py-2 font-normal disabled:bg-slate-50"/></label>
             <label className="text-xs font-black text-slate-600">Devise<input disabled={!editable} value={proposal.fee_currency||'XAF'} onChange={e=>setService('fee_currency',e.target.value.toUpperCase())} className="mt-1 w-full border rounded-xl px-3 py-2 font-normal disabled:bg-slate-50"/></label>
+            <label className="text-xs font-black text-slate-600">Référence tarifaire<input disabled={!editable} value={proposal.fee_reference||''} onChange={e=>setService('fee_reference',e.target.value)} className="mt-1 w-full border rounded-xl px-3 py-2 font-normal disabled:bg-slate-50" placeholder="Texte, arrêté, grille ou décision officielle"/></label>
+            <label className="md:col-span-2 text-xs font-black text-slate-600">Source officielle du tarif<input disabled={!editable} value={proposal.fee_source_url||''} onChange={e=>setService('fee_source_url',e.target.value)} className="mt-1 w-full border rounded-xl px-3 py-2 font-normal disabled:bg-slate-50" placeholder="URL officielle permettant de contrôler le montant"/></label>
+            <label className="text-xs font-black text-slate-600">Délai indicatif (jours)<input disabled={!editable} type="number" min="0" max="3650" value={proposal.processing_days??''} onChange={e=>setService('processing_days',e.target.value)} className="mt-1 w-full border rounded-xl px-3 py-2 font-normal disabled:bg-slate-50"/></label>
+            <label className="text-xs font-black text-slate-600">Statut du délai<select disabled={!editable} value={proposal.processing_days_status||'TO_VERIFY'} onChange={e=>setService('processing_days_status',e.target.value)} className="mt-1 w-full border rounded-xl px-3 py-2 font-normal disabled:bg-slate-50">{['TO_VERIFY','VERIFIED','NOT_APPLICABLE'].map(x=><option key={x}>{x}</option>)}</select></label>
             <label className="text-xs font-black text-slate-600">Document final<input disabled={!editable} value={proposal.output_document||''} onChange={e=>setService('output_document',e.target.value)} className="mt-1 w-full border rounded-xl px-3 py-2 font-normal disabled:bg-slate-50"/></label>
             <label className="text-xs font-black text-slate-600">Publication<select disabled={!editable} value={proposal.publication_status||'DRAFT'} onChange={e=>setService('publication_status',e.target.value)} className="mt-1 w-full border rounded-xl px-3 py-2 font-normal disabled:bg-slate-50">{['DRAFT','LEGAL_REVIEW','MINISTRY_APPROVED','PUBLISHED','SUSPENDED'].map(x=><option key={x}>{x}</option>)}</select></label>
             <label className="flex items-center gap-2 text-sm font-bold mt-5"><input disabled={!editable} type="checkbox" checked={Boolean(proposal.payment_enabled)} onChange={e=>setService('payment_enabled',e.target.checked)}/>Activer le paiement officiel</label>
