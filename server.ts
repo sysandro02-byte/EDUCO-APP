@@ -6165,206 +6165,70 @@ async function startServer() {
   // =========================================================================
   // AUTHENTICATION (Admin, Promoteur, Personnel, Parents)
   // =========================================================================
-  const registeredAccountsStore = new Map<string, { password: string; user: any }>();
   const adminRoles = new Set(['Admin', 'Co-admin']);
 
-  // UNIFIED LOGIN ENDPOINT (Supports Email/Password, Identifiers & Biometrics)
-  app.post(['/api/auth/login', '/api/users/login'], rateLimit('login', 10, 15 * 60 * 1000), async (req, res) => {
+  // Backward-compatible login endpoint. It uses the exact same authoritative
+  // Supabase Auth boundary as /api/auth/login and never stores plaintext passwords.
+  app.post('/api/users/login', rateLimit('legacy-login', 10, 60_000), async (req, res) => {
     try {
-      const { email, identifier, password, isBiometric, isAdminPortal } = req.body;
-      const targetIdentifier = (email || identifier || '').trim().toLowerCase();
+      const email = normalizeEmail(req.body?.email || req.body?.identifier);
+      const password = String(req.body?.password || '');
+      const isAdminPortal = Boolean(req.body?.isAdminPortal);
 
-      if (!targetIdentifier) {
-        return res.status(400).json({ success: false, error: 'Identifiant ou adresse e-mail requis.' });
+      if (!email || password.length < 4) {
+        return res.status(400).json({ success: false, error: 'Identifiants invalides.' });
       }
-
-      // Biometric Login: instant verification if user exists or enrolled
-      if (isBiometric) {
-        let authUser = null;
-        if (registeredAccountsStore.has(targetIdentifier)) {
-          authUser = registeredAccountsStore.get(targetIdentifier)!.user;
-        } else {
-          // Production accounts are stored in Supabase. Looking only in the
-          // local fallback database made valid admin accounts appear unknown.
-          const supabaseDb = getSupabaseAdmin(req);
-          if (supabaseDb) {
-            try {
-              const { data: sbUser } = await supabaseDb
-                .from('users')
-                .select('*')
-                .eq('email', targetIdentifier)
-                .maybeSingle();
-              authUser = mapSupabaseUser(sbUser);
-            } catch (e) {}
-          }
-        }
-
-        if (!authUser && isDbConfigured()) {
-          try {
-            const found = await db.select().from(users).where(eq(users.email, targetIdentifier)).limit(1);
-            if (found.length > 0) authUser = found[0];
-          } catch (e) {}
-        }
-
-        if (!authUser) {
-          return res.status(401).json({
-            success: false,
-            error: "Authentification biométrique impossible : ce compte n'est pas reconnu par le système."
-          });
-        }
-
-        if (adminRoles.has(authUser.role) && !isAdminPortal) {
-          return res.status(403).json({
-            success: false,
-            error: "Accès refusé : L'administrateur n'est pas autorisé à se connecter depuis la page d'accueil. Veuillez utiliser le portail d'administration dédié."
-          });
-        }
-        if (!adminRoles.has(authUser.role) && isAdminPortal) {
-          return res.status(403).json({
-            success: false,
-            error: "Accès refusé : ce portail est réservé aux administrateurs et co-administrateurs."
-          });
-        }
-
-        return res.json({
-          success: true,
-          message: 'Authentification biométrique validée.',
-          user: authUser,
-          token: createLocalSessionToken(authUser) || authUser.uid || authUser.email,
+      if (req.body?.isBiometric) {
+        return res.status(400).json({
+          success: false,
+          error: 'La biométrie doit utiliser la vérification WebAuthn dédiée.'
         });
       }
 
-      // Standard Login with Password
-      if (!password) {
-        return res.status(400).json({ success: false, error: 'Veuillez saisir votre mot de passe.' });
+      const authClient = getSupabaseAdmin();
+      if (!authClient) {
+        return res.status(503).json({ success: false, error: 'Service d’authentification indisponible.' });
       }
 
-      // 1. Check registered accounts store
-      if (registeredAccountsStore.has(targetIdentifier)) {
-        const entry = registeredAccountsStore.get(targetIdentifier)!;
-        if (entry.password === password) {
-          const authUser = entry.user;
-          if (adminRoles.has(authUser.role) && !isAdminPortal) {
-            return res.status(403).json({
-              success: false,
-              error: "Accès refusé : L'administrateur n'est pas autorisé à se connecter depuis la page d'accueil. Veuillez utiliser le portail d'administration dédié."
-            });
-          }
-          if (!adminRoles.has(authUser.role) && isAdminPortal) {
-            return res.status(403).json({
-              success: false,
-              error: "Accès refusé : ce portail est réservé aux administrateurs et co-administrateurs."
-            });
-          }
-
-          return res.json({
-            success: true,
-            message: 'Connexion réussie.',
-            user: authUser,
-            token: createLocalSessionToken(authUser) || authUser.uid || authUser.email,
-          });
-        }
+      const { data: authData, error: authError } = await authClient.auth.signInWithPassword({ email, password });
+      if (authError || !authData?.user?.id || !authData?.session?.access_token) {
+        return res.status(401).json({ success: false, error: 'Identifiants invalides.' });
       }
 
-      // 2. Check Supabase users table first to avoid Render/Postgres connection delays
-      let dbUser = null;
-      const supabaseDb = getSupabaseAdmin(req);
-      if (supabaseDb) {
-        try {
-          const { data: sbUser } = await supabaseDb
-            .from('users')
-            .select('*')
-            .eq('email', targetIdentifier)
-            .limit(1)
-            .maybeSingle();
-          dbUser = mapSupabaseUser(sbUser);
-        } catch (e) {}
+      const { data: uidProfile, error: uidProfileError } = await authClient
+        .from('users').select('*').eq('uid', authData.user.id).limit(1).maybeSingle();
+      if (uidProfileError) throw uidProfileError;
+
+      let resolvedProfile = uidProfile;
+      if (!resolvedProfile) {
+        const { data: emailProfile, error: emailProfileError } = await authClient
+          .from('users').select('*').eq('email', email).limit(1).maybeSingle();
+        if (emailProfileError) throw emailProfileError;
+        resolvedProfile = emailProfile;
       }
 
-      // 3. Fallback to Database users table when Supabase REST is unavailable
-      if (!dbUser && isDbConfigured()) {
-        try {
-          const found = await db.select().from(users).where(eq(users.email, targetIdentifier)).limit(1);
-          if (found.length > 0) {
-            dbUser = found[0];
-          }
-        } catch (e) {}
+      const user = mapSupabaseUser(resolvedProfile);
+      if (!user) return res.status(401).json({ success: false, error: 'Profil EDUCO introuvable.' });
+      if (String(user.status || '').toLowerCase() === 'inactif' || String(user.status || '').toLowerCase() === 'inactive') {
+        return res.status(403).json({ success: false, error: 'Ce compte est inactif.' });
       }
 
-      if (dbUser) {
-        try {
-          dbUser.email = dbUser.email || targetIdentifier;
-          dbUser.name = dbUser.name || targetIdentifier.split('@')[0];
-          dbUser.role = dbUser.role || 'Personnel';
-        } catch (e) {}
+      const isAdmin = adminRoles.has(user.role);
+      if (isAdmin && !isAdminPortal) {
+        return res.status(403).json({ success: false, error: 'Utilisez le portail d’administration dédié.' });
+      }
+      if (isAdminPortal && !isAdmin) {
+        return res.status(403).json({ success: false, error: 'Ce portail est réservé aux administrateurs.' });
       }
 
-      let loginToken = dbUser?.uid || targetIdentifier;
-      if (dbUser && supabaseDb) {
-        try {
-          const { data: authData, error: authError } = await supabaseDb.auth.signInWithPassword({
-            email: targetIdentifier,
-            password
-          });
-          if (authError || !authData?.session) {
-            return res.status(401).json({
-              success: false,
-              error: 'Identifiants invalides.'
-            });
-          }
-          if (authData.user?.id) {
-            dbUser.uid = authData.user.id;
-          }
-          if (authData.session?.access_token) {
-            loginToken = authData.session.access_token;
-          } else if (authData.user?.id) {
-            loginToken = authData.user.id;
-          }
-        } catch (e) {
-          return res.status(401).json({
-            success: false,
-            error: 'Identifiants invalides.'
-          });
-        }
+      const token = createLocalSessionToken(user);
+      if (!token) {
+        return res.status(503).json({ success: false, error: 'Impossible de créer une session EDUCO sécurisée.' });
       }
-
-      if (dbUser) {
-        if (adminRoles.has(dbUser.role) && !isAdminPortal) {
-          return res.status(403).json({
-            success: false,
-            error: "Accès refusé : L'administrateur n'est pas autorisé à se connecter depuis la page d'accueil. Veuillez utiliser le portail d'administration dédié."
-          });
-        }
-        if (!adminRoles.has(dbUser.role) && isAdminPortal) {
-          return res.status(403).json({
-            success: false,
-            error: "Accès refusé : ce portail est réservé aux administrateurs et co-administrateurs."
-          });
-        }
-
-        if (!supabaseDb) {
-          return res.status(503).json({
-            success: false,
-            error: 'Authentification indisponible : configurez Supabase/Auth avant de connecter des comptes.'
-          });
-        }
-
-        registeredAccountsStore.set(targetIdentifier, { password, user: dbUser });
-        return res.json({
-          success: true,
-          message: 'Connexion réussie.',
-          user: dbUser,
-          token: createLocalSessionToken(dbUser) || loginToken,
-        });
-      }
-
-      return res.status(401).json({
-        success: false,
-        error: 'Identifiants invalides ou compte non reconnu par le système. Seuls les comptes et adresses emails enregistrés ont accès à cette application.',
-      });
-    } catch (err: any) {
-      console.error('Login Endpoint Error:', err);
-      res.status(500).json({ success: false, error: 'Erreur interne lors de la connexion.' });
+      return res.json({ success: true, user, token });
+    } catch (error: any) {
+      console.error('Legacy-compatible secure login error:', error);
+      return res.status(500).json({ success: false, error: 'Service d’authentification indisponible.' });
     }
   });
 
@@ -6455,12 +6319,6 @@ async function startServer() {
       if (!createdUser) {
         return res.status(503).json({ error: 'Aucune base de données disponible pour enregistrer le compte Admin.' });
       }
-
-      // Persist in registered accounts memory registry for instantaneous login
-      registeredAccountsStore.set(cleanEmail, {
-        password: password,
-        user: createdUser
-      });
 
       // Send Welcome email via Brevo
       try {
