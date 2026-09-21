@@ -107,9 +107,9 @@ test('official rollout keeps historical MEPSA fees non-chargeable and routes MET
   assert.match(officialCatalog, /ETABLISSEMENTS_PRIVES/);
   assert.match(officialCatalog, /Arrêté n°25564 du 17 octobre 2022/);
   assert.match(officialCatalog, /Arrêté n°8409 du 22 octobre 2010/);
-  assert.match(officialCatalog, /'HISTORICAL'/);
-  assert.match(officialCatalog, /any_current/);
-  assert.doesNotMatch(officialCatalog, /'VERIFIED_CURRENT'.*8409/s);
+  assert.match(officialCatalog, /\('MEPSA-CRE','URBAN_PRESCHOOL'[\s\S]*?100000,'XAF','HISTORICAL'/);
+  assert.match(officialCatalog, /'MEPSA-OUV',variant_code,label,attributes,amount,currency,fee_status/);
+  assert.match(officialCatalog, /false,'Autorisation de création','LEGAL_REVIEW','TO_VERIFY'/);
 });
 
 test('official signers require a live assignment matching the competent service direction', () => {
