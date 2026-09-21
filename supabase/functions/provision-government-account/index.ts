@@ -44,7 +44,7 @@ Deno.serve(async(req)=>{
  const ministry=normalize(body.ministry);
  const governmentRole=normalize(body.government_role);
  const direction=normalize(body.direction)||null;
- const officialTitle=String(body.official_title||"").trim()||null;
+ const officialTitle=String(body.officialTitle||"").trim()||null;
 
  if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({error:"Nom ou adresse e-mail invalide"},400);
  if(!ministries.includes(ministry as any)||!roles[ministry]?.includes(governmentRole)) return json({error:"Rôle ministériel invalide"},400);
@@ -82,7 +82,7 @@ Deno.serve(async(req)=>{
  }
 
  const {error:govError}=await admin.from("administrative_government_accounts").insert({
-   user_uid:uid,ministry,government_role:governmentRole,direction,official_title,
+   user_uid:uid,ministry,government_role:governmentRole,direction,official_title:officialTitle,
    active:true,must_change_password:true,created_by:user.id
  });
  if(govError){
@@ -93,11 +93,11 @@ Deno.serve(async(req)=>{
 
  await admin.from("administrative_government_account_events").insert({
    user_uid:uid,ministry,action:"CREATE",actor_uid:user.id,
-   details:{government_role:governmentRole,direction,official_title,email}
+   details:{government_role:governmentRole,direction,official_title:officialTitle,email}
  });
 
  return json({
-   account:{user_uid:uid,name,email,ministry,government_role:governmentRole,direction,official_title,active:true,must_change_password:true},
+   account:{user_uid:uid,name,email,ministry,government_role:governmentRole,direction,official_title:officialTitle,active:true,must_change_password:true},
    temporary_password:tempPassword,
    password_notice:"Ce mot de passe temporaire est affiché une seule fois et devra être changé à la première connexion."
  },201);
