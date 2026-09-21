@@ -720,8 +720,10 @@ async function startServer() {
   });
 
   // Get All Accounts in Supabase DB
-  app.get('/api/db/accounts', async (req, res) => {
+  app.get('/api/db/accounts', requireAuth, async (req: AuthRequest, res) => {
     try {
+      const platformAdmin = await requirePlatformAdmin(req, res);
+      if (!platformAdmin) return;
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) {
         return res.status(503).json({ success: false, error: 'Supabase non configuré' });
@@ -745,7 +747,9 @@ async function startServer() {
   });
 
   // DB Connection Status
-  app.get('/api/db/status', async (req, res) => {
+  app.get('/api/db/status', requireAuth, async (req: AuthRequest, res) => {
+    const platformAdmin = await requirePlatformAdmin(req, res);
+    if (!platformAdmin) return;
     const supabaseAdmin = getSupabaseAdmin(req);
     if (!supabaseAdmin) {
       return res.json({ 
@@ -785,8 +789,10 @@ async function startServer() {
 
   // Safe Supabase table preview endpoint used by the Admin diagnostic console.
   // It intentionally supports only read-only SELECT ... FROM <table> LIMIT <n> previews.
-  app.post('/api/db/query', async (req, res) => {
+  app.post('/api/db/query', requireAuth, async (req: AuthRequest, res) => {
     try {
+      const platformAdmin = await requirePlatformAdmin(req, res);
+      if (!platformAdmin) return;
       const query = String(req.body?.query || '').trim();
       if (!query) {
         return res.status(400).json({ success: false, error: 'Requête vide.' });
@@ -850,374 +856,164 @@ async function startServer() {
     }
   });
 
-  // Explicit Seed All Endpoint
-  app.post('/api/db/seed-all', async (req, res) => {
+  // Legacy seed endpoint permanently disabled in production.
+  app.post('/api/db/seed-all', (_req, res) => {
     return res.status(410).json({
       success: false,
-      error: "Le peuplement automatique de données fictives est désactivé."
+      error: 'Le peuplement automatique de données fictives est définitivement désactivé.'
     });
-    try {
-      const ok = await seedDatabaseWithFullInitialData();
-      const userList = await db.select().from(users);
-      const schoolList = await db.select().from(schools);
-      const personnelList = await db.select().from(personnel);
-
-      res.json({
-        success: ok,
-        message: "🚀 Peuplage et synchronisation complète de Supabase terminés !",
-        stats: {
-          usersCount: userList.length,
-          schoolsCount: schoolList.length,
-          personnelCount: personnelList.length,
-        }
-      });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message || 'Erreur lors du peulpage' });
-    }
   });
 
-  // Explicit Purge All Endpoint
-  app.post('/api/db/purge-all', async (req, res) => {
-    try {
-      // Clean up server Drizzle tables in reverse dependency order
-      try {
-        await db.delete(schema.surveyResponses);
-        await db.delete(schema.surveys);
-        await db.delete(schema.subscriptionRequests);
-        await db.delete(schema.subscriptions);
-        await db.delete(schema.notifications);
-        await db.delete(schema.timetable);
-        await db.delete(schema.attendance);
-        await db.delete(schema.grades);
-        await db.delete(schema.subjects);
-        await db.delete(schema.payments);
-        await db.delete(schema.transactions);
-        await db.delete(schema.fees);
-        await db.delete(schema.students);
-        await db.delete(schema.personnel);
-        await db.delete(schema.classes);
-        await db.delete(schema.users);
-        await db.delete(schema.schools);
-      } catch (e: any) {
-        console.warn("Drizzle DB purge warning:", e?.message || e);
-      }
-
-      // Clean up Supabase Admin if configured
-      const supabaseAdmin = getSupabaseAdmin();
-      if (supabaseAdmin) {
-        const tables = [
-          'survey_responses', 'surveys', 'subscription_requests', 'subscriptions', 
-          'notifications', 'timetable', 'attendance', 'grades', 'subjects', 
-          'payments', 'transactions', 'fees', 'students', 'personnel', 'classes', 'users', 'schools'
-        ];
-        for (const t of tables) {
-          try {
-            await supabaseAdmin.from(t).delete().gt('id', -999999);
-          } catch (e) {
-            // Ignore errors for individual tables during purge
-          }
-        }
-      }
-
-      res.json({
-        success: true,
-        message: "✅ Purge globale de la base de données Supabase et locale effectuée avec succès !"
-      });
-    } catch (err: any) {
-      console.error("Error in /api/db/purge-all:", err);
-      res.status(500).json({ success: false, error: err?.message || "Erreur lors de la purge" });
-    }
-  });
-
-  // Test Endpoint to Create a Test School in Database
-  app.post('/api/db/test-create-school', async (req, res) => {
+  // Legacy global purge removed. Use audited, tenant-scoped administration workflows instead.
+  app.post('/api/db/purge-all', (_req, res) => {
     return res.status(410).json({
       success: false,
-      error: "La création d'établissement test est désactivée. Utilisez le formulaire réel d'inscription."
+      error: 'La purge globale non auditée est désactivée.'
     });
-    try {
-      const testSuffix = Math.floor(1000 + Math.random() * 9000);
-      const testIdentifier = `EDUCO-SCH-TEST-${testSuffix}`;
-      
-      // 1. Insert Test School
-      const [newTestSchool] = await db.insert(schools).values({
-        name: `Complexe Scolaire Supabase (${testSuffix})`,
-        identifier: testIdentifier,
-        address: "Avenue de l'Excellence, Cotonou, Bénin",
-        phone: "+229 97 00 11 22",
-        email: `contact.test${testSuffix}@educo-ecole.com`,
-        creationDate: "2026-01-15",
-        promoterName: "Dr. Marc TEST-PROMOTEUR",
-        promoterContact: "+229 95 88 77 66",
-        promoterEmail: `promoteur.test${testSuffix}@educo-ecole.com`,
-        levels: { primaire: true, secondaireCollege: true, secondaireLycee: true },
-        status: "active",
-        settings: { currency: "FCFA", isTestDatabaseAccount: true }
-      }).returning();
+  });
 
-      // 2. Insert Associated Test User / Promoter
-      const [newTestUser] = await db.insert(users).values({
-        uid: `test_promoter_${Date.now()}_${testSuffix}`,
-        schoolId: newTestSchool.id,
-        name: "Dr. Marc TEST-PROMOTEUR",
-        email: `promoteur.test${testSuffix}@educo-ecole.com`,
-        role: "Promoteur",
-        status: "active"
-      }).returning();
-
-      // 3. Insert Admin User for this school
-      const [newAdminUser] = await db.insert(users).values({
-        uid: `test_admin_${Date.now()}_${testSuffix}`,
-        schoolId: newTestSchool.id,
-        name: "M. Auguste LOUKOU - Directeur",
-        email: `directeur.test${testSuffix}@educo-ecole.com`,
-        role: "Admin",
-        status: "active"
-      }).returning();
-
-      // 4. Insert Personnel
-      const [newPersonnel] = await db.insert(personnel).values({
-        schoolId: newTestSchool.id,
-        userId: newTestUser.id,
-        matricule: `PER-2026-${testSuffix}`,
-        role: "Fondateur & Promoteur Général",
-        baseSalary: 450000,
-        hireDate: "2026-01-15"
-      }).returning();
-
-      // 5. Insert Class
-      const [newClass] = await db.insert(classes).values({
-        schoolId: newTestSchool.id,
-        name: "6ème A (Pilote)",
-        level: "Collège",
-        capacity: 40
-      }).returning();
-
-      // 6. Insert Fee
-      const [newFee] = await db.insert(fees).values({
-        schoolId: newTestSchool.id,
-        name: "Scolarité 1ère Tranche",
-        amount: 150000,
-        type: "tuition",
-        dueDate: "2026-10-15"
-      }).returning();
-
-      res.json({
-        success: true,
-        message: "✅ Nouvel établissement & personnel créés dans Supabase !",
-        dbStatus: "Base de données Supabase active",
-        school: newTestSchool,
-        user: newTestUser,
-        admin: newAdminUser,
-        personnel: newPersonnel,
-        class: newClass,
-        fee: newFee
-      });
-    } catch (error: any) {
-      console.error("Test School DB Error:", error);
-      res.status(500).json({
-        success: false,
-        message: "Impossible d'insérer dans la base de données.",
-        error: error?.message || "Erreur base de données"
-      });
-    }
+  // Test-school creation is disabled on production data.
+  app.post('/api/db/test-create-school', (_req, res) => {
+    return res.status(410).json({
+      success: false,
+      error: "La création d'établissement test est désactivée."
+    });
   });
 
 
-  // Seed / Sync Initial Data to Cloud SQL
-  app.post('/api/db/init-seed', async (req, res) => {
+  // Legacy initial seed/sync cannot mutate production data.
+  app.post('/api/db/init-seed', (_req, res) => {
+    return res.status(410).json({
+      success: false,
+      error: 'La synchronisation initiale legacy est désactivée. Utilisez les workflows métier authentifiés.'
+    });
+  });
+
+  // Batch Sync Endpoint for Offline Queue Processing.
+  // Only financial records that can be safely reconstructed offline are accepted.
+  app.post('/api/sync-batch', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const supabaseAdmin = getSupabaseAdmin(req);
-      if (supabaseAdmin) {
-        return res.json({
-          success: true,
-          message: 'Supabase est la base principale : seed PostgreSQL ignoré, synchronisation initiale validée.'
+      const actor = await getRequestUser(req);
+      const role = canonicalizeRole(actor?.role);
+      const client = getSupabaseAdmin(req);
+      if (!actor || !client) return res.status(503).json({ success: false, error: 'Synchronisation sécurisée indisponible.' });
+
+      const allowedRoles = new Set([
+        'Admin','Co-admin','Promoteur','Directeur Général','Responsable des finances','Caissière'
+      ]);
+      if (!allowedRoles.has(role)) {
+        return res.status(403).json({ success: false, error: 'Ce compte ne peut pas synchroniser des opérations financières.' });
+      }
+
+      const operations = Array.isArray(req.body?.operations) ? req.body.operations : [];
+      if (!operations.length) return res.json({ success: true, processedCount: 0, duplicates: 0 });
+
+      if (operations.length > 200) {
+        return res.status(400).json({ success: false, error: 'Lot de synchronisation trop volumineux.' });
+      }
+      if (operations.some((op: any) => !['TRANSACTION','PAYMENT'].includes(String(op?.type || '').toUpperCase()))) {
+        return res.status(400).json({
+          success: false,
+          error: 'La synchronisation hors-ligne des comptes utilisateurs ou autres objets sensibles est interdite.'
         });
       }
 
-      const { initialUsers, initialClasses, initialFees, initialTransactions, initialBudget, initialPersonnel, initialSettings } = req.body;
-
-      // Seed Users if table is empty
-      const existingUsers = await db.select().from(users).limit(1);
-      if (existingUsers.length === 0 && Array.isArray(initialUsers) && initialUsers.length > 0) {
-        for (const u of initialUsers) {
-          await db.insert(users).values({
-            uid: `seed_${Math.random().toString(36).substring(7)}`,
-            name: u.name,
-            role: u.role,
-            email: u.email,
-            status: u.status || 'active',
-            avatar: u.avatar || null,
-          }).onConflictDoNothing();
-        }
-      }
-
-      // Seed Classes
-      const existingClasses = await db.select().from(classes).limit(1);
-      if (existingClasses.length === 0 && Array.isArray(initialClasses) && initialClasses.length > 0) {
-        for (const c of initialClasses) {
-          await db.insert(classes).values({
-            name: c.name,
-            level: c.level || 'Primaire',
-            capacity: c.capacity || 40,
-          }).onConflictDoNothing();
-        }
-      }
-
-      // Seed Fees
-      const existingFees = await db.select().from(fees).limit(1);
-      if (existingFees.length === 0 && Array.isArray(initialFees) && initialFees.length > 0) {
-        for (const f of initialFees) {
-          await db.insert(fees).values({
-            name: f.name || f.feeType || f.type,
-            amount: Number(f.amount) || 0,
-            dueDate: f.dueDate || null,
-            type: f.type || 'tuition',
-          });
-        }
-      }
-
-      // Seed Transactions
-      const existingTxns = await db.select().from(transactions).limit(1);
-      if (existingTxns.length === 0 && Array.isArray(initialTransactions) && initialTransactions.length > 0) {
-        for (const t of initialTransactions) {
-          await db.insert(transactions).values({
-            description: t.description,
-            type: t.type,
-            amount: Number(t.amount) || 0,
-            date: t.date ? new Date(t.date) : new Date(),
-            category: t.category || 'Autres',
-          });
-        }
-      }
-
-      // Seed Personnel
-      const existingPersonnel = await db.select().from(personnel).limit(1);
-      if (existingPersonnel.length === 0 && Array.isArray(initialPersonnel) && initialPersonnel.length > 0) {
-        for (const p of initialPersonnel) {
-          await db.insert(personnel).values({
-            role: p.role,
-            baseSalary: Number(p.salary) || 0,
-            hireDate: p.hireDate || null,
-          });
-        }
-      }
-
-      res.json({ success: true, message: 'Données synchronisées avec succès sur Cloud SQL' });
-    } catch (error: any) {
-      console.error('Error seeding database:', error);
-      res.status(500).json({ success: false, error: error?.message || 'Erreur de synchronisation initiale' });
-    }
-  });
-
-  // Batch Sync Endpoint for Offline Queue Processing
-  app.post('/api/sync-batch', async (req, res) => {
-    try {
-      const { operations } = req.body;
-      if (!Array.isArray(operations) || operations.length === 0) {
-        return res.json({ success: true, message: 'Aucune opération à synchroniser' });
-      }
-
-      const supabaseAdmin = getSupabaseAdmin(req);
+      const central = role === 'Admin' || role === 'Co-admin';
       let processedCount = 0;
-      for (const op of operations) {
-        try {
-          if (op.type === 'TRANSACTION') {
-            const t = op.payload;
-            if (t) {
-              if (supabaseAdmin) {
-                const { error } = await supabaseAdmin.from('transactions').insert([{
-                  school_id: t.schoolId || t.school_id || null,
-                  description: t.description || '',
-                  type: t.type || 'expense',
-                  amount: Number(t.amount) || 0,
-                  date: t.date || new Date().toISOString(),
-                  category: t.category || 'Autres',
-                  recorded_by: t.recordedBy || t.recorded_by || null,
-                }]);
-                if (error) throw error;
-                processedCount++;
-                continue;
-              }
-              await db.insert(transactions).values({
-                description: t.description,
-                type: t.type,
-                amount: Number(t.amount) || 0,
-                date: t.date ? new Date(t.date) : new Date(),
-                category: t.category || 'Autres',
-              });
-              processedCount++;
-            }
-          } else if (op.type === 'PAYMENT') {
-            const p = op.payload;
-            if (p) {
-              if (supabaseAdmin) {
-                const { error } = await supabaseAdmin.from('payments').insert([{
-                  school_id: p.schoolId || p.school_id || null,
-                  student_id: p.studentId || p.student_id || null,
-                  fee_id: p.feeId || p.fee_id || null,
-                  amount: Number(p.amountPaid || p.amount) || 0,
-                  payment_date: p.paymentDate || p.payment_date || new Date().toISOString(),
-                  payment_method: p.paymentMethod || p.payment_method || 'Espèces',
-                  receipt_number: p.receiptNumber || p.receipt_number || `REC-${Date.now()}`,
-                  status: p.status || 'paid',
-                }]);
-                if (error) throw error;
-                processedCount++;
-                continue;
-              }
-              await db.insert(payments).values({
-                studentId: p.studentId,
-                amount: Number(p.amountPaid) || 0,
-                paymentDate: p.paymentDate ? new Date(p.paymentDate) : new Date(),
-                paymentMethod: p.paymentMethod || 'Espèces',
-                receiptNumber: p.receiptNumber || `REC-${Date.now()}`,
-                status: p.status || 'paid',
-              });
-              processedCount++;
-            }
-          } else if (op.type === 'USER') {
-            const u = op.payload;
-            if (u) {
-              if (supabaseAdmin) {
-                const { error } = await supabaseAdmin.from('users').upsert([{
-                  uid: u.uid || `local_${Date.now()}`,
-                  school_id: u.schoolId || u.school_id || null,
-                  name: u.name || u.email?.split('@')[0] || 'Utilisateur',
-                  role: u.role || 'Parent',
-                  email: u.email,
-                  status: u.status || 'active',
-                  avatar: u.avatar || null,
-                }], { onConflict: 'email' });
-                if (error) throw error;
-                processedCount++;
-                continue;
-              }
-              await db.insert(users).values({
-                uid: u.uid || `local_${Date.now()}`,
-                name: u.name,
-                role: u.role,
-                email: u.email,
-                status: u.status || 'active',
-                avatar: u.avatar || null,
-              });
-              processedCount++;
-            }
-          }
-        } catch (itemErr) {
-          console.warn('Erreur lors du traitement d\'une opération sync:', itemErr);
+      let duplicates = 0;
+
+      for (const raw of operations) {
+        const opId = String(raw?.id || '').trim();
+        const opType = String(raw?.type || '').toUpperCase();
+        const payload = raw?.payload || {};
+        if (!/^[A-Za-z0-9_-]{8,120}$/.test(opId)) {
+          return res.status(400).json({ success: false, error: 'Identifiant d’opération hors-ligne invalide.' });
         }
+
+        const requestedSchoolId = Number(payload.schoolId || payload.school_id || 0);
+        const schoolId = central ? requestedSchoolId : Number(actor.schoolId || actor.school_id || 0);
+        if (!Number.isInteger(schoolId) || schoolId <= 0) {
+          return res.status(400).json({ success: false, error: 'Établissement cible invalide pour la synchronisation.' });
+        }
+
+        const { data: school, error: schoolError } = await client
+          .from('schools').select('id').eq('id', schoolId).maybeSingle();
+        if (schoolError) throw schoolError;
+        if (!school) return res.status(404).json({ success: false, error: 'Établissement cible introuvable.' });
+
+        if (opType === 'TRANSACTION') {
+          const amount = Number(payload.amount);
+          if (!Number.isFinite(amount) || amount <= 0) {
+            return res.status(400).json({ success: false, error: 'Montant de transaction invalide.' });
+          }
+          const { data: existing, error: existingError } = await client
+            .from('transactions').select('id').eq('offline_operation_id', opId).maybeSingle();
+          if (existingError) throw existingError;
+          if (existing) { duplicates += 1; continue; }
+
+          const { error } = await client.from('transactions').insert([{
+            school_id: schoolId,
+            description: String(payload.description || '').slice(0, 500),
+            type: payload.type || 'expense',
+            amount,
+            date: payload.date || new Date().toISOString(),
+            category: String(payload.category || 'Autres').slice(0, 120),
+            recorded_by: actor.id || null,
+            offline_operation_id: opId,
+          }]);
+          if (error) throw error;
+          processedCount += 1;
+          continue;
+        }
+
+        const amount = Number(payload.amountPaid ?? payload.amount);
+        const studentId = Number(payload.studentId || payload.student_id || 0);
+        const feeId = Number(payload.feeId || payload.fee_id || 0);
+        if (!Number.isFinite(amount) || amount <= 0 || !Number.isInteger(studentId) || studentId <= 0) {
+          return res.status(400).json({ success: false, error: 'Paiement hors-ligne invalide.' });
+        }
+
+        const { data: student, error: studentError } = await client
+          .from('students').select('id,school_id').eq('id', studentId).eq('school_id', schoolId).maybeSingle();
+        if (studentError) throw studentError;
+        if (!student) return res.status(403).json({ success: false, error: 'Élève hors du périmètre de cet établissement.' });
+
+        if (feeId > 0) {
+          const { data: fee, error: feeError } = await client
+            .from('fees').select('id,school_id').eq('id', feeId).eq('school_id', schoolId).maybeSingle();
+          if (feeError) throw feeError;
+          if (!fee) return res.status(403).json({ success: false, error: 'Frais hors du périmètre de cet établissement.' });
+        }
+
+        const { data: existing, error: existingError } = await client
+          .from('payments').select('id').eq('offline_operation_id', opId).maybeSingle();
+        if (existingError) throw existingError;
+        if (existing) { duplicates += 1; continue; }
+
+        const { error } = await client.from('payments').insert([{
+          school_id: schoolId,
+          student_id: studentId,
+          fee_id: feeId > 0 ? feeId : null,
+          amount,
+          payment_date: payload.paymentDate || payload.payment_date || new Date().toISOString(),
+          payment_method: String(payload.paymentMethod || payload.payment_method || 'Espèces').slice(0, 80),
+          receipt_number: String(payload.receiptNumber || payload.receipt_number || ('OFF-' + opId)).slice(0, 120),
+          status: 'paid',
+          offline_operation_id: opId,
+        }]);
+        if (error) throw error;
+        processedCount += 1;
       }
 
-      res.json({
+      return res.json({
         success: true,
-        message: `${processedCount} opération(s) synchronisée(s) avec succès.`,
         processedCount,
+        duplicates,
         syncedAt: new Date().toISOString()
       });
     } catch (error: any) {
-      console.error('Batch Sync Error:', error);
-      res.status(500).json({ success: false, error: error?.message || 'Erreur lors de la synchronisation en lot' });
+      console.error('Secure batch sync error:', error);
+      return res.status(500).json({ success: false, error: 'Synchronisation hors-ligne impossible.' });
     }
   });
 
