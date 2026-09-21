@@ -2,12 +2,14 @@ import React,{useState} from 'react';
 import {KeyRound,LogOut,ShieldCheck} from 'lucide-react';
 import {getSupabaseClient} from '../src/lib/supabase';
 import {completeGovernmentPasswordSetup} from '../src/services/governmentAccounts';
+import {getNewPasswordError} from '../src/services/passwordPolicy';
 
 export default function GovernmentPasswordSetupPage({onComplete,onLogout}:{onComplete:()=>void;onLogout:()=>void}){
  const [password,setPassword]=useState(''),[confirm,setConfirm]=useState(''),[busy,setBusy]=useState(false),[msg,setMsg]=useState('');
 
  const save=async()=>{
-  if(password.length<10){setMsg('Le nouveau mot de passe doit contenir au moins 10 caractères.');return}
+  const passwordError=getNewPasswordError(password);
+  if(passwordError){setMsg(passwordError);return}
   if(password!==confirm){setMsg('Les deux mots de passe ne correspondent pas.');return}
   setBusy(true);setMsg('');
   try{
