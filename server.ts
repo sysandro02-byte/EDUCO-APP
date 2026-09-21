@@ -63,6 +63,7 @@ import {
   normalizeRole,
 } from './src/services/userAccountWorkflow.ts';
 import { buildStudentPaymentLedger } from './src/services/cashierWorkflow.ts';
+import { registerAdministrativePaymentRoutes, registerLoukaPayWebhook } from './server/administrativePayments.ts';
 
 const base64UrlEncode = (value: Buffer) => value.toString('base64url');
 const base64UrlDecode = (value: string) => Buffer.from(value, 'base64url');
@@ -619,6 +620,8 @@ async function startServer() {
     },
     credentials: true,
   }));
+  // LoukaPay signs the exact raw bytes, so register its webhook before JSON parsing.
+  registerLoukaPayWebhook(app, getSupabaseAdmin);
   app.use(express.json({ limit: '8mb' }));
 
   const rateBuckets = new Map<string, { count: number; resetAt: number }>();
@@ -663,6 +666,8 @@ async function startServer() {
       } catch (error: any) { res.status(503).json({ error: error.message }); }
     });
   });
+
+  registerAdministrativePaymentRoutes(app, requireAuth, getRequestUser, getSupabaseAdmin);
 
   // WebAuthn / Passkeys API Routes
   app.use('/api/auth/webauthn', createWebAuthnRouter(getSupabaseAdmin, db, schema.webauthnCredentials));
