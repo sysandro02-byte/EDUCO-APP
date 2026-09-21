@@ -90,3 +90,36 @@ export async function completeGovernmentPasswordSetup(){
   if(error) throw error;
   return data;
 }
+
+
+export async function listGovernmentJurisdictions(ministry:string,entity:string){
+  const s=getSupabaseClient(); if(!s) throw new Error('Supabase indisponible');
+  const {data,error}=await s.rpc('list_government_jurisdictions',{p_ministry:ministry,p_entity:entity});
+  if(error) throw error;
+  return data||[];
+}
+
+export async function searchJurisdictionCandidateSchools(ministry:string,entity:string,search=''){
+  const s=getSupabaseClient(); if(!s) throw new Error('Supabase indisponible');
+  const {data,error}=await s.rpc('list_jurisdiction_candidate_schools',{
+    p_ministry:ministry,p_entity:entity,p_search:search.trim()||null
+  });
+  if(error) throw error;
+  return data||[];
+}
+
+export async function setGovernmentJurisdiction(ministry:string,entity:string,schoolId:number,active:boolean){
+  const s=getSupabaseClient(); if(!s) throw new Error('Supabase indisponible');
+  const {data,error}=await s.rpc('manage_government_jurisdiction',{
+    p_ministry:ministry,p_entity:entity,p_school_id:schoolId,p_active:active
+  });
+  if(error) throw error;
+  return data;
+}
+
+export async function getMyGovernmentAssignments(){
+  const s=getSupabaseClient(); if(!s) throw new Error('Supabase indisponible');
+  const {data,error}=await s.rpc('get_my_government_assignments');
+  if(error) throw error;
+  return data||[];
+}

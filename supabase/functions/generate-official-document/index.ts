@@ -37,6 +37,12 @@ Deno.serve(async (req) => {
   }
 
   const doc = Array.isArray(reserved) ? reserved[0] : reserved;
+  const failReservation = async (reason: string) => {
+    await userClient.rpc("fail_administrative_document", {
+      p_document_id: doc.id,
+      p_reason: reason.slice(0, 1000),
+    }).catch(() => undefined);
+  };
   const verificationUrl =
     `https://educo.loukatech.com/?page=V%C3%A9rifier%20un%20document&token=${doc.verification_token}`;
 
@@ -94,6 +100,7 @@ Deno.serve(async (req) => {
     });
 
   if (upload.error) {
+    await failReservation(`Stockage impossible: ${upload.error.message}`);
     return json({ error: "Stockage impossible", detail: upload.error.message }, 500);
   }
 
@@ -110,6 +117,7 @@ Deno.serve(async (req) => {
     await admin.storage
       .from("official-administrative-documents")
       .remove([storagePath]);
+    await failReservation(`Finalisation impossible: ${finalizeError.message}`);
     return json({ error: finalizeError.message }, 400);
   }
 
