@@ -142,7 +142,7 @@ test('confirmed payments cannot be downgraded by contradictory provider callback
 
 
 test('MES official fee engine supports fixed and cycle-based verified tariffs', () => {
-  assert.match(mesFeeEngine, /'MES-CRE'[\s\S]*?850000/);
+  assert.match(mesFeeEngine, /fee_amount=850000[\s\S]*?where code='MES-CRE'/);
   assert.match(mesFeeEngine, /'MES-OUV','CYCLE_2'[\s\S]*?550000/);
   assert.match(mesFeeEngine, /'MES-REN-DIR','CYCLE_2'[\s\S]*?35500/);
   assert.match(mesFeeEngine, /'MES-REN-ENS','CYCLE_3'[\s\S]*?20000/);
