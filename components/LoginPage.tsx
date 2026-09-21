@@ -7,7 +7,6 @@ import { BiometricLoginButton } from './auth/BiometricLoginButton';
 import { loginWithWebAuthn } from '../src/services/webauthnService';
 import { LoadingDots } from './LoadingDots';
 import { brevoEmailService } from '../src/services/brevoEmailService';
-import { getSupabaseClient, getStoredSupabaseConfig, isPlaceholderSupabaseUrl } from '../src/lib/supabase';
 import { getApiUrl } from '../src/lib/apiConfig';
 import { getNewPasswordError, NEW_PASSWORD_MIN_LENGTH } from '../src/services/passwordPolicy';
 
@@ -253,48 +252,12 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
         return;
       }
 
-      // 2. Try Supabase Auth SignUp if configured
-      let userUid: string | null = null;
-      try {
-        const { url } = getStoredSupabaseConfig();
-        if (!isPlaceholderSupabaseUrl(url)) {
-          const supabase = getSupabaseClient();
-          const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-            email: parentForm.parentEmail,
-            password: parentForm.password,
-            options: {
-              data: {
-                name: parentForm.parentName,
-                role: 'Parent',
-              }
-            }
-          });
-          if (signUpError) {
-            setParentRegError(signUpError.message || "Impossible de créer le compte parent dans Supabase Auth.");
-            setIsSubmittingParent(false);
-            return;
-          } else if (signUpData?.user?.id) {
-            userUid = signUpData.user.id;
-          }
-        } else {
-          setParentRegError("Supabase Auth doit être configuré avant de créer un compte parent.");
-          setIsSubmittingParent(false);
-          return;
-        }
-      } catch (authErr: any) {
-        setParentRegError(authErr?.message || "Supabase Auth indisponible pour l'inscription parent.");
-        setIsSubmittingParent(false);
-        return;
-      }
-
-      // 3. Complete Parent Registration in DB
+      // 2. Complete registration through the authoritative backend.
+      // The browser never chooses or creates the Auth uid.
       const res = await fetch(getApiUrl('/api/auth/register-parent'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...parentForm,
-          uid: userUid
-        })
+        body: JSON.stringify(parentForm)
       });
       const data = await res.json();
 
