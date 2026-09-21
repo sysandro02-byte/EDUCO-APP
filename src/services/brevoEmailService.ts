@@ -10,7 +10,6 @@ export interface SendOtpRequest {
   name?: string;
   purpose?: 'school_registration' | 'login_2fa' | 'password_reset' | 'general';
   templateId?: number | string | null;
-  customApiKey?: string;
 }
 
 export interface VerifyOtpRequest {
@@ -28,7 +27,6 @@ export interface SendWelcomeRequest {
   tempPassword?: string;
   loginUrl?: string;
   templateId?: number | string | null;
-  customApiKey?: string;
 }
 
 export interface SendPasswordResetRequest {
@@ -36,7 +34,6 @@ export interface SendPasswordResetRequest {
   name?: string;
   resetUrl?: string;
   templateId?: number | string | null;
-  customApiKey?: string;
 }
 
 export interface ConfirmPasswordResetRequest {
@@ -47,7 +44,6 @@ export interface ConfirmPasswordResetRequest {
 }
 
 export interface TestBrevoRequest {
-  apiKey?: string;
   senderEmail?: string;
   senderName?: string;
   toEmail: string;
@@ -84,6 +80,14 @@ async function safeFetchJson(url: string, init?: RequestInit): Promise<any> {
     throw err;
   }
 }
+
+const getEducoAuthHeaders = () => {
+  const token = typeof window !== 'undefined' ? (localStorage.getItem('EDUCO_USER_TOKEN') || '') : '';
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+  };
+};
 
 class BrevoEmailServiceClient {
   /**
@@ -144,13 +148,7 @@ class BrevoEmailServiceClient {
       if (data && data.success) {
         return { success: true, verified: true };
 
-const getEducoAuthHeaders = () => {
-  const token = typeof window !== 'undefined' ? (localStorage.getItem('EDUCO_USER_TOKEN') || '') : '';
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-  };
-};
+
       }
       
       if (data && data.error) {
@@ -237,11 +235,10 @@ const getEducoAuthHeaders = () => {
     keyCheck?: any;
   }> {
     try {
-      const { apiKey: _ignoredClientSecret, ...safeParams } = params;
       return await safeFetchJson(getApiUrl('/api/email/test-brevo'), {
         method: 'POST',
         headers: getEducoAuthHeaders(),
-        body: JSON.stringify(safeParams),
+        body: JSON.stringify(params),
       });
     } catch (err: any) {
       return { success: false, error: err.message || "Erreur de connexion" };
@@ -251,7 +248,7 @@ const getEducoAuthHeaders = () => {
   /**
    * Fetch transactional email audit logs from Brevo API and server memory
    */
-  async getEmailLogs(apiKey?: string): Promise<{
+  async getEmailLogs(): Promise<{
     success: boolean;
     logs: Array<{
       id: string;
@@ -281,7 +278,7 @@ const getEducoAuthHeaders = () => {
   /**
    * Verify sender email address status in Brevo dashboard
    */
-  async getSenders(apiKey?: string): Promise<{
+  async getSenders(): Promise<{
     success: boolean;
     configuredSenderEmail: string;
     isVerified: boolean;
