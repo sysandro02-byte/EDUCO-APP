@@ -19,7 +19,6 @@ where p.code='METP'
 on conflict (code) do update set
   label=excluded.label,
   parent_id=excluded.parent_id,
-  active=true,
   updated_at=now();
 
 -- Route the METP procedures to the directorate expressly charged with them.
@@ -49,7 +48,7 @@ insert into public.administrative_services(
   legal_status,legal_reference,legal_source_url,
   fee_amount,fee_currency,fee_status,fee_reference,fee_source_url,
   payment_enabled,output_document,publication_status,requirements_status,
-  processing_days,processing_days_status,form_version,active
+  processing_days,processing_days_status,form_version
 )
 values
  ('MEPSA-CRE','MEPSA','AGREMENTS','AGREMENTS','Autorisation de créer un établissement privé d’enseignement général','Établissements privés',
@@ -62,49 +61,49 @@ values
   'VERIFIED','Arrêté n°8409 du 22 octobre 2010 ; décret n°96-221 du 13 mai 1996 modifié ; décret n°2008-127 du 23 juin 2008',
   'https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
   null,'XAF','HISTORICAL','Arrêté n°8409 du 22 octobre 2010','https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
-  false,'Autorisation d’ouverture','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1,true),
+  false,'Autorisation d’ouverture','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1),
 
  ('MEPSA-DIR','MEPSA','AGREMENTS','AGREMENTS','Autorisation de diriger un établissement privé d’enseignement général','Particuliers / établissements privés',
   'VERIFIED','Arrêté n°8409 du 22 octobre 2010 ; décret n°96-221 du 13 mai 1996 modifié',
   'https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
   null,'XAF','HISTORICAL','Arrêté n°8409 du 22 octobre 2010','https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
-  false,'Autorisation de diriger','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1,true),
+  false,'Autorisation de diriger','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1),
 
  ('MEPSA-ENS','MEPSA','AGREMENTS','AGREMENTS','Autorisation d’enseigner dans un établissement privé d’enseignement général','Particuliers / enseignants',
   'VERIFIED','Arrêté n°8409 du 22 octobre 2010 ; décret n°96-221 du 13 mai 1996 modifié',
   'https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
   null,'XAF','HISTORICAL','Arrêté n°8409 du 22 octobre 2010','https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
-  false,'Autorisation d’enseigner','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1,true),
+  false,'Autorisation d’enseigner','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1),
 
  ('MEPSA-MOD','MEPSA','AGREMENTS','AGREMENTS','Autorisation d’étendre ou de modifier un établissement privé d’enseignement général','Établissements privés',
   'VERIFIED','Arrêté n°8409 du 22 octobre 2010 ; décret n°96-221 du 13 mai 1996 modifié',
   'https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
   null,'XAF','HISTORICAL','Arrêté n°8409 du 22 octobre 2010','https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
-  false,'Autorisation d’extension ou de modification','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1,true),
+  false,'Autorisation d’extension ou de modification','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1),
 
  ('MEPSA-EXAM','MEPSA','EXAMENS','EXAMENS','Autorisation d’inscrire des candidats aux examens d’État','Établissements privés',
   'VERIFIED','Arrêté n°8409 du 22 octobre 2010',
   'https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
   null,'XAF','HISTORICAL','Arrêté n°8409 du 22 octobre 2010','https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
-  false,'Autorisation d’inscription aux examens d’État','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1,true),
+  false,'Autorisation d’inscription aux examens d’État','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1),
 
  ('MEPSA-TRANS','MEPSA','AGREMENTS','AGREMENTS','Autorisation de transférer un établissement privé d’enseignement général','Établissements privés',
   'VERIFIED','Arrêté n°8409 du 22 octobre 2010 ; décret n°96-221 du 13 mai 1996 modifié',
   'https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
   null,'XAF','HISTORICAL','Arrêté n°8409 du 22 octobre 2010','https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
-  false,'Autorisation de transfert','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1,true),
+  false,'Autorisation de transfert','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1),
 
  ('MEPSA-REN-DIR','MEPSA','AGREMENTS','AGREMENTS','Renouvellement de l’autorisation de diriger un établissement privé d’enseignement général','Particuliers / établissements privés',
   'VERIFIED','Arrêté n°8409 du 22 octobre 2010',
   'https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
   null,'XAF','HISTORICAL','Arrêté n°8409 du 22 octobre 2010','https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
-  false,'Renouvellement de l’autorisation de diriger','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1,true),
+  false,'Renouvellement de l’autorisation de diriger','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1),
 
  ('MEPSA-REN-ENS','MEPSA','AGREMENTS','AGREMENTS','Renouvellement de l’autorisation d’enseigner dans un établissement privé d’enseignement général','Particuliers / enseignants',
   'VERIFIED','Arrêté n°8409 du 22 octobre 2010',
   'https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
   null,'XAF','HISTORICAL','Arrêté n°8409 du 22 octobre 2010','https://www.sgg.cg/JO/2010/congo-jo-2010-43.pdf',
-  false,'Renouvellement de l’autorisation d’enseigner','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1,true)
+  false,'Renouvellement de l’autorisation d’enseigner','LEGAL_REVIEW','TO_VERIFY',null,'TO_VERIFY',1)
 on conflict (code) do update set
   ministry=excluded.ministry,
   competent_direction=excluded.competent_direction,
@@ -122,7 +121,6 @@ on conflict (code) do update set
   fee_reference=coalesce(public.administrative_services.fee_reference,excluded.fee_reference),
   fee_source_url=coalesce(public.administrative_services.fee_source_url,excluded.fee_source_url),
   output_document=excluded.output_document,
-  active=true,
   updated_at=now();
 
 -- 4) Variant fee registry: historical values are recorded without being treated as current/chargeable.
