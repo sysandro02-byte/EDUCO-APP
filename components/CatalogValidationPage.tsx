@@ -39,6 +39,7 @@ const serviceDefaults=(row:WorkspaceRow)=>{
 
 const fieldsDefaults=(row:WorkspaceRow)=>row.active_request?.proposed_form_fields||row.current_snapshot?.form_fields||[];
 const docsDefaults=(row:WorkspaceRow)=>row.active_request?.proposed_required_documents||row.current_snapshot?.required_documents||[];
+const feeVariantsDefaults=(row:WorkspaceRow)=>row.active_request?.proposed_fee_variants||row.current_snapshot?.fee_variants||[];
 
 export default function CatalogValidationPage({currentUser}:{currentUser?:any}){
   const role=String(currentUser?.role||'');
@@ -51,6 +52,7 @@ export default function CatalogValidationPage({currentUser}:{currentUser?:any}){
   const [proposal,setProposal]=useState<any>({});
   const [fields,setFields]=useState<any[]>([]);
   const [docs,setDocs]=useState<any[]>([]);
+  const [feeVariants,setFeeVariants]=useState<any[]>([]);
   const [history,setHistory]=useState<any[]>([]);
   const [busy,setBusy]=useState(false);
   const [msg,setMsg]=useState('');
@@ -66,6 +68,7 @@ export default function CatalogValidationPage({currentUser}:{currentUser?:any}){
     setProposal(serviceDefaults(row));
     setFields(fieldsDefaults(row).map((f:any)=>({...f,active:f.active!==false,options:Array.isArray(f.options)?f.options:[]})));
     setDocs(docsDefaults(row).map((d:any)=>({...d,active:d.active!==false,allowed_mime_types:Array.isArray(d.allowed_mime_types)?d.allowed_mime_types:['application/pdf','image/jpeg','image/png']})));
+    setFeeVariants(feeVariantsDefaults(row).map((v:any)=>({...v,active:v.active!==false,attributes:v.attributes&&typeof v.attributes==='object'?v.attributes:{}})));
   };
 
   const load=async(preferred?:string)=>{
@@ -103,6 +106,7 @@ export default function CatalogValidationPage({currentUser}:{currentUser?:any}){
         proposedService:proposal,
         formFields:fields,
         requiredDocuments:docs,
+        feeVariants,
       });
       setMsg('Brouillon de modification enregistré et journalisé.');
       await load(selected.service_code);
@@ -161,6 +165,11 @@ export default function CatalogValidationPage({currentUser}:{currentUser?:any}){
     document_code:`DOC_${v.length+1}`,label:'Nouvelle pièce',required:true,verified:false,
     conditional_note:'',allowed_mime_types:['application/pdf','image/jpeg','image/png'],
     max_size_bytes:10485760,sort_order:(v.length+1)*10,active:true
+  }]);
+  const addFeeVariant=()=>setFeeVariants(v=>[...v,{
+    variant_code:`CYCLE_${v.length+1}`,label:'Nouveau barème',attributes:{},amount:'',
+    currency:'XAF',fee_status:'TO_VERIFY',legal_reference:'',source_url:'',
+    valid_from:'',valid_until:'',active:true
   }]);
 
   if(!allowed){
