@@ -12,6 +12,14 @@ interface AdminDiagnosticProps {
   subjects?: any[];
 }
 
+const getDiagnosticHeaders = () => {
+  const token = localStorage.getItem('EDUCO_USER_TOKEN') || '';
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+  };
+};
+
 export const AdminDiagnostic: React.FC<AdminDiagnosticProps> = ({
   users = [],
   payments = [],
@@ -32,7 +40,7 @@ export const AdminDiagnostic: React.FC<AdminDiagnosticProps> = ({
   const checkConnection = async () => {
     setIsLoadingStatus(true);
     try {
-      const res = await fetch('/api/db/status');
+      const res = await fetch('/api/db/status', { headers: getDiagnosticHeaders() });
       const data = await res.json();
       setDbStatus(data);
     } catch (err) {
@@ -74,7 +82,7 @@ export const AdminDiagnostic: React.FC<AdminDiagnosticProps> = ({
       // For safety and robustness, we can send to an api endpoint or simulate safe execution
       const res = await fetch('/api/db/query', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getDiagnosticHeaders(),
         body: JSON.stringify({ query: sqlQuery })
       });
       const data = await res.json();
