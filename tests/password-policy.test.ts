@@ -35,7 +35,7 @@ test('server enforces shared policy for account creation and resets', () => {
   assert.match(server, /getNewPasswordError/);
   assert.match(server, /const parentPasswordError = getNewPasswordError\(password\)/);
   assert.match(server, /const passwordError = getNewPasswordError\(newPassword\)/);
-  assert.match(server, /Educo!7\$\{crypto\.randomBytes\(16\)\.toString\('base64url'\)\}/);
+  assert.match(server, /Educo!7\$\{crypto\.randomBytes\(24\)\.toString\('base64url'\)\}/);
   assert.doesNotMatch(server, /Parent123!/);
   assert.match(studentEnrollment, /getNewPasswordError\(password\)/);
 });
