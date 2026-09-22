@@ -1,0 +1,4 @@
+create index if not exists administrative_payment_receipts_provider_idx
+on public.administrative_payment_receipts(provider_code);
+
+drop index if exists public.administrative_payment_receipts_verification_idx;
