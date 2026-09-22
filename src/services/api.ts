@@ -122,7 +122,7 @@ export async function saveUserToDb(user: any) {
     const res = await fetch(getApiUrl(endpoint), {
       method: 'POST',
       headers,
-      body: JSON.stringify(payload),
+      body: JSON.stringify((({ apiKey: _ignored, ...safePayload }: any) => safePayload)(payload)),
     });
     const data = await safeJson(res, {});
     if (!res.ok || data?.error) {
@@ -828,7 +828,6 @@ export async function sendBrevoBulkMessages(payload: {
   subject?: string;
   message: string;
   schoolName: string;
-  apiKey?: string;
   senderName?: string;
   senderEmail?: string;
 }) {
