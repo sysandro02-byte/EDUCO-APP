@@ -37,6 +37,10 @@ const settingsPage = fs.readFileSync(new URL('../components/SettingsPage.tsx', i
 const financialReports = fs.readFileSync(new URL('../components/FinancialReportsPage.tsx', import.meta.url), 'utf8');
 const schoolRegistration = fs.readFileSync(new URL('../components/SchoolEstablishmentRegistrationModal.tsx', import.meta.url), 'utf8');
 const offlineIdempotency = fs.readFileSync(new URL('../supabase/migrations/20260921_offline_sync_idempotency.sql', import.meta.url), 'utf8');
+const paymentReceipts = fs.readFileSync(new URL('../supabase/migrations/20260921210015_administrative_payment_receipts.sql', import.meta.url), 'utf8');
+const paymentReceiptAcl = fs.readFileSync(new URL('../supabase/migrations/20260921210027_administrative_payment_receipt_acl_correction.sql', import.meta.url), 'utf8');
+const paymentReceiptPublicAcl = fs.readFileSync(new URL('../supabase/migrations/20260921210154_administrative_payment_receipt_public_verification_acl.sql', import.meta.url), 'utf8');
+const myAdministrativeApplications = fs.readFileSync(new URL('../components/MyAdministrativeApplications.tsx', import.meta.url), 'utf8');
 
 test('government public RPCs are invoker wrappers over private capability checks', () => {
   for (const fn of [
@@ -191,6 +195,23 @@ test('MES program-opening dossiers use published decree requirements but stay lo
   assert.match(mesProgramRequirements, /'BANK_ACCOUNT_ATTESTATION'/);
   assert.match(mesProgramRequirements, /'INSPECTION_REPORTS'/);
   assert.match(mesProgramRequirements, /payment_enabled=false/);
+});
+
+
+test('confirmed administrative payments receive a server-backed receipt without pretending to be a fiscal quittance', () => {
+  assert.match(paymentReceipts, /administrative_payment_receipts/);
+  assert.match(paymentReceipts, /after update of status on public\.administrative_payment_transactions/i);
+  assert.match(paymentReceipts, /new\.status='PAID'/);
+  assert.match(paymentReceipts, /TECHNICAL_CONFIRMATION/);
+  assert.match(paymentReceipts, /OFFICIAL_QUITTANCE/);
+  assert.match(paymentReceipts, /where r\.owner_uid=\(select auth\.uid\(\)\)/);
+  assert.match(paymentReceipts, /grant execute on function public\.verify_administrative_payment_receipt\(uuid\) to anon, authenticated/i);
+  assert.doesNotMatch(paymentReceipts, /applicant_name|applicant_email/);
+  assert.match(paymentReceiptAcl, /grant execute on function private\.attach_administrative_fiscal_receipt_secure[\s\S]*to service_role/i);
+  assert.match(paymentReceiptAcl, /grant execute on function public\.attach_administrative_fiscal_receipt[\s\S]*to service_role/i);
+  assert.match(paymentReceiptPublicAcl, /grant execute on function private\.verify_administrative_payment_receipt_secure\(uuid\)[\s\S]*to anon, authenticated/i);
+  assert.match(paymentClient, /list_my_administrative_payment_receipts/);
+  assert.match(myAdministrativeApplications, /ne remplace pas une quittance fiscale ou du Trésor/i);
 });
 
 
