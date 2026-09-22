@@ -1159,7 +1159,7 @@ async function startServer() {
         }
 
         const authMetadata = {
-            name: promoterName || firebaseUser?.name || 'Promoteur',
+            name: promoterName || 'Promoteur',
             role: 'Promoteur',
             schoolName,
             schoolIdentifier
@@ -1322,7 +1322,7 @@ async function startServer() {
             uid: resolvedUid,
             email: resolvedEmail,
             phone: normalizePhoneIdentity(promoterContact || schoolPhone) || null,
-            name: promoterName || firebaseUser?.name || 'Promoteur',
+            name: promoterName || 'Promoteur',
             role: 'Promoteur',
             school_id: newSchool.id,
             status: 'active'
@@ -1347,7 +1347,7 @@ async function startServer() {
             phone: schoolPhone || null,
             email: resolvedEmail,
             creation_date: creationDate || null,
-            promoter_name: promoterName || firebaseUser?.name || 'Promoteur',
+            promoter_name: promoterName || 'Promoteur',
             promoter_contact: promoterContact || schoolPhone || null,
             promoter_email: resolvedEmail,
             status: 'registered'
@@ -1357,7 +1357,7 @@ async function startServer() {
             uid: resolvedUid,
             email: resolvedEmail,
             phone: normalizePhoneIdentity(promoterContact || schoolPhone) || null,
-            name: promoterName || firebaseUser?.name || 'Promoteur',
+            name: promoterName || 'Promoteur',
             role: 'Promoteur',
             school_id: newSchool.id,
             status: 'active'
@@ -6401,7 +6401,6 @@ async function startServer() {
         tempPassword,
         loginUrl: loginUrl || `${getPublicAppUrl(req)}/?login=1`,
         templateId: templateId || null,
-        customApiKey,
       });
 
       res.json({
