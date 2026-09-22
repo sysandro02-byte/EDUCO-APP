@@ -122,7 +122,7 @@ export async function saveUserToDb(user: any) {
     const res = await fetch(getApiUrl(endpoint), {
       method: 'POST',
       headers,
-      body: JSON.stringify((({ apiKey: _ignored, ...safePayload }: any) => safePayload)(payload)),
+      body: JSON.stringify(payload),
     });
     const data = await safeJson(res, {});
     if (!res.ok || data?.error) {
