@@ -270,7 +270,10 @@ Fournis une brève prévision financière pour le prochain trimestre. Mets en é
 
             const res = await fetch('/api/ai/groq/report', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('EDUCO_USER_TOKEN') || ''}`,
+                },
                 body: JSON.stringify({ prompt })
             });
             const data = await res.json();
@@ -463,7 +466,10 @@ L'établissement présente un résultat net de **${(totalRevenue - totalExpenses
             
             const res = await fetch('/api/ai/gemini/report', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('EDUCO_USER_TOKEN') || ''}`,
+                },
                 body: JSON.stringify({ prompt })
             });
             const data = await res.json().catch(() => null);
