@@ -28,6 +28,15 @@ const serviceRoleAcl = fs.readFileSync(new URL('../supabase/migrations/20260921_
 const administrativeServicesPage = fs.readFileSync(new URL('../components/AdministrativeServicesPage.tsx', import.meta.url), 'utf8');
 const catalogValidationPage = fs.readFileSync(new URL('../components/CatalogValidationPage.tsx', import.meta.url), 'utf8');
 const catalogValidationClient = fs.readFileSync(new URL('../src/services/catalogValidation.ts', import.meta.url), 'utf8');
+const server = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+const brevoServer = fs.readFileSync(new URL('../server/brevo.ts', import.meta.url), 'utf8');
+const brevoClient = fs.readFileSync(new URL('../src/services/brevoEmailService.ts', import.meta.url), 'utf8');
+const schoolApiClient = fs.readFileSync(new URL('../src/services/api.ts', import.meta.url), 'utf8');
+const offlineStorage = fs.readFileSync(new URL('../utils/offlineStorage.ts', import.meta.url), 'utf8');
+const settingsPage = fs.readFileSync(new URL('../components/SettingsPage.tsx', import.meta.url), 'utf8');
+const financialReports = fs.readFileSync(new URL('../components/FinancialReportsPage.tsx', import.meta.url), 'utf8');
+const schoolRegistration = fs.readFileSync(new URL('../components/SchoolEstablishmentRegistrationModal.tsx', import.meta.url), 'utf8');
+const offlineIdempotency = fs.readFileSync(new URL('../supabase/migrations/20260921_offline_sync_idempotency.sql', import.meta.url), 'utf8');
 
 test('government public RPCs are invoker wrappers over private capability checks', () => {
   for (const fn of [
@@ -182,4 +191,99 @@ test('MES program-opening dossiers use published decree requirements but stay lo
   assert.match(mesProgramRequirements, /'BANK_ACCOUNT_ATTESTATION'/);
   assert.match(mesProgramRequirements, /'INSPECTION_REPORTS'/);
   assert.match(mesProgramRequirements, /payment_enabled=false/);
+});
+
+
+test('legacy credential caches and public destructive database routes stay disabled', () => {
+  assert.doesNotMatch(server, /registeredAccountsStore/);
+  assert.doesNotMatch(server, /entry\.password\s*===\s*password/);
+  for (const route of ['seed-all','purge-all','test-create-school','init-seed']) {
+    const start = server.indexOf(`app.post('/api/db/${route}'`);
+    assert.ok(start >= 0, `legacy route ${route} must remain explicitly retired`);
+    assert.match(server.slice(start, start + 700), /status\(410\)/);
+  }
+});
+
+test('offline financial sync is authenticated, school-scoped and idempotent', () => {
+  const start = server.indexOf("app.post('/api/sync-batch'");
+  assert.ok(start >= 0);
+  const route = server.slice(start, start + 10000);
+  assert.match(route, /requireAuth/);
+  assert.match(route, /offline_operation_id/);
+  assert.match(route, /actor\.schoolId/);
+  assert.match(route, /\['TRANSACTION','PAYMENT'\]/);
+  assert.match(route, /synchronisation hors-ligne des comptes utilisateurs/i);
+  assert.match(offlineStorage, /Authorization.*Bearer/s);
+  assert.match(offlineIdempotency, /transactions_offline_operation_unique/);
+  assert.match(offlineIdempotency, /payments_offline_operation_unique/);
+  assert.match(offlineIdempotency, /where offline_operation_id is not null/i);
+});
+
+test('public school and parent registrations verify OTP and password policy on the server', () => {
+  const schoolStart = server.indexOf("app.post('/api/auth/register-school'");
+  const parentStart = server.indexOf("app.post('/api/auth/register-parent'");
+  assert.ok(schoolStart >= 0 && parentStart > schoolStart);
+  const schoolRoute = server.slice(schoolStart, parentStart);
+  const parentRoute = server.slice(parentStart, parentStart + 11000);
+  assert.match(schoolRoute, /getNewPasswordError\(rawAdminPassword\)/);
+  assert.match(schoolRoute, /otpManager\.verifyOtp\(resolvedEmail[\s\S]*school_registration/);
+  assert.doesNotMatch(schoolRoute, /req\.body\.uid/);
+  assert.match(parentRoute, /getNewPasswordError\(password\)/);
+  assert.match(parentRoute, /otpManager\.verifyOtp\(normalizedParentEmail/);
+  assert.doesNotMatch(parentRoute, /req\.body\.uid/);
+  assert.match(schoolRegistration, /otpCode: otp/);
+  assert.match(schoolRegistration, /NEW_PASSWORD_MIN_LENGTH/);
+});
+
+test('OTP generation uses cryptographic randomness and public reset endpoints are throttled', () => {
+  assert.match(brevoServer, /randomInt\(100000, 1000000\)/);
+  assert.doesNotMatch(brevoServer, /Math\.random\(\).*900000/);
+  assert.match(server, /password-reset-email.*rateLimit|rateLimit\('password-reset-email'/s);
+  assert.match(server, /password-reset-confirm.*rateLimit|rateLimit\('password-reset-confirm'/s);
+});
+
+test('Brevo provider secrets remain server-side and diagnostics require authentication', () => {
+  assert.doesNotMatch(brevoClient, /customApiKey/);
+  assert.doesNotMatch(brevoClient, /apiKey\?: string/);
+  assert.doesNotMatch(settingsPage, /xkeysib-/);
+  assert.match(settingsPage, /Clé API gérée côté serveur/);
+  assert.match(server, /app\.get\('\/api\/email\/logs', requireAuth/);
+  assert.match(server, /app\.get\('\/api\/email\/senders', requireAuth/);
+  assert.match(server, /app\.post\('\/api\/email\/test-brevo', requireAuth/);
+  assert.match(server, /app\.post\('\/api\/messaging\/brevo-bulk', requireAuth/);
+  assert.doesNotMatch(schoolApiClient.slice(schoolApiClient.indexOf('sendBrevoBulkMessages'), schoolApiClient.indexOf('// Parent Surveys API')), /apiKey\?:/);
+});
+
+test('AI report proxies and survey responses require authenticated EDUCO sessions', () => {
+  assert.match(server, /app\.post\('\/api\/ai\/groq\/report', requireAuth/);
+  assert.match(server, /app\.post\('\/api\/ai\/gemini\/report', requireAuth/);
+  assert.match(server, /app\.post\('\/api\/surveys\/:id\/respond', requireAuth/);
+  assert.match(financialReports, /\/api\/ai\/groq\/report[\s\S]*Authorization[\s\S]*EDUCO_USER_TOKEN/);
+  assert.match(financialReports, /\/api\/ai\/gemini\/report[\s\S]*Authorization[\s\S]*EDUCO_USER_TOKEN/);
+  const surveyClient = schoolApiClient.slice(schoolApiClient.indexOf('submitSurveyResponse'), schoolApiClient.indexOf('fetchSurveyReport'));
+  assert.match(surveyClient, /getAuthHeaders\(\)/);
+});
+
+test('admin password reset invalidates access without exposing a temporary password', () => {
+  const start = server.indexOf("app.post('/api/users/:id/reset-password'");
+  const end = server.indexOf("// DELETE /api/users/:id", start);
+  assert.ok(start >= 0 && end > start);
+  const route = server.slice(start, end);
+  assert.match(route, /auth\.admin\.updateUserById/);
+  assert.match(route, /Mot de passe oublié/);
+  assert.doesNotMatch(route, /tempPassword\s*:/);
+  assert.match(settingsPage, /\/api\/users\/\$\{user\.id\}\/reset-password/);
+  assert.doesNotMatch(settingsPage, /Mot de passe temporaire pour/);
+});
+
+test('public account enumeration is retired and matricule lookup is minimized', () => {
+  const findStart = server.indexOf("app.get('/api/auth/find-user'");
+  assert.ok(findStart >= 0);
+  assert.match(server.slice(findStart, findStart + 500), /status\(410\)/);
+  const schoolStart = server.indexOf("app.get('/api/auth/verify-school-matricule");
+  const schoolEnd = server.indexOf("app.get('/api/auth/find-user", schoolStart);
+  const lookup = server.slice(schoolStart, schoolEnd);
+  assert.match(lookup, /rateLimit\('school-matricule-verify'/);
+  assert.match(lookup, /school: \{ id: schoolObj\.id, name: schoolObj\.name, identifier: schoolObj\.identifier \}/);
+  assert.doesNotMatch(lookup, /schoolObj\.address|schoolObj\.phone/);
 });
