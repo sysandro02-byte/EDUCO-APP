@@ -11,6 +11,17 @@ const MINISTRY_ENTITIES: Record<string, Set<string>> = {
 const clean = (value: unknown, max = 2000) => String(value ?? '').trim().slice(0, max);
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const publicSubmissionLimits = new Map<string, { count: number; resetAt: number }>();
+const allowPublicSubmission = (key: string, now = Date.now()) => {
+  const current = publicSubmissionLimits.get(key);
+  if (!current || current.resetAt <= now) {
+    publicSubmissionLimits.set(key, { count: 1, resetAt: now + 30 * 60 * 1000 });
+    return true;
+  }
+  current.count += 1;
+  return current.count <= 5;
+};
+
 export const normalizeGovernmentRole = (role: unknown) => String(role || '')
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
@@ -247,6 +258,10 @@ export function registerInstitutionalAccountReview(app: Express, requireAuth: an
       const requestedRole = `${ministry}_${entity}`;
       const fullName = clean(req.body?.fullName, 160);
       const officialEmail = clean(req.body?.officialEmail, 254).toLowerCase();
+      const submissionKey = `${req.ip || req.socket?.remoteAddress || 'unknown'}:${officialEmail}`;
+      if (!allowPublicSubmission(submissionKey)) {
+        return res.status(429).json({ error: 'Trop de demandes. Réessayez plus tard.' });
+      }
       const phone = clean(req.body?.phone, 40);
       const employeeNumber = clean(req.body?.employeeNumber, 120);
       const functionTitle = clean(req.body?.functionTitle, 180);
@@ -375,6 +390,10 @@ export function registerInstitutionalAccountReview(app: Express, requireAuth: an
       const requestType = clean(req.body?.requestType, 20).toUpperCase() || 'CREATION';
       const officialName = clean(req.body?.officialName, 220);
       const officialEmail = clean(req.body?.officialEmail, 254).toLowerCase();
+      const submissionKey = `${req.ip || req.socket?.remoteAddress || 'unknown'}:${officialEmail}`;
+      if (!allowPublicSubmission(submissionKey)) {
+        return res.status(429).json({ error: 'Trop de dossiers. Réessayez plus tard.' });
+      }
       const phone = clean(req.body?.phone, 40);
       const address = clean(req.body?.address, 1200);
       const promoter = clean(req.body?.promoterOrInitiator, 220);

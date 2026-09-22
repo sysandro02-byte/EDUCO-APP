@@ -92,9 +92,15 @@ export async function syncPendingOperationsToServer(onProgress?: (msg: string) =
   try {
     if (onProgress) onProgress(`Synchronisation de ${queue.length} opération(s) hors-ligne...`);
 
+    const token = localStorage.getItem('EDUCO_USER_TOKEN') || '';
+    if (!token) throw new Error('Session EDUCO requise pour synchroniser les opérations hors-ligne.');
+
     const res = await fetch('/api/sync-batch', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
       body: JSON.stringify({ operations: queue }),
     });
 
@@ -103,9 +109,10 @@ export async function syncPendingOperationsToServer(onProgress?: (msg: string) =
     }
 
     const result = await res.json();
+    if (!result?.success) throw new Error(result?.error || 'Synchronisation non confirmée par le serveur.');
     clearPendingQueue();
     updateLastSyncTime();
-    return { success: true, syncedCount: queue.length };
+    return { success: true, syncedCount: Number(result.processedCount || 0) + Number(result.duplicates || 0) };
   } catch (err: any) {
     console.warn('Échec de la synchronisation automatique:', err);
     return { success: false, syncedCount: 0, error: err?.message || 'Serveur indisponible' };

@@ -12,6 +12,7 @@ import { compressBase64Image } from '../utils/imageCompressor';
 import UserAvatar from './UserAvatar';
 import { BiometricDevicesSettingsCard } from './auth/BiometricDevicesSettingsCard';
 import { getApiUrl } from '../src/lib/apiConfig';
+import { getNewPasswordError, NEW_PASSWORD_MIN_LENGTH } from '../src/services/passwordPolicy';
 
 type SchoolSettings = typeof initialSchoolSettings;
 type MessageTemplate = typeof initialMessageTemplates[0];
@@ -141,6 +142,7 @@ const AccessTab: React.FC<{ users?: User[]; onSaveUser?: (user: User) => void; }
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedRole, setSelectedRole] = useState('All');
     const [statusMessage, setStatusMessage] = useState<string | null>(null);
+    const [resettingUserId, setResettingUserId] = useState<string | number | null>(null);
 
     const filteredUsers = users.filter(u => {
         const matchesSearch = u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -150,10 +152,27 @@ const AccessTab: React.FC<{ users?: User[]; onSaveUser?: (user: User) => void; }
         return matchesSearch && matchesRole;
     });
 
-    const handleResetPassword = (user: User) => {
-        const tempPassword = `Educo${Math.floor(1000 + Math.random() * 9000)}!`;
-        setStatusMessage(`Mot de passe temporaire pour ${user.name} généré : ${tempPassword} (transmis avec succès)`);
-        setTimeout(() => setStatusMessage(null), 8000);
+    const handleResetPassword = async (user: User) => {
+        if (!user?.id || resettingUserId) return;
+        setResettingUserId(user.id);
+        setStatusMessage(null);
+        try {
+            const response = await fetch(getApiUrl(`/api/users/${user.id}/reset-password`), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('EDUCO_USER_TOKEN') || ''}`,
+                },
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data?.success) throw new Error(data?.error || 'Réinitialisation impossible.');
+            setStatusMessage(data.message || `Accès de ${user.name} réinitialisé. L’utilisateur doit définir un nouveau mot de passe via « Mot de passe oublié ? ».`);
+        } catch (error: any) {
+            setStatusMessage(error?.message || 'Réinitialisation impossible.');
+        } finally {
+            setResettingUserId(null);
+            setTimeout(() => setStatusMessage(null), 8000);
+        }
     };
 
     const handleToggleStatus = (user: User) => {
@@ -260,10 +279,11 @@ const AccessTab: React.FC<{ users?: User[]; onSaveUser?: (user: User) => void; }
                                     <td className="px-4 py-3 text-right space-x-2">
                                         <button
                                             onClick={() => handleResetPassword(u)}
-                                            className="px-2.5 py-1 text-xs bg-amber-50 text-amber-700 hover:bg-amber-100 rounded border border-amber-200 transition-colors"
-                                            title="Générer un mot de passe temporaire"
+                                            disabled={resettingUserId === u.id}
+                                            className="px-2.5 py-1 text-xs bg-amber-50 text-amber-700 hover:bg-amber-100 rounded border border-amber-200 transition-colors disabled:opacity-50"
+                                            title="Réinitialiser l’accès et forcer la récupération sécurisée"
                                         >
-                                            Réinitialiser MDP
+                                            {resettingUserId === u.id ? 'Réinitialisation…' : 'Réinitialiser MDP'}
                                         </button>
                                         <button
                                             onClick={() => handleToggleStatus(u)}
@@ -531,14 +551,14 @@ const CommunicationTab: React.FC<{
     };
 
     const handleSaveLocalSettings = () => {
-        onSaveSettings(localSettings);
+        onSaveSettings({ ...localSettings, brevoApiKey: '' });
         alert('Paramètres de communication sauvegardés avec succès !');
     };
 
     const handleCheckSender = async () => {
         setSenderCheck({ loading: true, checked: false, configuredEmail: localSettings.emailFrom || 'contacts@loukatech.com', isVerified: false });
         try {
-            const res = await brevoEmailService.getSenders(localSettings.brevoApiKey);
+            const res = await brevoEmailService.getSenders();
             setSenderCheck({
                 loading: false,
                 checked: true,
@@ -568,7 +588,6 @@ const CommunicationTab: React.FC<{
         setTestStatus({ loading: true });
         try {
             const res = await brevoEmailService.testBrevoConnection({
-                apiKey: localSettings.brevoApiKey,
                 senderEmail: localSettings.emailFrom || 'contacts@loukatech.com',
                 senderName: localSettings.emailFromName || 'EDUCO',
                 toEmail: testEmail.trim(),
@@ -607,16 +626,9 @@ const CommunicationTab: React.FC<{
                     <MessageIcon /> <span className="ml-2">Intégration API de Messagerie (E-mail & SMS)</span>
                 </h3>
                 <div className="space-y-4">
-                    <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-1">Clé API Service de Messagerie</label>
-                        <input 
-                            type="password" 
-                            value={localSettings.brevoApiKey || ''} 
-                            onChange={(e) => setLocalSettings({...localSettings, brevoApiKey: e.target.value})} 
-                            className="w-full input-style font-mono"
-                            placeholder="xkeysib-..."
-                        />
-                        <p className="text-xs text-slate-500 mt-1">Fournie par votre service d'envoi d'e-mails transactionnels. Utilisée pour l'envoi direct de vos e-mails.</p>
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                        <div className="text-sm font-black text-emerald-900">Clé API gérée côté serveur</div>
+                        <p className="text-xs text-emerald-800 mt-1">Les secrets Brevo ne sont plus saisis ni stockés dans le navigateur ou les paramètres d’établissement. Ils doivent être configurés uniquement dans l’environnement sécurisé du serveur.</p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
@@ -2132,8 +2144,9 @@ const PasswordChangeCard: React.FC<{ email: string }> = ({ email }) => {
             setFeedback({ text: 'Saisissez le code OTP à 6 chiffres reçu par e-mail.', error: true });
             return;
         }
-        if (newPassword.length < 6) {
-            setFeedback({ text: 'Le nouveau mot de passe doit comporter au moins 6 caractères.', error: true });
+        const passwordError = getNewPasswordError(newPassword);
+        if (passwordError) {
+            setFeedback({ text: passwordError, error: true });
             return;
         }
         if (newPassword !== confirmation) {
@@ -2179,8 +2192,8 @@ const PasswordChangeCard: React.FC<{ email: string }> = ({ email }) => {
             ) : (
                 <form onSubmit={changePassword} className="space-y-3">
                     <input value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" placeholder="Code OTP à 6 chiffres" className="input-style font-mono tracking-widest" required />
-                    <input value={newPassword} onChange={(e) => setNewPassword(e.target.value)} type="password" autoComplete="new-password" placeholder="Nouveau mot de passe" className="input-style" required minLength={6} />
-                    <input value={confirmation} onChange={(e) => setConfirmation(e.target.value)} type="password" autoComplete="new-password" placeholder="Confirmer le nouveau mot de passe" className="input-style" required minLength={6} />
+                    <input value={newPassword} onChange={(e) => setNewPassword(e.target.value)} type="password" autoComplete="new-password" placeholder="Nouveau mot de passe" className="input-style" required minLength={NEW_PASSWORD_MIN_LENGTH} />
+                    <input value={confirmation} onChange={(e) => setConfirmation(e.target.value)} type="password" autoComplete="new-password" placeholder="Confirmer le nouveau mot de passe" className="input-style" required minLength={NEW_PASSWORD_MIN_LENGTH} />
                     <div className="flex gap-3">
                         <button type="submit" disabled={busy} className="btn-primary disabled:opacity-50">{busy ? 'Validation...' : 'Modifier le mot de passe'}</button>
                         <button type="button" onClick={() => { setStep('request'); setFeedback(null); }} className="btn-secondary">Annuler</button>

@@ -7,8 +7,8 @@ import { BiometricLoginButton } from './auth/BiometricLoginButton';
 import { loginWithWebAuthn } from '../src/services/webauthnService';
 import { LoadingDots } from './LoadingDots';
 import { brevoEmailService } from '../src/services/brevoEmailService';
-import { getSupabaseClient, getStoredSupabaseConfig, isPlaceholderSupabaseUrl } from '../src/lib/supabase';
 import { getApiUrl } from '../src/lib/apiConfig';
+import { getNewPasswordError, NEW_PASSWORD_MIN_LENGTH } from '../src/services/passwordPolicy';
 
 interface LoginPageProps {
   onLogin: (email: string, password: string, isBiometric?: boolean) => Promise<{ success: boolean; error?: string }>;
@@ -199,8 +199,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
       setParentRegError('Veuillez renseigner un numéro de téléphone principal valide.');
       return;
     }
-    if (!parentForm.password || parentForm.password.length < 6) {
-      setParentRegError('Le mot de passe doit contenir au moins 6 caractères.');
+    const parentPasswordError = getNewPasswordError(parentForm.password);
+    if (parentPasswordError) {
+      setParentRegError(parentPasswordError);
       return;
     }
 
@@ -238,61 +239,12 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
 
     setIsSubmittingParent(true);
     try {
-      // 1. Verify OTP with backend
-      const verifyRes = await brevoEmailService.verifyOtp({
-        email: parentForm.parentEmail,
-        otpCode: parentOtpCode.trim(),
-        purpose: 'general'
-      });
-
-      if (!verifyRes.success) {
-        setParentRegError(verifyRes.error || 'Code OTP invalide ou expiré.');
-        setIsSubmittingParent(false);
-        return;
-      }
-
-      // 2. Try Supabase Auth SignUp if configured
-      let userUid: string | null = null;
-      try {
-        const { url } = getStoredSupabaseConfig();
-        if (!isPlaceholderSupabaseUrl(url)) {
-          const supabase = getSupabaseClient();
-          const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-            email: parentForm.parentEmail,
-            password: parentForm.password,
-            options: {
-              data: {
-                name: parentForm.parentName,
-                role: 'Parent',
-              }
-            }
-          });
-          if (signUpError) {
-            setParentRegError(signUpError.message || "Impossible de créer le compte parent dans Supabase Auth.");
-            setIsSubmittingParent(false);
-            return;
-          } else if (signUpData?.user?.id) {
-            userUid = signUpData.user.id;
-          }
-        } else {
-          setParentRegError("Supabase Auth doit être configuré avant de créer un compte parent.");
-          setIsSubmittingParent(false);
-          return;
-        }
-      } catch (authErr: any) {
-        setParentRegError(authErr?.message || "Supabase Auth indisponible pour l'inscription parent.");
-        setIsSubmittingParent(false);
-        return;
-      }
-
-      // 3. Complete Parent Registration in DB
+      // Complete registration through the authoritative backend.
+      // OTP verification and Auth identity creation happen atomically on the server.
       const res = await fetch(getApiUrl('/api/auth/register-parent'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...parentForm,
-          uid: userUid
-        })
+        body: JSON.stringify({ ...parentForm, otpCode: parentOtpCode.trim() })
       });
       const data = await res.json();
 
@@ -344,8 +296,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
     e.preventDefault();
     setResetMessage('');
     setError('');
-    if (newPassword.length < 6) {
-      setError('Le mot de passe doit contenir au moins 6 caractères.');
+    const resetPasswordError = getNewPasswordError(newPassword);
+    if (resetPasswordError) {
+      setError(resetPasswordError);
       return;
     }
     setResetLoading(true);
@@ -690,7 +643,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
-                  Nouveau Mot de passe (min. 6 car.)
+                  Nouveau Mot de passe (min. {NEW_PASSWORD_MIN_LENGTH} car.)
                 </label>
                 <div className="relative">
                   <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -699,7 +652,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
                   <input
                     type="password"
                     required
-                    minLength={6}
+                    minLength={NEW_PASSWORD_MIN_LENGTH}
                     className="w-full pl-10 pr-3 py-3 border border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-white rounded-xl placeholder-slate-400 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#1F4A59]"
                     placeholder="••••••••"
                     value={newPassword}
@@ -710,7 +663,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
 
               <button
                 type="submit"
-                disabled={resetLoading || resetOtpCode.length < 4 || newPassword.length < 6}
+                disabled={resetLoading || resetOtpCode.length < 4 || Boolean(getNewPasswordError(newPassword))}
                 className="w-full py-3.5 px-4 text-sm font-bold text-white bg-[#1F4A59] hover:bg-[#153440] rounded-xl transition-all shadow-md active:scale-98 cursor-pointer disabled:opacity-50"
               >
                 {resetLoading ? 'Réinitialisation...' : 'Changer mon mot de passe'}

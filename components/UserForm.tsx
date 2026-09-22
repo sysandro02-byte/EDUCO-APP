@@ -28,6 +28,7 @@ import {
 import StudentPhotoCaptureModal from './StudentPhotoCaptureModal';
 import { LoadingDots } from './LoadingDots';
 import { buildSchoolAcronym, buildStaffMatricule, buildStudentMatricule, getAccountCreationKind, makeStudentTechnicalEmail } from '../src/services/userAccountWorkflow';
+import { generateStrongPassword, getNewPasswordError, NEW_PASSWORD_MIN_LENGTH } from '../src/services/passwordPolicy';
 
 // Enhanced type for the user object supporting comprehensive student & parent info
 export interface User {
@@ -233,17 +234,17 @@ const UserForm: React.FC<UserFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const generateRandomPassword = () => {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
-    let pwd = 'Educo@';
-    for (let i = 0; i < 4; i++) {
-      pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    try {
+      const pwd = generateStrongPassword(18);
+      setFormData(prev => ({ ...prev, password: pwd, tempPassword: pwd }));
+      setFormErrors(prev => {
+        const next = { ...prev };
+        delete next.password;
+        return next;
+      });
+    } catch (error: any) {
+      setFormErrors(prev => ({ ...prev, password: error?.message || 'Génération sécurisée indisponible.' }));
     }
-    setFormData(prev => ({ ...prev, password: pwd, tempPassword: pwd }));
-    setFormErrors(prev => {
-      const next = { ...prev };
-      delete next.password;
-      return next;
-    });
   };
 
   const accountKind = getAccountCreationKind(formData.role);
@@ -404,6 +405,10 @@ const UserForm: React.FC<UserFormProps> = ({
       const primaryPhone = String(formData.phone || formData.contact || '').replace(/[^0-9+]/g, '');
       if (primaryPhone.length < 7) {
         errors.phone = "Le numéro de téléphone principal est obligatoire et doit être valide";
+      }
+      if (!user) {
+        const passwordError = getNewPasswordError(formData.password || '');
+        if (passwordError) errors.password = passwordError;
       }
     } else if (stepNumber === 2 && isStudent) {
       if (!formData.class) {
@@ -868,8 +873,9 @@ const UserForm: React.FC<UserFormProps> = ({
                     id="password"
                     name="password"
                     value={formData.password || ''}
+                    minLength={NEW_PASSWORD_MIN_LENGTH}
                     onChange={handleChange}
-                    placeholder="Ex: Educo@2026! (ou saisissez un mot de passe personnalisé)"
+                    placeholder={`Au moins ${NEW_PASSWORD_MIN_LENGTH} caractères, majuscule, minuscule, chiffre et symbole`}
                     className={`${formFieldClass} pr-24 font-mono text-xs font-bold`}
                   />
                   <button
@@ -890,7 +896,8 @@ const UserForm: React.FC<UserFormProps> = ({
                     )}
                   </button>
                 </div>
-                {formData.password && (
+                {formErrors.password && <p className="text-[10px] text-rose-600 font-bold mt-1">{formErrors.password}</p>}
+                {formData.password && !getNewPasswordError(formData.password) && (
                   <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400 font-medium">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span>

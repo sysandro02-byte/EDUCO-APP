@@ -62,6 +62,7 @@ import {
   normalizeEmail,
   normalizeRole,
 } from './src/services/userAccountWorkflow.ts';
+import { getNewPasswordError } from './src/services/passwordPolicy.ts';
 import { buildStudentPaymentLedger } from './src/services/cashierWorkflow.ts';
 import { registerAdministrativePaymentRoutes, registerLoukaPayWebhook } from './server/administrativePayments.ts';
 
@@ -719,8 +720,10 @@ async function startServer() {
   });
 
   // Get All Accounts in Supabase DB
-  app.get('/api/db/accounts', async (req, res) => {
+  app.get('/api/db/accounts', requireAuth, async (req: AuthRequest, res) => {
     try {
+      const platformAdmin = await requirePlatformAdmin(req, res);
+      if (!platformAdmin) return;
       const supabaseAdmin = getSupabaseAdmin(req);
       if (!supabaseAdmin) {
         return res.status(503).json({ success: false, error: 'Supabase non configuré' });
@@ -744,7 +747,9 @@ async function startServer() {
   });
 
   // DB Connection Status
-  app.get('/api/db/status', async (req, res) => {
+  app.get('/api/db/status', requireAuth, async (req: AuthRequest, res) => {
+    const platformAdmin = await requirePlatformAdmin(req, res);
+    if (!platformAdmin) return;
     const supabaseAdmin = getSupabaseAdmin(req);
     if (!supabaseAdmin) {
       return res.json({ 
@@ -784,8 +789,10 @@ async function startServer() {
 
   // Safe Supabase table preview endpoint used by the Admin diagnostic console.
   // It intentionally supports only read-only SELECT ... FROM <table> LIMIT <n> previews.
-  app.post('/api/db/query', async (req, res) => {
+  app.post('/api/db/query', requireAuth, async (req: AuthRequest, res) => {
     try {
+      const platformAdmin = await requirePlatformAdmin(req, res);
+      if (!platformAdmin) return;
       const query = String(req.body?.query || '').trim();
       if (!query) {
         return res.status(400).json({ success: false, error: 'Requête vide.' });
@@ -849,374 +856,164 @@ async function startServer() {
     }
   });
 
-  // Explicit Seed All Endpoint
-  app.post('/api/db/seed-all', async (req, res) => {
+  // Legacy seed endpoint permanently disabled in production.
+  app.post('/api/db/seed-all', (_req, res) => {
     return res.status(410).json({
       success: false,
-      error: "Le peuplement automatique de données fictives est désactivé."
+      error: 'Le peuplement automatique de données fictives est définitivement désactivé.'
     });
-    try {
-      const ok = await seedDatabaseWithFullInitialData();
-      const userList = await db.select().from(users);
-      const schoolList = await db.select().from(schools);
-      const personnelList = await db.select().from(personnel);
-
-      res.json({
-        success: ok,
-        message: "🚀 Peuplage et synchronisation complète de Supabase terminés !",
-        stats: {
-          usersCount: userList.length,
-          schoolsCount: schoolList.length,
-          personnelCount: personnelList.length,
-        }
-      });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message || 'Erreur lors du peulpage' });
-    }
   });
 
-  // Explicit Purge All Endpoint
-  app.post('/api/db/purge-all', async (req, res) => {
-    try {
-      // Clean up server Drizzle tables in reverse dependency order
-      try {
-        await db.delete(schema.surveyResponses);
-        await db.delete(schema.surveys);
-        await db.delete(schema.subscriptionRequests);
-        await db.delete(schema.subscriptions);
-        await db.delete(schema.notifications);
-        await db.delete(schema.timetable);
-        await db.delete(schema.attendance);
-        await db.delete(schema.grades);
-        await db.delete(schema.subjects);
-        await db.delete(schema.payments);
-        await db.delete(schema.transactions);
-        await db.delete(schema.fees);
-        await db.delete(schema.students);
-        await db.delete(schema.personnel);
-        await db.delete(schema.classes);
-        await db.delete(schema.users);
-        await db.delete(schema.schools);
-      } catch (e: any) {
-        console.warn("Drizzle DB purge warning:", e?.message || e);
-      }
-
-      // Clean up Supabase Admin if configured
-      const supabaseAdmin = getSupabaseAdmin();
-      if (supabaseAdmin) {
-        const tables = [
-          'survey_responses', 'surveys', 'subscription_requests', 'subscriptions', 
-          'notifications', 'timetable', 'attendance', 'grades', 'subjects', 
-          'payments', 'transactions', 'fees', 'students', 'personnel', 'classes', 'users', 'schools'
-        ];
-        for (const t of tables) {
-          try {
-            await supabaseAdmin.from(t).delete().gt('id', -999999);
-          } catch (e) {
-            // Ignore errors for individual tables during purge
-          }
-        }
-      }
-
-      res.json({
-        success: true,
-        message: "✅ Purge globale de la base de données Supabase et locale effectuée avec succès !"
-      });
-    } catch (err: any) {
-      console.error("Error in /api/db/purge-all:", err);
-      res.status(500).json({ success: false, error: err?.message || "Erreur lors de la purge" });
-    }
-  });
-
-  // Test Endpoint to Create a Test School in Database
-  app.post('/api/db/test-create-school', async (req, res) => {
+  // Legacy global purge removed. Use audited, tenant-scoped administration workflows instead.
+  app.post('/api/db/purge-all', (_req, res) => {
     return res.status(410).json({
       success: false,
-      error: "La création d'établissement test est désactivée. Utilisez le formulaire réel d'inscription."
+      error: 'La purge globale non auditée est désactivée.'
     });
-    try {
-      const testSuffix = Math.floor(1000 + Math.random() * 9000);
-      const testIdentifier = `EDUCO-SCH-TEST-${testSuffix}`;
-      
-      // 1. Insert Test School
-      const [newTestSchool] = await db.insert(schools).values({
-        name: `Complexe Scolaire Supabase (${testSuffix})`,
-        identifier: testIdentifier,
-        address: "Avenue de l'Excellence, Cotonou, Bénin",
-        phone: "+229 97 00 11 22",
-        email: `contact.test${testSuffix}@educo-ecole.com`,
-        creationDate: "2026-01-15",
-        promoterName: "Dr. Marc TEST-PROMOTEUR",
-        promoterContact: "+229 95 88 77 66",
-        promoterEmail: `promoteur.test${testSuffix}@educo-ecole.com`,
-        levels: { primaire: true, secondaireCollege: true, secondaireLycee: true },
-        status: "active",
-        settings: { currency: "FCFA", isTestDatabaseAccount: true }
-      }).returning();
+  });
 
-      // 2. Insert Associated Test User / Promoter
-      const [newTestUser] = await db.insert(users).values({
-        uid: `test_promoter_${Date.now()}_${testSuffix}`,
-        schoolId: newTestSchool.id,
-        name: "Dr. Marc TEST-PROMOTEUR",
-        email: `promoteur.test${testSuffix}@educo-ecole.com`,
-        role: "Promoteur",
-        status: "active"
-      }).returning();
-
-      // 3. Insert Admin User for this school
-      const [newAdminUser] = await db.insert(users).values({
-        uid: `test_admin_${Date.now()}_${testSuffix}`,
-        schoolId: newTestSchool.id,
-        name: "M. Auguste LOUKOU - Directeur",
-        email: `directeur.test${testSuffix}@educo-ecole.com`,
-        role: "Admin",
-        status: "active"
-      }).returning();
-
-      // 4. Insert Personnel
-      const [newPersonnel] = await db.insert(personnel).values({
-        schoolId: newTestSchool.id,
-        userId: newTestUser.id,
-        matricule: `PER-2026-${testSuffix}`,
-        role: "Fondateur & Promoteur Général",
-        baseSalary: 450000,
-        hireDate: "2026-01-15"
-      }).returning();
-
-      // 5. Insert Class
-      const [newClass] = await db.insert(classes).values({
-        schoolId: newTestSchool.id,
-        name: "6ème A (Pilote)",
-        level: "Collège",
-        capacity: 40
-      }).returning();
-
-      // 6. Insert Fee
-      const [newFee] = await db.insert(fees).values({
-        schoolId: newTestSchool.id,
-        name: "Scolarité 1ère Tranche",
-        amount: 150000,
-        type: "tuition",
-        dueDate: "2026-10-15"
-      }).returning();
-
-      res.json({
-        success: true,
-        message: "✅ Nouvel établissement & personnel créés dans Supabase !",
-        dbStatus: "Base de données Supabase active",
-        school: newTestSchool,
-        user: newTestUser,
-        admin: newAdminUser,
-        personnel: newPersonnel,
-        class: newClass,
-        fee: newFee
-      });
-    } catch (error: any) {
-      console.error("Test School DB Error:", error);
-      res.status(500).json({
-        success: false,
-        message: "Impossible d'insérer dans la base de données.",
-        error: error?.message || "Erreur base de données"
-      });
-    }
+  // Test-school creation is disabled on production data.
+  app.post('/api/db/test-create-school', (_req, res) => {
+    return res.status(410).json({
+      success: false,
+      error: "La création d'établissement test est désactivée."
+    });
   });
 
 
-  // Seed / Sync Initial Data to Cloud SQL
-  app.post('/api/db/init-seed', async (req, res) => {
+  // Legacy initial seed/sync cannot mutate production data.
+  app.post('/api/db/init-seed', (_req, res) => {
+    return res.status(410).json({
+      success: false,
+      error: 'La synchronisation initiale legacy est désactivée. Utilisez les workflows métier authentifiés.'
+    });
+  });
+
+  // Batch Sync Endpoint for Offline Queue Processing.
+  // Only financial records that can be safely reconstructed offline are accepted.
+  app.post('/api/sync-batch', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const supabaseAdmin = getSupabaseAdmin(req);
-      if (supabaseAdmin) {
-        return res.json({
-          success: true,
-          message: 'Supabase est la base principale : seed PostgreSQL ignoré, synchronisation initiale validée.'
+      const actor = await getRequestUser(req);
+      const role = canonicalizeRole(actor?.role);
+      const client = getSupabaseAdmin(req);
+      if (!actor || !client) return res.status(503).json({ success: false, error: 'Synchronisation sécurisée indisponible.' });
+
+      const allowedRoles = new Set([
+        'Admin','Co-admin','Promoteur','Directeur Général','Responsable des finances','Caissière'
+      ]);
+      if (!allowedRoles.has(role)) {
+        return res.status(403).json({ success: false, error: 'Ce compte ne peut pas synchroniser des opérations financières.' });
+      }
+
+      const operations = Array.isArray(req.body?.operations) ? req.body.operations : [];
+      if (!operations.length) return res.json({ success: true, processedCount: 0, duplicates: 0 });
+
+      if (operations.length > 200) {
+        return res.status(400).json({ success: false, error: 'Lot de synchronisation trop volumineux.' });
+      }
+      if (operations.some((op: any) => !['TRANSACTION','PAYMENT'].includes(String(op?.type || '').toUpperCase()))) {
+        return res.status(400).json({
+          success: false,
+          error: 'La synchronisation hors-ligne des comptes utilisateurs ou autres objets sensibles est interdite.'
         });
       }
 
-      const { initialUsers, initialClasses, initialFees, initialTransactions, initialBudget, initialPersonnel, initialSettings } = req.body;
-
-      // Seed Users if table is empty
-      const existingUsers = await db.select().from(users).limit(1);
-      if (existingUsers.length === 0 && Array.isArray(initialUsers) && initialUsers.length > 0) {
-        for (const u of initialUsers) {
-          await db.insert(users).values({
-            uid: `seed_${Math.random().toString(36).substring(7)}`,
-            name: u.name,
-            role: u.role,
-            email: u.email,
-            status: u.status || 'active',
-            avatar: u.avatar || null,
-          }).onConflictDoNothing();
-        }
-      }
-
-      // Seed Classes
-      const existingClasses = await db.select().from(classes).limit(1);
-      if (existingClasses.length === 0 && Array.isArray(initialClasses) && initialClasses.length > 0) {
-        for (const c of initialClasses) {
-          await db.insert(classes).values({
-            name: c.name,
-            level: c.level || 'Primaire',
-            capacity: c.capacity || 40,
-          }).onConflictDoNothing();
-        }
-      }
-
-      // Seed Fees
-      const existingFees = await db.select().from(fees).limit(1);
-      if (existingFees.length === 0 && Array.isArray(initialFees) && initialFees.length > 0) {
-        for (const f of initialFees) {
-          await db.insert(fees).values({
-            name: f.name || f.feeType || f.type,
-            amount: Number(f.amount) || 0,
-            dueDate: f.dueDate || null,
-            type: f.type || 'tuition',
-          });
-        }
-      }
-
-      // Seed Transactions
-      const existingTxns = await db.select().from(transactions).limit(1);
-      if (existingTxns.length === 0 && Array.isArray(initialTransactions) && initialTransactions.length > 0) {
-        for (const t of initialTransactions) {
-          await db.insert(transactions).values({
-            description: t.description,
-            type: t.type,
-            amount: Number(t.amount) || 0,
-            date: t.date ? new Date(t.date) : new Date(),
-            category: t.category || 'Autres',
-          });
-        }
-      }
-
-      // Seed Personnel
-      const existingPersonnel = await db.select().from(personnel).limit(1);
-      if (existingPersonnel.length === 0 && Array.isArray(initialPersonnel) && initialPersonnel.length > 0) {
-        for (const p of initialPersonnel) {
-          await db.insert(personnel).values({
-            role: p.role,
-            baseSalary: Number(p.salary) || 0,
-            hireDate: p.hireDate || null,
-          });
-        }
-      }
-
-      res.json({ success: true, message: 'Données synchronisées avec succès sur Cloud SQL' });
-    } catch (error: any) {
-      console.error('Error seeding database:', error);
-      res.status(500).json({ success: false, error: error?.message || 'Erreur de synchronisation initiale' });
-    }
-  });
-
-  // Batch Sync Endpoint for Offline Queue Processing
-  app.post('/api/sync-batch', async (req, res) => {
-    try {
-      const { operations } = req.body;
-      if (!Array.isArray(operations) || operations.length === 0) {
-        return res.json({ success: true, message: 'Aucune opération à synchroniser' });
-      }
-
-      const supabaseAdmin = getSupabaseAdmin(req);
+      const central = role === 'Admin' || role === 'Co-admin';
       let processedCount = 0;
-      for (const op of operations) {
-        try {
-          if (op.type === 'TRANSACTION') {
-            const t = op.payload;
-            if (t) {
-              if (supabaseAdmin) {
-                const { error } = await supabaseAdmin.from('transactions').insert([{
-                  school_id: t.schoolId || t.school_id || null,
-                  description: t.description || '',
-                  type: t.type || 'expense',
-                  amount: Number(t.amount) || 0,
-                  date: t.date || new Date().toISOString(),
-                  category: t.category || 'Autres',
-                  recorded_by: t.recordedBy || t.recorded_by || null,
-                }]);
-                if (error) throw error;
-                processedCount++;
-                continue;
-              }
-              await db.insert(transactions).values({
-                description: t.description,
-                type: t.type,
-                amount: Number(t.amount) || 0,
-                date: t.date ? new Date(t.date) : new Date(),
-                category: t.category || 'Autres',
-              });
-              processedCount++;
-            }
-          } else if (op.type === 'PAYMENT') {
-            const p = op.payload;
-            if (p) {
-              if (supabaseAdmin) {
-                const { error } = await supabaseAdmin.from('payments').insert([{
-                  school_id: p.schoolId || p.school_id || null,
-                  student_id: p.studentId || p.student_id || null,
-                  fee_id: p.feeId || p.fee_id || null,
-                  amount: Number(p.amountPaid || p.amount) || 0,
-                  payment_date: p.paymentDate || p.payment_date || new Date().toISOString(),
-                  payment_method: p.paymentMethod || p.payment_method || 'Espèces',
-                  receipt_number: p.receiptNumber || p.receipt_number || `REC-${Date.now()}`,
-                  status: p.status || 'paid',
-                }]);
-                if (error) throw error;
-                processedCount++;
-                continue;
-              }
-              await db.insert(payments).values({
-                studentId: p.studentId,
-                amount: Number(p.amountPaid) || 0,
-                paymentDate: p.paymentDate ? new Date(p.paymentDate) : new Date(),
-                paymentMethod: p.paymentMethod || 'Espèces',
-                receiptNumber: p.receiptNumber || `REC-${Date.now()}`,
-                status: p.status || 'paid',
-              });
-              processedCount++;
-            }
-          } else if (op.type === 'USER') {
-            const u = op.payload;
-            if (u) {
-              if (supabaseAdmin) {
-                const { error } = await supabaseAdmin.from('users').upsert([{
-                  uid: u.uid || `local_${Date.now()}`,
-                  school_id: u.schoolId || u.school_id || null,
-                  name: u.name || u.email?.split('@')[0] || 'Utilisateur',
-                  role: u.role || 'Parent',
-                  email: u.email,
-                  status: u.status || 'active',
-                  avatar: u.avatar || null,
-                }], { onConflict: 'email' });
-                if (error) throw error;
-                processedCount++;
-                continue;
-              }
-              await db.insert(users).values({
-                uid: u.uid || `local_${Date.now()}`,
-                name: u.name,
-                role: u.role,
-                email: u.email,
-                status: u.status || 'active',
-                avatar: u.avatar || null,
-              });
-              processedCount++;
-            }
-          }
-        } catch (itemErr) {
-          console.warn('Erreur lors du traitement d\'une opération sync:', itemErr);
+      let duplicates = 0;
+
+      for (const raw of operations) {
+        const opId = String(raw?.id || '').trim();
+        const opType = String(raw?.type || '').toUpperCase();
+        const payload = raw?.payload || {};
+        if (!/^[A-Za-z0-9_-]{8,120}$/.test(opId)) {
+          return res.status(400).json({ success: false, error: 'Identifiant d’opération hors-ligne invalide.' });
         }
+
+        const requestedSchoolId = Number(payload.schoolId || payload.school_id || 0);
+        const schoolId = central ? requestedSchoolId : Number(actor.schoolId || actor.school_id || 0);
+        if (!Number.isInteger(schoolId) || schoolId <= 0) {
+          return res.status(400).json({ success: false, error: 'Établissement cible invalide pour la synchronisation.' });
+        }
+
+        const { data: school, error: schoolError } = await client
+          .from('schools').select('id').eq('id', schoolId).maybeSingle();
+        if (schoolError) throw schoolError;
+        if (!school) return res.status(404).json({ success: false, error: 'Établissement cible introuvable.' });
+
+        if (opType === 'TRANSACTION') {
+          const amount = Number(payload.amount);
+          if (!Number.isFinite(amount) || amount <= 0) {
+            return res.status(400).json({ success: false, error: 'Montant de transaction invalide.' });
+          }
+          const { data: existing, error: existingError } = await client
+            .from('transactions').select('id').eq('offline_operation_id', opId).maybeSingle();
+          if (existingError) throw existingError;
+          if (existing) { duplicates += 1; continue; }
+
+          const { error } = await client.from('transactions').insert([{
+            school_id: schoolId,
+            description: String(payload.description || '').slice(0, 500),
+            type: payload.type || 'expense',
+            amount,
+            date: payload.date || new Date().toISOString(),
+            category: String(payload.category || 'Autres').slice(0, 120),
+            recorded_by: actor.id || null,
+            offline_operation_id: opId,
+          }]);
+          if (error) throw error;
+          processedCount += 1;
+          continue;
+        }
+
+        const amount = Number(payload.amountPaid ?? payload.amount);
+        const studentId = Number(payload.studentId || payload.student_id || 0);
+        const feeId = Number(payload.feeId || payload.fee_id || 0);
+        if (!Number.isFinite(amount) || amount <= 0 || !Number.isInteger(studentId) || studentId <= 0) {
+          return res.status(400).json({ success: false, error: 'Paiement hors-ligne invalide.' });
+        }
+
+        const { data: student, error: studentError } = await client
+          .from('students').select('id,school_id').eq('id', studentId).eq('school_id', schoolId).maybeSingle();
+        if (studentError) throw studentError;
+        if (!student) return res.status(403).json({ success: false, error: 'Élève hors du périmètre de cet établissement.' });
+
+        if (feeId > 0) {
+          const { data: fee, error: feeError } = await client
+            .from('fees').select('id,school_id').eq('id', feeId).eq('school_id', schoolId).maybeSingle();
+          if (feeError) throw feeError;
+          if (!fee) return res.status(403).json({ success: false, error: 'Frais hors du périmètre de cet établissement.' });
+        }
+
+        const { data: existing, error: existingError } = await client
+          .from('payments').select('id').eq('offline_operation_id', opId).maybeSingle();
+        if (existingError) throw existingError;
+        if (existing) { duplicates += 1; continue; }
+
+        const { error } = await client.from('payments').insert([{
+          school_id: schoolId,
+          student_id: studentId,
+          fee_id: feeId > 0 ? feeId : null,
+          amount,
+          payment_date: payload.paymentDate || payload.payment_date || new Date().toISOString(),
+          payment_method: String(payload.paymentMethod || payload.payment_method || 'Espèces').slice(0, 80),
+          receipt_number: String(payload.receiptNumber || payload.receipt_number || ('OFF-' + opId)).slice(0, 120),
+          status: 'paid',
+          offline_operation_id: opId,
+        }]);
+        if (error) throw error;
+        processedCount += 1;
       }
 
-      res.json({
+      return res.json({
         success: true,
-        message: `${processedCount} opération(s) synchronisée(s) avec succès.`,
         processedCount,
+        duplicates,
         syncedAt: new Date().toISOString()
       });
     } catch (error: any) {
-      console.error('Batch Sync Error:', error);
-      res.status(500).json({ success: false, error: error?.message || 'Erreur lors de la synchronisation en lot' });
+      console.error('Secure batch sync error:', error);
+      return res.status(500).json({ success: false, error: 'Synchronisation hors-ligne impossible.' });
     }
   });
 
@@ -1270,7 +1067,7 @@ async function startServer() {
   });
 
   // User and School Management
-  app.post('/api/auth/register-school', async (req: AuthRequest, res) => {
+  app.post('/api/auth/register-school', rateLimit('school-registration', 5, 30 * 60 * 1000), async (req: AuthRequest, res) => {
     try {
       const { 
         schoolName, 
@@ -1286,21 +1083,33 @@ async function startServer() {
         statutesDoc,
         adminPassword,
         password,
-        uid
+        otpCode
       } = req.body;
-      const firebaseUser = req.user;
 
-      const resolvedEmail = promoterEmail || firebaseUser?.email || `promoter@example.com`;
+      const resolvedEmail = normalizeEmail(promoterEmail);
       const rawAdminPassword = adminPassword || password;
+      if (!resolvedEmail || !schoolName || !schoolAddress || !promoterName) {
+        return res.status(400).json({ error: 'Établissement, responsable et adresse e-mail valides sont requis.' });
+      }
+      const passwordError = getNewPasswordError(rawAdminPassword);
+      if (passwordError) return res.status(400).json({ error: passwordError });
+      const otpVerification = otpManager.verifyOtp(resolvedEmail, String(otpCode || ''), 'school_registration' as any);
+      if (!otpVerification.valid) {
+        return res.status(400).json({ error: otpVerification.error || 'Code OTP invalide ou expiré.' });
+      }
+
       const supabaseAdmin = getSupabaseAdmin(req);
-      let resolvedUid = uid || firebaseUser?.uid || null;
+      if (!supabaseAdmin || getSupabaseServerKeyRole(req) !== 'service_role') {
+        return res.status(503).json({ error: 'Service sécurisé de création d’établissement indisponible.' });
+      }
+      let resolvedUid: string | null = null;
 
       // A registration retry must reuse the existing dossier instead of creating
       // a second school with a new identifier.  Previously a retry could leave
       // two rows for the same promoter, while the account pointed at only one
       // of them; this is why the identifier shown in the subscription modal
       // could differ from the identifier shown in the admin directory.
-      if (supabaseAdmin && resolvedEmail && resolvedEmail !== 'promoter@example.com') {
+      if (supabaseAdmin && resolvedEmail) {
         const normalizedEmail = resolvedEmail.trim().toLowerCase();
         const normalizedSchoolName = String(schoolName || '').trim().toLocaleLowerCase();
         const [{ data: account }, { data: schoolsByEmail }, { data: schoolsByPromoterEmail }] = await Promise.all([
@@ -1350,26 +1159,18 @@ async function startServer() {
         }
 
         const authMetadata = {
-            name: promoterName || firebaseUser?.name || 'Promoteur',
+            name: promoterName || 'Promoteur',
             role: 'Promoteur',
             schoolName,
             schoolIdentifier
         };
         const keyRole = getSupabaseServerKeyRole(req);
-        const authResult = keyRole === 'service_role'
-          ? await supabaseAdmin.auth.admin.createUser({
-              email: resolvedEmail,
-              password: rawAdminPassword,
-              email_confirm: true,
-              user_metadata: authMetadata
-            })
-          : await supabaseAdmin.auth.signUp({
-              email: resolvedEmail,
-              password: rawAdminPassword,
-              options: {
-                data: authMetadata
-              }
-            });
+        const authResult = await supabaseAdmin.auth.admin.createUser({
+          email: resolvedEmail,
+          password: rawAdminPassword,
+          email_confirm: true,
+          user_metadata: authMetadata
+        });
 
         const authData = authResult.data;
         const authError = authResult.error;
@@ -1434,11 +1235,11 @@ async function startServer() {
         identifier: schoolIdentifier,
         address: schoolAddress,
         phone: schoolPhone || null,
-        email: promoterEmail || firebaseUser?.email || null,
+        email: resolvedEmail,
         creationDate: creationDate || null,
-        promoterName: promoterName || firebaseUser?.name || 'Promoteur',
+        promoterName: promoterName || 'Promoteur',
         promoterContact: promoterContact || schoolPhone || null,
-        promoterEmail: promoterEmail || firebaseUser?.email || null,
+        promoterEmail: resolvedEmail,
         levels: levels || {},
         openingAuthorizationDoc: openingAuthorizationDoc || (req.body.hasOpeningDoc ? 'Autorisation_Ouverture_Ministère.pdf' : null),
         promoterIdDoc: promoterIdDoc || (req.body.hasPromoterDoc ? 'Piece_Identite_Promoteur.pdf' : null),
@@ -1508,7 +1309,7 @@ async function startServer() {
         adminUser = await getOrCreateUser(
           resolvedUid,
           resolvedEmail,
-          promoterName || firebaseUser?.name || 'Promoteur',
+          promoterName || 'Promoteur',
           'Promoteur',
           newSchool.id
         );
@@ -1521,7 +1322,7 @@ async function startServer() {
             uid: resolvedUid,
             email: resolvedEmail,
             phone: normalizePhoneIdentity(promoterContact || schoolPhone) || null,
-            name: promoterName || firebaseUser?.name || 'Promoteur',
+            name: promoterName || 'Promoteur',
             role: 'Promoteur',
             school_id: newSchool.id,
             status: 'active'
@@ -1546,7 +1347,7 @@ async function startServer() {
             phone: schoolPhone || null,
             email: resolvedEmail,
             creation_date: creationDate || null,
-            promoter_name: promoterName || firebaseUser?.name || 'Promoteur',
+            promoter_name: promoterName || 'Promoteur',
             promoter_contact: promoterContact || schoolPhone || null,
             promoter_email: resolvedEmail,
             status: 'registered'
@@ -1556,7 +1357,7 @@ async function startServer() {
             uid: resolvedUid,
             email: resolvedEmail,
             phone: normalizePhoneIdentity(promoterContact || schoolPhone) || null,
-            name: promoterName || firebaseUser?.name || 'Promoteur',
+            name: promoterName || 'Promoteur',
             role: 'Promoteur',
             school_id: newSchool.id,
             status: 'active'
@@ -1694,17 +1495,29 @@ async function startServer() {
   });
 
   // Public Parent Account Registration using School Matricule
-  app.post('/api/auth/register-parent', async (req, res) => {
+  app.post('/api/auth/register-parent', rateLimit('parent-registration', 8, 30 * 60 * 1000), async (req, res) => {
     try {
-      const { schoolMatricule, studentMatricule, parentName, parentEmail, parentPhone, password, studentName } = req.body;
+      const { schoolMatricule, studentMatricule, parentName, parentEmail, parentPhone, password, studentName, otpCode } = req.body;
 
       const normalizedParentPhone = normalizePhoneIdentity(parentPhone);
       if (!schoolMatricule || !parentName || !parentEmail || normalizedParentPhone.length < 7) {
         return res.status(400).json({ error: 'Le N° Matricule d\'établissement, le nom, l\'adresse e-mail et un numéro de téléphone valide sont obligatoires.' });
       }
+      const parentPasswordError = getNewPasswordError(password);
+      if (parentPasswordError) {
+        return res.status(400).json({ error: parentPasswordError });
+      }
+      const normalizedParentEmail = normalizeEmail(parentEmail);
+      const otpVerification = otpManager.verifyOtp(normalizedParentEmail, String(otpCode || ''), 'general' as any);
+      if (!otpVerification.valid) {
+        return res.status(400).json({ error: otpVerification.error || 'Code OTP invalide ou expiré.' });
+      }
 
       const formattedMatricule = schoolMatricule.trim().toUpperCase();
       const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin?.auth?.admin) {
+        return res.status(503).json({ error: 'Service sécurisé de création de compte indisponible.' });
+      }
       let schoolObj: any = null;
       try {
         const matchingSchools = await db.select().from(schools).where(eq(schools.identifier, formattedMatricule));
@@ -1774,39 +1587,52 @@ async function startServer() {
         }
       }
 
-      let resolvedUid = req.body.uid;
-      if (!resolvedUid) {
-        const adminClient = supabaseAdmin || getSupabaseAdmin(req);
-        if (adminClient && parentEmail) {
-          try {
-            const { data: authUser, error: createError } = await adminClient.auth.admin.createUser({
-              email: parentEmail,
-              password: password || 'Parent123!',
-              email_confirm: true,
-              user_metadata: {
-                name: parentName,
-                role: 'Parent',
-                schoolId: schoolObj.id,
-              }
-            });
-            if (authUser?.user?.id) {
-              resolvedUid = authUser.user.id;
-            } else if (createError) {
-              console.warn("Supabase Admin parent createUser notice:", createError.message);
-            }
-          } catch (e: any) {
-            console.warn("Could not create parent in Supabase Admin:", e.message);
-          }
-        }
+      const { data: existingParentEmail, error: existingParentEmailError } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .eq('email', normalizedParentEmail)
+        .limit(1)
+        .maybeSingle();
+      if (existingParentEmailError) throw existingParentEmailError;
+      if (existingParentEmail?.id) {
+        return res.status(409).json({ error: 'Cette adresse e-mail est déjà associée à un compte.' });
       }
 
-      const uid = resolvedUid || `parent_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      const { data: existingParentPhone, error: existingParentPhoneError } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .eq('phone_normalized', normalizedParentPhone)
+        .limit(1)
+        .maybeSingle();
+      if (existingParentPhoneError) throw existingParentPhoneError;
+      if (existingParentPhone?.id) {
+        return res.status(409).json({ error: 'Ce numéro de téléphone est déjà associé à un compte.' });
+      }
 
+      const { data: authUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+        email: normalizedParentEmail,
+        password,
+        email_confirm: true,
+        user_metadata: {
+          name: parentName,
+          role: 'Parent',
+          schoolId: schoolObj.id,
+        }
+      });
+      if (createError || !authUser?.user?.id) {
+        const message = String(createError?.message || '');
+        if (/already|registered|exists|duplicate/i.test(message)) {
+          return res.status(409).json({ error: 'Cette adresse e-mail est déjà associée à un compte.' });
+        }
+        throw createError || new Error('Impossible de créer l’identité de connexion du parent.');
+      }
+
+      const uid = authUser.user.id;
       const parentValues = {
         uid,
         schoolId: schoolObj.id,
         name: parentName,
-        email: parentEmail,
+        email: normalizedParentEmail,
         phone: normalizedParentPhone,
         role: 'Parent',
         status: 'active',
@@ -1814,28 +1640,30 @@ async function startServer() {
 
       let newParent: any;
       try {
-        [newParent] = await db.insert(users).values(parentValues).returning();
-      } catch (dbParentErr) {
-        if (!supabaseAdmin) throw dbParentErr;
-        console.warn('Postgres parent insert failed, falling back to Supabase REST:', dbParentErr);
-        const { data: sbParent, error: sbParentError } = await supabaseAdmin
-          .from('users')
-          .insert([{
-            uid,
-            school_id: schoolObj.id,
-            name: parentName,
-            email: parentEmail,
-            phone: normalizedParentPhone,
-            role: 'Parent',
-            status: 'active',
-          }])
-          .select('*')
-          .single();
+        try {
+          [newParent] = await db.insert(users).values(parentValues).returning();
+        } catch (dbParentErr) {
+          console.warn('Postgres parent insert failed, falling back to Supabase REST:', dbParentErr);
+          const { data: sbParent, error: sbParentError } = await supabaseAdmin
+            .from('users')
+            .insert([{
+              uid,
+              school_id: schoolObj.id,
+              name: parentName,
+              email: normalizedParentEmail,
+              phone: normalizedParentPhone,
+              role: 'Parent',
+              status: 'active',
+            }])
+            .select('*')
+            .single();
 
-        if (sbParentError || !sbParent) {
-          throw sbParentError || dbParentErr;
+          if (sbParentError || !sbParent) throw sbParentError || dbParentErr;
+          newParent = mapSupabaseUser(sbParent);
         }
-        newParent = mapSupabaseUser(sbParent);
+      } catch (profileError) {
+        await supabaseAdmin.auth.admin.deleteUser(uid).catch(() => undefined);
+        throw profileError;
       }
 
       if (supabaseAdmin && studentMatricule) {
@@ -1845,7 +1673,7 @@ async function startServer() {
             .update({
               parent_name: parentName,
               parent_phone: parentPhone || '',
-              parent_email: parentEmail
+              parent_email: normalizedParentEmail
             })
             .eq('school_id', schoolObj.id)
             .eq('student_id', studentMatricule.trim());
@@ -1869,7 +1697,7 @@ async function startServer() {
   });
 
   // Public Endpoint to Verify School Matricule
-  app.get('/api/auth/verify-school-matricule/:matricule', async (req, res) => {
+  app.get('/api/auth/verify-school-matricule/:matricule', rateLimit('school-matricule-verify', 20, 15 * 60 * 1000), async (req, res) => {
     try {
       const matricule = req.params.matricule.trim().toUpperCase();
       const supabaseAdmin = getSupabaseAdmin(req);
@@ -1911,7 +1739,7 @@ async function startServer() {
       }
 
       if (schoolObj) {
-        res.json({ valid: true, school: { id: schoolObj.id, name: schoolObj.name, identifier: schoolObj.identifier, address: schoolObj.address, phone: schoolObj.phone } });
+        res.json({ valid: true, school: { id: schoolObj.id, name: schoolObj.name, identifier: schoolObj.identifier } });
       } else {
         res.json({ valid: false, error: 'Matricule d\'établissement introuvable.' });
       }
@@ -1921,39 +1749,8 @@ async function startServer() {
   });
 
   // Find user by email (Public)
-  app.get('/api/auth/find-user', async (req, res) => {
-    try {
-      const email = req.query.email as string;
-      if (!email) {
-        return res.status(400).json({ error: 'Email requis.' });
-      }
-
-      const supabaseAdmin = getSupabaseAdmin(req);
-      if (supabaseAdmin) {
-        const { data: sbUser } = await supabaseAdmin
-          .from('users')
-          .select('*')
-          .eq('email', email.toLowerCase().trim())
-          .limit(1)
-          .maybeSingle();
-        return res.json({ user: mapSupabaseUser(sbUser) });
-      }
-      
-      if (!isDbConfigured()) {
-        return res.json({ user: null });
-      }
-
-      const allUsers = await db.select().from(users);
-      const matched = allUsers.find(u => u.email?.toLowerCase().trim() === email.toLowerCase().trim());
-      
-      if (matched) {
-        return res.json({ user: matched });
-      }
-      return res.json({ user: null });
-    } catch (error: any) {
-      console.error('Error finding user by email:', error);
-      res.status(500).json({ error: error.message });
-    }
+  app.get('/api/auth/find-user', rateLimit('find-user-retired', 10, 15 * 60 * 1000), (_req, res) => {
+    return res.status(410).json({ error: 'La recherche publique de comptes est désactivée.' });
   });
 
   app.get('/api/auth/me', requireAuth, async (req: AuthRequest, res) => {
@@ -2460,51 +2257,89 @@ async function startServer() {
     }
   });
 
-  // POST /api/users/:id/reset-password - Generate temporary password and send reset
-  app.post('/api/users/:id/reset-password', requireAuth, async (req: AuthRequest, res) => {
+  // POST /api/users/:id/reset-password - invalidate the old password and force secure recovery.
+  app.post('/api/users/:id/reset-password', requireAuth, rateLimit('admin-user-reset', 20, 15 * 60 * 1000), async (req: AuthRequest, res) => {
     try {
       const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const targetUserId = parseInt(rawId, 10);
-      if (isNaN(targetUserId)) return res.status(400).json({ error: 'ID utilisateur invalide' });
+      const targetUserId = Number.parseInt(rawId, 10);
+      if (!Number.isSafeInteger(targetUserId) || targetUserId <= 0) {
+        return res.status(400).json({ error: 'ID utilisateur invalide.' });
+      }
+
       const actor = await getRequestUser(req);
-      const isCentralAdmin = actor?.role === 'Admin' || actor?.role === 'Co-admin';
+      const actorRole = canonicalizeRole(actor?.role);
+      const isCentralAdmin = actorRole === 'Admin' || actorRole === 'Co-admin';
+      const allowedResetRoles = new Set(['Admin', 'Co-admin', 'Promoteur', 'Directeur Général']);
+      if (!allowedResetRoles.has(actorRole)) {
+        return res.status(403).json({ error: 'Réinitialisation de compte non autorisée.' });
+      }
 
       const supabaseAdmin = getSupabaseAdmin(req);
-      let targetUser: any = null;
-      if (supabaseAdmin) {
-        const { data, error } = await supabaseAdmin.from('users').select('*').eq('id', targetUserId).maybeSingle();
-        if (error) throw error;
-        targetUser = mapSupabaseUser(data);
-      } else {
-        const [dbTargetUser] = await db.select().from(users).where(eq(users.id, targetUserId));
-        targetUser = dbTargetUser;
+      if (!supabaseAdmin?.auth?.admin || getSupabaseServerKeyRole(req) !== 'service_role') {
+        return res.status(503).json({ error: 'Service sécurisé de réinitialisation indisponible.' });
       }
+
+      const { data, error } = await supabaseAdmin
+        .from('users')
+        .select('*')
+        .eq('id', targetUserId)
+        .maybeSingle();
+      if (error) throw error;
+      const targetUser = mapSupabaseUser(data);
+
       if (!targetUser || (!isCentralAdmin && Number(targetUser.schoolId) !== Number(actor?.schoolId))) {
         return res.status(403).json({ error: 'Cet utilisateur appartient à un autre établissement.' });
       }
-      if ((targetUser.role === 'Admin' || targetUser.role === 'Co-admin') && actor?.role !== 'Admin') {
-        return res.status(403).json({ error: 'Seul l’Admin peut réinitialiser un compte de l’administration centrale.' });
+      const targetRole = canonicalizeRole(targetUser.role);
+      if (targetRole === 'Admin' && actorRole !== 'Admin') {
+        return res.status(403).json({ error: 'Seul l’Admin peut réinitialiser un compte Admin.' });
       }
-      const tempPass = `Educo${Math.floor(1000 + Math.random() * 9000)}!`;
-
-      if (supabaseAdmin && targetUser?.uid) {
-        try {
-          await supabaseAdmin.auth.admin.updateUserById(targetUser.uid, {
-            password: tempPass
-          });
-        } catch (e) {
-          console.warn('Supabase reset-password error:', e);
-        }
+      if (targetRole === 'Co-admin' && actorRole !== 'Admin') {
+        return res.status(403).json({ error: 'Seul l’Admin peut réinitialiser un Co-admin.' });
       }
 
-      res.json({
+      const targetEmail = normalizeEmail(targetUser.email);
+      if (!targetUser.uid || !targetEmail) {
+        return res.status(409).json({ error: 'Ce compte ne possède pas une identité Auth récupérable.' });
+      }
+
+      const lockedSecret = `Educo!7${crypto.randomBytes(24).toString('base64url')}`;
+      const { error: authResetError } = await supabaseAdmin.auth.admin.updateUserById(targetUser.uid, {
+        password: lockedSecret,
+      });
+      if (authResetError) throw authResetError;
+
+      const appUrl = String(process.env.PUBLIC_APP_URL || process.env.APP_URL || 'https://educo.loukatech.com').replace(/\/$/, '');
+      let emailSent = false;
+      try {
+        const mail = await sendBrevoEmail({
+          to: [{ email: targetEmail, name: String(targetUser.name || '') }],
+          subject: 'EDUCO — réinitialisation de votre accès',
+          htmlContent: `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
+            <h2 style="color:#1F4A59">Réinitialisation de votre accès EDUCO</h2>
+            <p>Bonjour <strong>${escapeHtml(targetUser.name || 'Utilisateur')}</strong>,</p>
+            <p>Un administrateur a réinitialisé votre accès. Votre ancien mot de passe n’est plus valide.</p>
+            <p>Ouvrez EDUCO puis utilisez <strong>« Mot de passe oublié ? »</strong> avec cette adresse e-mail pour définir votre nouveau mot de passe.</p>
+            <p><a href="${appUrl}/?login=1">Accéder à EDUCO</a></p>
+            <p style="font-size:12px;color:#64748b">EDUCO ne transmet jamais de mot de passe en clair par e-mail.</p>
+          </div>`,
+          tags: ['admin-password-reset'],
+        });
+        emailSent = Boolean(mail?.success);
+      } catch (mailError: any) {
+        console.warn('Admin password reset notification warning:', mailError?.message || mailError);
+      }
+
+      return res.json({
         success: true,
-        message: `Mot de passe réinitialisé avec succès pour ${targetUser?.name || 'l\'utilisateur'}.`,
-        tempPassword: tempPass,
-        email: targetUser?.email
+        message: emailSent
+          ? 'Accès réinitialisé. Les instructions de récupération ont été envoyées à l’utilisateur.'
+          : 'Accès réinitialisé. L’utilisateur doit utiliser « Mot de passe oublié ? » pour définir son nouveau mot de passe.',
+        emailSent,
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error('Admin reset password error:', error?.message || error);
+      return res.status(500).json({ error: 'Impossible de réinitialiser ce compte.' });
     }
   });
 
@@ -5778,53 +5613,88 @@ async function startServer() {
     }
   });
 
-  app.post('/api/surveys/:id/respond', async (req, res) => {
+  app.post('/api/surveys/:id/respond', requireAuth, rateLimit('survey-response', 20, 60 * 60 * 1000), async (req: AuthRequest, res) => {
     try {
       const surveyId = Number(req.params.id);
-      const { parentName, parentPhone, parentEmail, studentName, studentClass, channel, answers, comment } = req.body;
-
-      if (!parentName) {
-        return res.status(400).json({ error: 'Le nom du parent est obligatoire.' });
+      if (!Number.isSafeInteger(surveyId) || surveyId <= 0) {
+        return res.status(400).json({ error: 'Sondage invalide.' });
+      }
+      const actor = await getRequestUser(req);
+      const client = getSupabaseAdmin(req);
+      if (!actor || !client || !actor.schoolId) {
+        return res.status(403).json({ error: 'Compte établissement requis pour répondre au sondage.' });
       }
 
-      const supabaseAdmin = getSupabaseAdmin(req);
-      let newResponse: any;
-      if (supabaseAdmin) {
-        const { data, error } = await supabaseAdmin.from('survey_responses').insert([{
-          survey_id: surveyId,
-          parent_name: parentName,
-          parent_phone: parentPhone || '',
-          parent_email: parentEmail || '',
-          student_name: studentName || '',
-          student_class: studentClass || '',
-          channel: channel || 'whatsapp',
-          answers: answers || {},
-          comment: comment || '',
-        }]).select('*').single();
-        if (error) throw error;
-        newResponse = mapSupabaseSurveyResponse(data);
-      } else {
-        [newResponse] = await db.insert(surveyResponses).values({
-          surveyId,
-          parentName,
-          parentPhone: parentPhone || '',
-          parentEmail: parentEmail || '',
-          studentName: studentName || '',
-          studentClass: studentClass || '',
-          channel: channel || 'whatsapp',
-          answers: answers || {},
-          comment: comment || '',
-        }).returning();
+      const { data: surveyRow, error: surveyError } = await client
+        .from('surveys').select('id,school_id,status').eq('id', surveyId).maybeSingle();
+      if (surveyError) throw surveyError;
+      if (!surveyRow) return res.status(404).json({ error: 'Sondage introuvable.' });
+      if (Number(surveyRow.school_id) !== Number(actor.schoolId)) {
+        return res.status(403).json({ error: 'Ce sondage appartient à un autre établissement.' });
+      }
+      if (String(surveyRow.status || '').toLowerCase() === 'closed') {
+        return res.status(409).json({ error: 'Ce sondage est clôturé.' });
       }
 
-      res.json({
+      const answers = req.body?.answers;
+      const comment = String(req.body?.comment || '').slice(0, 4000);
+      if (!answers || typeof answers !== 'object' || Array.isArray(answers)) {
+        return res.status(400).json({ error: 'Réponses de sondage invalides.' });
+      }
+
+      const role = canonicalizeRole(actor.role);
+      const isParent = /parent|tuteur/i.test(role);
+      const parentName = isParent ? String(actor.name || 'Parent/Tuteur') : String(actor.name || 'Utilisateur EDUCO');
+      const parentPhone = isParent ? String(actor.phone || actor.contact || '') : '';
+      const parentEmail = isParent ? normalizeEmail(actor.email) : '';
+      let studentName = '';
+      let studentClass = '';
+
+      if (isParent) {
+        const { data: studentRows, error: linkedStudentError } = await client
+          .from('students')
+          .select('id,user_id,class_id,parent_phone')
+          .eq('school_id', Number(actor.schoolId))
+          .limit(1000);
+        if (linkedStudentError) throw linkedStudentError;
+        const linkedStudent = (studentRows || []).find((student: any) =>
+          parentPhone && normalizePhoneIdentity(student.parent_phone) === normalizePhoneIdentity(parentPhone)
+        );
+        if (linkedStudent?.user_id) {
+          const { data: studentUser, error: studentUserError } = await client
+            .from('users').select('name').eq('id', Number(linkedStudent.user_id)).maybeSingle();
+          if (studentUserError) throw studentUserError;
+          studentName = String(studentUser?.name || '');
+        }
+        if (linkedStudent?.class_id) {
+          const { data: linkedClass, error: linkedClassError } = await client
+            .from('classes').select('name').eq('id', Number(linkedStudent.class_id)).maybeSingle();
+          if (linkedClassError) throw linkedClassError;
+          studentClass = String(linkedClass?.name || '');
+        }
+      }
+
+      const { data, error } = await client.from('survey_responses').insert([{
+        survey_id: surveyId,
+        parent_name: parentName,
+        parent_phone: parentPhone,
+        parent_email: parentEmail,
+        student_name: studentName,
+        student_class: studentClass,
+        channel: 'educo',
+        answers,
+        comment,
+      }]).select('*').single();
+      if (error) throw error;
+
+      return res.json({
         success: true,
-        message: 'Votre participation au sondage a bien été enregistrée. Merci pour votre collaboration !',
-        response: newResponse,
+        message: 'Votre participation au sondage a bien été enregistrée.',
+        response: mapSupabaseSurveyResponse(data),
       });
     } catch (error: any) {
       console.error('Survey Response Error:', error);
-      res.status(500).json({ error: error.message });
+      return res.status(500).json({ error: 'Impossible d’enregistrer la réponse au sondage.' });
     }
   });
 
@@ -6095,272 +5965,159 @@ async function startServer() {
   });
 
   // Groq AI API Proxy
-  app.post('/api/ai/groq/report', async (req, res) => {
+  app.post('/api/ai/groq/report', requireAuth, rateLimit('ai-report-groq', 20, 10 * 60 * 1000), async (req: AuthRequest, res) => {
     try {
-      const { prompt } = req.body;
-      const apiKey = process.env.GROQ_API_KEY;
-      if (!apiKey) {
-        return res.status(500).json({ error: 'GROQ_API_KEY is missing' });
+      const actor = await getRequestUser(req);
+      if (!actor) return res.status(401).json({ error: 'Session requise.' });
+      if (/parent|élève|eleve/i.test(canonicalizeRole(actor.role))) {
+        return res.status(403).json({ error: 'Génération de rapport réservée au personnel autorisé.' });
       }
-      
+      const prompt = String(req.body?.prompt || '').trim();
+      if (!prompt || prompt.length > 12000) return res.status(400).json({ error: 'Prompt de rapport invalide.' });
+      const apiKey = process.env.GROQ_API_KEY;
+      if (!apiKey) return res.status(503).json({ error: 'Service IA non configuré.' });
+
       const groq = new Groq({ apiKey });
       const completion = await groq.chat.completions.create({
         messages: [{ role: 'user', content: prompt }],
         model: 'openai/gpt-oss-20b',
       });
-      
-      res.json({ text: completion.choices[0]?.message?.content || '' });
+      return res.json({ text: completion.choices[0]?.message?.content || '' });
     } catch (error: any) {
       console.error('Groq API Error:', error);
-      res.status(500).json({ error: error.message });
+      return res.status(502).json({ error: 'Service IA temporairement indisponible.' });
     }
   });
 
   // Gemini AI API Proxy
-  app.post('/api/ai/gemini/report', async (req, res) => {
+  // Gemini AI API Proxy
+  app.post('/api/ai/gemini/report', requireAuth, rateLimit('ai-report-gemini', 20, 10 * 60 * 1000), async (req: AuthRequest, res) => {
     try {
-      const { prompt } = req.body;
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.status(500).json({ error: 'GEMINI_API_KEY is missing' });
+      const actor = await getRequestUser(req);
+      if (!actor) return res.status(401).json({ error: 'Session requise.' });
+      if (/parent|élève|eleve/i.test(canonicalizeRole(actor.role))) {
+        return res.status(403).json({ error: 'Génération de rapport réservée au personnel autorisé.' });
       }
-      
+      const prompt = String(req.body?.prompt || '').trim();
+      if (!prompt || prompt.length > 12000) return res.status(400).json({ error: 'Prompt de rapport invalide.' });
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) return res.status(503).json({ error: 'Service IA non configuré.' });
+
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
       });
-      
-      res.json({ text: response.text });
+      return res.json({ text: response.text });
     } catch (error: any) {
       console.error('Gemini API Error:', error);
-      res.status(500).json({ error: error.message });
+      return res.status(502).json({ error: 'Service IA temporairement indisponible.' });
     }
   });
 
+
   // =========================================================================
+  // AUTHENTICATION  // =========================================================================
   // AUTHENTICATION (Admin, Promoteur, Personnel, Parents)
   // =========================================================================
-  const registeredAccountsStore = new Map<string, { password: string; user: any }>();
   const adminRoles = new Set(['Admin', 'Co-admin']);
 
-  // UNIFIED LOGIN ENDPOINT (Supports Email/Password, Identifiers & Biometrics)
-  app.post(['/api/auth/login', '/api/users/login'], rateLimit('login', 10, 15 * 60 * 1000), async (req, res) => {
+  // Backward-compatible login endpoint. It uses the exact same authoritative
+  // Supabase Auth boundary as /api/auth/login and never stores plaintext passwords.
+  app.post('/api/users/login', rateLimit('legacy-login', 10, 60_000), async (req, res) => {
     try {
-      const { email, identifier, password, isBiometric, isAdminPortal } = req.body;
-      const targetIdentifier = (email || identifier || '').trim().toLowerCase();
+      const email = normalizeEmail(req.body?.email || req.body?.identifier);
+      const password = String(req.body?.password || '');
+      const isAdminPortal = Boolean(req.body?.isAdminPortal);
 
-      if (!targetIdentifier) {
-        return res.status(400).json({ success: false, error: 'Identifiant ou adresse e-mail requis.' });
+      if (!email || password.length < 4) {
+        return res.status(400).json({ success: false, error: 'Identifiants invalides.' });
       }
-
-      // Biometric Login: instant verification if user exists or enrolled
-      if (isBiometric) {
-        let authUser = null;
-        if (registeredAccountsStore.has(targetIdentifier)) {
-          authUser = registeredAccountsStore.get(targetIdentifier)!.user;
-        } else {
-          // Production accounts are stored in Supabase. Looking only in the
-          // local fallback database made valid admin accounts appear unknown.
-          const supabaseDb = getSupabaseAdmin(req);
-          if (supabaseDb) {
-            try {
-              const { data: sbUser } = await supabaseDb
-                .from('users')
-                .select('*')
-                .eq('email', targetIdentifier)
-                .maybeSingle();
-              authUser = mapSupabaseUser(sbUser);
-            } catch (e) {}
-          }
-        }
-
-        if (!authUser && isDbConfigured()) {
-          try {
-            const found = await db.select().from(users).where(eq(users.email, targetIdentifier)).limit(1);
-            if (found.length > 0) authUser = found[0];
-          } catch (e) {}
-        }
-
-        if (!authUser) {
-          return res.status(401).json({
-            success: false,
-            error: "Authentification biométrique impossible : ce compte n'est pas reconnu par le système."
-          });
-        }
-
-        if (adminRoles.has(authUser.role) && !isAdminPortal) {
-          return res.status(403).json({
-            success: false,
-            error: "Accès refusé : L'administrateur n'est pas autorisé à se connecter depuis la page d'accueil. Veuillez utiliser le portail d'administration dédié."
-          });
-        }
-        if (!adminRoles.has(authUser.role) && isAdminPortal) {
-          return res.status(403).json({
-            success: false,
-            error: "Accès refusé : ce portail est réservé aux administrateurs et co-administrateurs."
-          });
-        }
-
-        return res.json({
-          success: true,
-          message: 'Authentification biométrique validée.',
-          user: authUser,
-          token: createLocalSessionToken(authUser) || authUser.uid || authUser.email,
+      if (req.body?.isBiometric) {
+        return res.status(400).json({
+          success: false,
+          error: 'La biométrie doit utiliser la vérification WebAuthn dédiée.'
         });
       }
 
-      // Standard Login with Password
-      if (!password) {
-        return res.status(400).json({ success: false, error: 'Veuillez saisir votre mot de passe.' });
+      const authClient = getSupabaseAdmin();
+      if (!authClient) {
+        return res.status(503).json({ success: false, error: 'Service d’authentification indisponible.' });
       }
 
-      // 1. Check registered accounts store
-      if (registeredAccountsStore.has(targetIdentifier)) {
-        const entry = registeredAccountsStore.get(targetIdentifier)!;
-        if (entry.password === password) {
-          const authUser = entry.user;
-          if (adminRoles.has(authUser.role) && !isAdminPortal) {
-            return res.status(403).json({
-              success: false,
-              error: "Accès refusé : L'administrateur n'est pas autorisé à se connecter depuis la page d'accueil. Veuillez utiliser le portail d'administration dédié."
-            });
-          }
-          if (!adminRoles.has(authUser.role) && isAdminPortal) {
-            return res.status(403).json({
-              success: false,
-              error: "Accès refusé : ce portail est réservé aux administrateurs et co-administrateurs."
-            });
-          }
-
-          return res.json({
-            success: true,
-            message: 'Connexion réussie.',
-            user: authUser,
-            token: createLocalSessionToken(authUser) || authUser.uid || authUser.email,
-          });
-        }
+      const { data: authData, error: authError } = await authClient.auth.signInWithPassword({ email, password });
+      if (authError || !authData?.user?.id || !authData?.session?.access_token) {
+        return res.status(401).json({ success: false, error: 'Identifiants invalides.' });
       }
 
-      // 2. Check Supabase users table first to avoid Render/Postgres connection delays
-      let dbUser = null;
-      const supabaseDb = getSupabaseAdmin(req);
-      if (supabaseDb) {
-        try {
-          const { data: sbUser } = await supabaseDb
-            .from('users')
-            .select('*')
-            .eq('email', targetIdentifier)
-            .limit(1)
-            .maybeSingle();
-          dbUser = mapSupabaseUser(sbUser);
-        } catch (e) {}
+      const { data: uidProfile, error: uidProfileError } = await authClient
+        .from('users').select('*').eq('uid', authData.user.id).limit(1).maybeSingle();
+      if (uidProfileError) throw uidProfileError;
+
+      let resolvedProfile = uidProfile;
+      if (!resolvedProfile) {
+        const { data: emailProfile, error: emailProfileError } = await authClient
+          .from('users').select('*').eq('email', email).limit(1).maybeSingle();
+        if (emailProfileError) throw emailProfileError;
+        resolvedProfile = emailProfile;
       }
 
-      // 3. Fallback to Database users table when Supabase REST is unavailable
-      if (!dbUser && isDbConfigured()) {
-        try {
-          const found = await db.select().from(users).where(eq(users.email, targetIdentifier)).limit(1);
-          if (found.length > 0) {
-            dbUser = found[0];
-          }
-        } catch (e) {}
+      const user = mapSupabaseUser(resolvedProfile);
+      if (!user) return res.status(401).json({ success: false, error: 'Profil EDUCO introuvable.' });
+      if (String(user.status || '').toLowerCase() === 'inactif' || String(user.status || '').toLowerCase() === 'inactive') {
+        return res.status(403).json({ success: false, error: 'Ce compte est inactif.' });
       }
 
-      if (dbUser) {
-        try {
-          dbUser.email = dbUser.email || targetIdentifier;
-          dbUser.name = dbUser.name || targetIdentifier.split('@')[0];
-          dbUser.role = dbUser.role || 'Personnel';
-        } catch (e) {}
+      const isAdmin = adminRoles.has(user.role);
+      if (isAdmin && !isAdminPortal) {
+        return res.status(403).json({ success: false, error: 'Utilisez le portail d’administration dédié.' });
+      }
+      if (isAdminPortal && !isAdmin) {
+        return res.status(403).json({ success: false, error: 'Ce portail est réservé aux administrateurs.' });
       }
 
-      let loginToken = dbUser?.uid || targetIdentifier;
-      if (dbUser && supabaseDb) {
-        try {
-          const { data: authData, error: authError } = await supabaseDb.auth.signInWithPassword({
-            email: targetIdentifier,
-            password
-          });
-          if (authError || !authData?.session) {
-            return res.status(401).json({
-              success: false,
-              error: 'Identifiants invalides.'
-            });
-          }
-          if (authData.user?.id) {
-            dbUser.uid = authData.user.id;
-          }
-          if (authData.session?.access_token) {
-            loginToken = authData.session.access_token;
-          } else if (authData.user?.id) {
-            loginToken = authData.user.id;
-          }
-        } catch (e) {
-          return res.status(401).json({
-            success: false,
-            error: 'Identifiants invalides.'
-          });
-        }
+      const token = createLocalSessionToken(user);
+      if (!token) {
+        return res.status(503).json({ success: false, error: 'Impossible de créer une session EDUCO sécurisée.' });
       }
-
-      if (dbUser) {
-        if (adminRoles.has(dbUser.role) && !isAdminPortal) {
-          return res.status(403).json({
-            success: false,
-            error: "Accès refusé : L'administrateur n'est pas autorisé à se connecter depuis la page d'accueil. Veuillez utiliser le portail d'administration dédié."
-          });
-        }
-        if (!adminRoles.has(dbUser.role) && isAdminPortal) {
-          return res.status(403).json({
-            success: false,
-            error: "Accès refusé : ce portail est réservé aux administrateurs et co-administrateurs."
-          });
-        }
-
-        if (!supabaseDb) {
-          return res.status(503).json({
-            success: false,
-            error: 'Authentification indisponible : configurez Supabase/Auth avant de connecter des comptes.'
-          });
-        }
-
-        registeredAccountsStore.set(targetIdentifier, { password, user: dbUser });
-        return res.json({
-          success: true,
-          message: 'Connexion réussie.',
-          user: dbUser,
-          token: createLocalSessionToken(dbUser) || loginToken,
-        });
-      }
-
-      return res.status(401).json({
-        success: false,
-        error: 'Identifiants invalides ou compte non reconnu par le système. Seuls les comptes et adresses emails enregistrés ont accès à cette application.',
-      });
-    } catch (err: any) {
-      console.error('Login Endpoint Error:', err);
-      res.status(500).json({ success: false, error: 'Erreur interne lors de la connexion.' });
+      return res.json({ success: true, user, token });
+    } catch (error: any) {
+      console.error('Legacy-compatible secure login error:', error);
+      return res.status(500).json({ success: false, error: 'Service d’authentification indisponible.' });
     }
   });
 
   // =========================================================================
   // ONE-TIME ADMIN BOOTSTRAP ENDPOINT. Co-admins are created later by this Admin.
   // =========================================================================
-  app.post('/api/auth/register-admin', async (req, res) => {
+  app.post('/api/auth/register-admin', rateLimit('admin-bootstrap', 5, 60 * 60 * 1000), async (req, res) => {
     try {
       const { name, email, phone, password, securityKey } = req.body;
+      const bootstrapSecret = String(process.env.ADMIN_BOOTSTRAP_SECRET || '');
+      const suppliedSecret = String(securityKey || '');
+      if (!bootstrapSecret || bootstrapSecret.length < 24) {
+        return res.status(503).json({ error: 'Bootstrap Admin désactivé : secret serveur sécurisé non configuré.' });
+      }
+      const expected = Buffer.from(bootstrapSecret);
+      const supplied = Buffer.from(suppliedSecret);
+      if (expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) {
+        return res.status(403).json({ error: 'Clé de bootstrap invalide.' });
+      }
       if (!name || !email || !password) {
         return res.status(400).json({ error: 'Le nom, l\'adresse email et le mot de passe sont obligatoires.' });
       }
 
-      if (password.length < 6) {
-        return res.status(400).json({ error: 'Le mot de passe doit comporter au moins 6 caractères.' });
+      const passwordError = getNewPasswordError(password);
+      if (passwordError) {
+        return res.status(400).json({ error: passwordError });
       }
 
       const cleanEmail = email.toLowerCase().trim();
 
       const supabaseAdmin = getSupabaseAdmin(req);
+      if (!supabaseAdmin || getSupabaseServerKeyRole(req) !== 'service_role') {
+        return res.status(503).json({ error: 'Supabase service_role requis pour le bootstrap Admin.' });
+      }
       let existingAdmins: any[] = [];
       if (supabaseAdmin) {
         const { data, error } = await supabaseAdmin.from('users').select('id,email,uid,role,created_at').eq('role', 'Admin').order('created_at', { ascending: true });
@@ -6431,12 +6188,6 @@ async function startServer() {
         return res.status(503).json({ error: 'Aucune base de données disponible pour enregistrer le compte Admin.' });
       }
 
-      // Persist in registered accounts memory registry for instantaneous login
-      registeredAccountsStore.set(cleanEmail, {
-        password: password,
-        user: createdUser
-      });
-
       // Send Welcome email via Brevo
       try {
         sendWelcomeEmail({
@@ -6467,9 +6218,11 @@ async function startServer() {
         return res.status(403).json({ error: 'Seul le compte Admin unique peut créer un Co-admin.' });
       }
       const { name, email, phone, password } = req.body;
-      if (!name || !email || !password || String(password).length < 6) {
-        return res.status(400).json({ error: 'Nom, e-mail et mot de passe (6 caractères minimum) requis.' });
+      if (!name || !email || !password) {
+        return res.status(400).json({ error: 'Nom, e-mail et mot de passe requis.' });
       }
+      const passwordError = getNewPasswordError(password);
+      if (passwordError) return res.status(400).json({ error: passwordError });
       const cleanEmail = String(email).toLowerCase().trim();
       const adminClient = getSupabaseAdmin(req);
       if (!adminClient) return res.status(503).json({ error: 'Supabase Admin est requis.' });
@@ -6513,7 +6266,6 @@ async function startServer() {
       }
 
       const otpCode = otpManager.generateOtp(email, purpose || 'general', { name });
-      console.log(`[OTP] /api/email/send-otp called for ${email}. purpose=${purpose || 'general'} brevoKey=${process.env.BREVO_API_KEY ? 'present' : 'missing'}`);
       
       const emailResult = await sendOtpEmail({
         email,
@@ -6521,7 +6273,6 @@ async function startServer() {
         otpCode,
         purpose: purpose || 'school_registration',
         templateId: templateId || null,
-        customApiKey,
       });
 
       if (!emailResult.success) {
@@ -6625,11 +6376,16 @@ async function startServer() {
   });
 
   // 3. Send Welcome Email
-  app.post('/api/email/send-welcome', async (req, res) => {
+  app.post('/api/email/send-welcome', requireAuth, async (req: AuthRequest, res) => {
     try {
+      const actor = await getRequestUser(req);
+      const actorRole = canonicalizeRole(actor?.role);
+      if (!['Admin','Co-admin','Promoteur','Directeur Général','Directeur des Etudes'].includes(actorRole)) {
+        return res.status(403).json({ error: 'Envoi de bienvenue non autorisé pour ce compte.' });
+      }
       const { 
         email, name, role, schoolName, schoolIdentifier, 
-        tempPassword, loginUrl, templateId, customApiKey 
+        tempPassword, loginUrl, templateId
       } = req.body;
 
       if (!email || !schoolName || !schoolIdentifier) {
@@ -6645,7 +6401,6 @@ async function startServer() {
         tempPassword,
         loginUrl: loginUrl || `${getPublicAppUrl(req)}/?login=1`,
         templateId: templateId || null,
-        customApiKey,
       });
 
       res.json({
@@ -6661,7 +6416,7 @@ async function startServer() {
   });
 
   // 4. Send Password Reset OTP Email
-  app.post('/api/email/send-reset-password', async (req, res) => {
+  app.post('/api/email/send-reset-password', rateLimit('password-reset-email', 5, 15 * 60 * 1000), async (req, res) => {
     try {
       const { email, templateId, customApiKey, adminOnly } = req.body;
       if (!email || !email.includes('@')) {
@@ -6717,15 +6472,16 @@ async function startServer() {
   });
 
   // 5. Confirm Password Reset with OTP & Update
-  app.post('/api/email/confirm-reset-password', async (req, res) => {
+  app.post('/api/email/confirm-reset-password', rateLimit('password-reset-confirm', 10, 15 * 60 * 1000), async (req, res) => {
     try {
       const { email, otpCode, newPassword, resetChallenge } = req.body;
       if (!email || !otpCode || !newPassword) {
         return res.status(400).json({ error: "Email, code OTP et nouveau mot de passe requis." });
       }
 
-      if (newPassword.length < 6) {
-        return res.status(400).json({ error: "Le mot de passe doit contenir au moins 6 caractères." });
+      const passwordError = getNewPasswordError(newPassword);
+      if (passwordError) {
+        return res.status(400).json({ error: passwordError });
       }
 
       const cleanEmail = String(email).toLowerCase().trim();
@@ -6771,10 +6527,11 @@ async function startServer() {
   });
 
   // 6. Get Transactional Email Audit Logs (Brevo API + Dispatched History)
-  app.get('/api/email/logs', async (req, res) => {
+  app.get('/api/email/logs', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const apiKey = (req.query.apiKey as string) || undefined;
-      const logsResult = await getBrevoEmailLogs(apiKey);
+      const platformAdmin = await requirePlatformAdmin(req, res);
+      if (!platformAdmin) return;
+      const logsResult = await getBrevoEmailLogs();
       res.json(logsResult);
     } catch (error: any) {
       console.error("Get Email Logs Error:", error);
@@ -6783,10 +6540,11 @@ async function startServer() {
   });
 
   // 7. Verify Sender Email Address Validation in Brevo Senders Dashboard
-  app.get('/api/email/senders', async (req, res) => {
+  app.get('/api/email/senders', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const apiKey = (req.query.apiKey as string) || undefined;
-      const sendersResult = await getBrevoSenders(apiKey);
+      const platformAdmin = await requirePlatformAdmin(req, res);
+      if (!platformAdmin) return;
+      const sendersResult = await getBrevoSenders();
       res.json(sendersResult);
     } catch (error: any) {
       console.error("Get Brevo Senders Error:", error);
@@ -6795,10 +6553,12 @@ async function startServer() {
   });
 
   // 8. Test Brevo API Connection & Send Test Transactional Email
-  app.post('/api/email/test-brevo', async (req, res) => {
+  app.post('/api/email/test-brevo', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const { apiKey, senderEmail, senderName, toEmail, templateId } = req.body || {};
-      const targetApiKey = apiKey || process.env.BREVO_API_KEY;
+      const platformAdmin = await requirePlatformAdmin(req, res);
+      if (!platformAdmin) return;
+      const { senderEmail, senderName, toEmail, templateId } = req.body || {};
+      const targetApiKey = process.env.BREVO_API_KEY;
       
       // Step A: Interrogate Brevo API (/v3/account) to verify key & connectivity
       const keyCheck = await checkBrevoApiKey(targetApiKey);
@@ -6885,15 +6645,16 @@ async function startServer() {
   });
 
   // 9. Bulk Broadcast Messaging via Configured Brevo Service (Email / SMS / WhatsApp)
-  app.post('/api/messaging/brevo-bulk', async (req, res) => {
+  app.post('/api/messaging/brevo-bulk', requireAuth, async (req: AuthRequest, res) => {
     try {
+      const platformAdmin = await requirePlatformAdmin(req, res);
+      if (!platformAdmin) return;
       const { 
         recipients, 
         channel = 'email', 
         subject, 
         message, 
         schoolName, 
-        apiKey, 
         senderName, 
         senderEmail 
       } = req.body || {};
@@ -6913,7 +6674,6 @@ async function startServer() {
       }
 
       const campaignResult = await sendBulkBrevoCampaign({
-        apiKey,
         channel,
         recipients,
         subject: subject || `Communication Administrative - ${schoolName || 'Établissement'}`,
@@ -6938,7 +6698,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/parent-receipts/send', async (req, res) => {
+  app.post('/api/parent-receipts/send', requireAuth, rateLimit('parent-receipt-send', 30, 10 * 60 * 1000), async (req: AuthRequest, res) => {
     const normalizeWhatsAppPhone = (phone?: string) => {
       const digits = String(phone || '').replace(/\D/g, '');
       if (!digits) return '';
@@ -7047,33 +6807,100 @@ async function startServer() {
     };
 
     try {
-      const {
-        recipient,
-        message,
-        subject,
-        schoolName,
-        filename = `recu-parent-${Date.now()}.pdf`,
-        pdfBase64,
-      } = req.body || {};
+      const actor = await getRequestUser(req);
+      const role = canonicalizeRole(actor?.role);
+      const allowedRoles = new Set(['Promoteur','Directeur Général','Responsable des finances','Caissière']);
+      if (!actor?.schoolId || !allowedRoles.has(role)) {
+        return res.status(403).json({ success: false, error: 'Envoi de reçu non autorisé pour ce compte.' });
+      }
 
-      const parentPhone = recipient?.phone || recipient?.parentPhone || '';
-      const parentEmail = recipient?.email || recipient?.parentEmail || '';
-      const parentName = recipient?.name || recipient?.parentName || 'Parent/Tuteur';
+      const client = getSupabaseAdmin(req);
+      if (!client) return res.status(503).json({ success: false, error: 'Service de données indisponible.' });
+
+      const recipient = req.body?.recipient || {};
+      const requestedEmail = normalizeEmail(recipient.email || recipient.parentEmail);
+      const requestedPhone = normalizePhoneIdentity(recipient.phone || recipient.parentPhone);
+      if (!requestedEmail && !requestedPhone) {
+        return res.status(400).json({ success: false, error: 'Parent destinataire requis.' });
+      }
+
+      const { data: school, error: schoolError } = await client
+        .from('schools').select('id,name').eq('id', Number(actor.schoolId)).maybeSingle();
+      if (schoolError) throw schoolError;
+      if (!school) return res.status(404).json({ success: false, error: 'Établissement introuvable.' });
+
+      let resolvedParentUser: any = null;
+      if (requestedEmail) {
+        const { data: parentUser, error: parentUserError } = await client
+          .from('users')
+          .select('id,name,email,phone,phone_normalized')
+          .eq('school_id', Number(actor.schoolId))
+          .eq('email', requestedEmail)
+          .limit(1)
+          .maybeSingle();
+        if (parentUserError) throw parentUserError;
+        resolvedParentUser = parentUser;
+      }
+
+      const effectivePhone = requestedPhone
+        || normalizePhoneIdentity(resolvedParentUser?.phone_normalized || resolvedParentUser?.phone);
+      const { data: studentsRows, error: studentsError } = await client
+        .from('students')
+        .select('id,user_id,class_id,parent_name,parent_phone')
+        .eq('school_id', Number(actor.schoolId))
+        .limit(1000);
+      if (studentsError) throw studentsError;
+
+      const linkedStudent = (studentsRows || []).find((student: any) =>
+        effectivePhone && normalizePhoneIdentity(student.parent_phone) === effectivePhone
+      );
+      if (!linkedStudent) {
+        return res.status(403).json({ success: false, error: 'Ce destinataire n’est pas rattaché à un élève de votre établissement.' });
+      }
+
+      if (!resolvedParentUser && effectivePhone) {
+        const { data: parentCandidates, error: parentCandidatesError } = await client
+          .from('users')
+          .select('id,name,email,phone,phone_normalized')
+          .eq('school_id', Number(actor.schoolId))
+          .limit(1000);
+        if (parentCandidatesError) throw parentCandidatesError;
+        resolvedParentUser = (parentCandidates || []).find((candidate: any) =>
+          normalizePhoneIdentity(candidate.phone_normalized || candidate.phone) === effectivePhone
+        ) || null;
+      }
+
+      const message = String(req.body?.message || '').trim();
+      const subject = String(req.body?.subject || '').trim();
+      const pdfBase64 = req.body?.pdfBase64 ? String(req.body.pdfBase64) : '';
+      const filename = String(req.body?.filename || ('recu-parent-' + Date.now() + '.pdf'))
+        .replace(/[^A-Za-z0-9._-]/g, '_')
+        .slice(0, 120);
+      if (!message || message.length > 5000) {
+        return res.status(400).json({ success: false, error: 'Message de reçu invalide.' });
+      }
+      if (pdfBase64 && pdfBase64.length > 12 * 1024 * 1024) {
+        return res.status(413).json({ success: false, error: 'Reçu PDF trop volumineux.' });
+      }
+
+      const parentPhone = String(linkedStudent.parent_phone || resolvedParentUser?.phone || '');
+      const parentEmail = normalizeEmail(resolvedParentUser?.email || requestedEmail);
+      const parentName = String(linkedStudent.parent_name || resolvedParentUser?.name || 'Parent/Tuteur');
 
       const whatsappResult = parentPhone
-        ? await sendWhatsAppDocument({ to: parentPhone, message, filename, pdfBase64 })
-        : { success: false, channel: 'whatsapp', error: 'Aucun numéro WhatsApp parent fourni.' };
+        ? await sendWhatsAppDocument({ to: parentPhone, message, filename, pdfBase64: pdfBase64 || undefined })
+        : { success: false, channel: 'whatsapp', error: 'Aucun numéro WhatsApp parent enregistré.' };
 
       let emailResult: any = null;
       if (!whatsappResult.success && parentEmail) {
         emailResult = await sendBrevoEmail({
           to: [{ email: parentEmail, name: parentName }],
-          subject: subject || `Reçu de paiement - ${schoolName || 'EDUCO'}`,
+          subject: subject || `Reçu de paiement - ${school.name || 'EDUCO'}`,
           htmlContent: `
             <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
               <h2 style="color:#1F4A59">Reçu de paiement</h2>
-              <p>Bonjour <strong>${parentName}</strong>,</p>
-              <p>${String(message || '').replace(/\n/g, '<br>')}</p>
+              <p>Bonjour <strong>${escapeHtml(parentName)}</strong>,</p>
+              <p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>
               <p>Le reçu PDF est joint à ce message.</p>
             </div>
           `,
@@ -7083,16 +6910,16 @@ async function startServer() {
       }
 
       return res.json({
-        success: whatsappResult.success || !!emailResult?.success,
+        success: whatsappResult.success || Boolean(emailResult?.success),
         whatsapp: whatsappResult,
         email: emailResult,
-        fallbackUsed: !whatsappResult.success && !!emailResult?.success,
+        fallbackUsed: !whatsappResult.success && Boolean(emailResult?.success),
       });
     } catch (error: any) {
       console.error('Parent receipt delivery error:', error);
       return res.status(500).json({
         success: false,
-        error: error?.message || 'Erreur lors de l’envoi du reçu parent.',
+        error: 'Erreur lors de l’envoi du reçu parent.',
       });
     }
   });

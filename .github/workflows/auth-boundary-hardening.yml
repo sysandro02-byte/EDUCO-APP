@@ -28,6 +28,12 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Validate source auth boundaries before generated hardening
+        run: npx tsx --test tests/auth-boundaries.test.ts tests/password-policy.test.ts
+
       - name: Apply deterministic hardening
         run: node scripts/harden-auth-boundaries.mjs
 
@@ -44,11 +50,8 @@ jobs:
           git commit -m "security: enforce authenticated session boundaries"
           git push origin HEAD:${{ github.ref_name }}
 
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Auth boundary tests
-        run: npx tsx --test tests/auth-boundaries.test.ts
+      - name: Auth boundary tests after deterministic hardening
+        run: npx tsx --test tests/auth-boundaries.test.ts tests/password-policy.test.ts
 
       - name: Existing WebAuthn security tests
         run: |
