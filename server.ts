@@ -2257,51 +2257,89 @@ async function startServer() {
     }
   });
 
-  // POST /api/users/:id/reset-password - Generate temporary password and send reset
-  app.post('/api/users/:id/reset-password', requireAuth, async (req: AuthRequest, res) => {
+  // POST /api/users/:id/reset-password - invalidate the old password and force secure recovery.
+  app.post('/api/users/:id/reset-password', requireAuth, rateLimit('admin-user-reset', 20, 15 * 60 * 1000), async (req: AuthRequest, res) => {
     try {
       const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const targetUserId = parseInt(rawId, 10);
-      if (isNaN(targetUserId)) return res.status(400).json({ error: 'ID utilisateur invalide' });
+      const targetUserId = Number.parseInt(rawId, 10);
+      if (!Number.isSafeInteger(targetUserId) || targetUserId <= 0) {
+        return res.status(400).json({ error: 'ID utilisateur invalide.' });
+      }
+
       const actor = await getRequestUser(req);
-      const isCentralAdmin = actor?.role === 'Admin' || actor?.role === 'Co-admin';
+      const actorRole = canonicalizeRole(actor?.role);
+      const isCentralAdmin = actorRole === 'Admin' || actorRole === 'Co-admin';
+      const allowedResetRoles = new Set(['Admin', 'Co-admin', 'Promoteur', 'Directeur Général']);
+      if (!allowedResetRoles.has(actorRole)) {
+        return res.status(403).json({ error: 'Réinitialisation de compte non autorisée.' });
+      }
 
       const supabaseAdmin = getSupabaseAdmin(req);
-      let targetUser: any = null;
-      if (supabaseAdmin) {
-        const { data, error } = await supabaseAdmin.from('users').select('*').eq('id', targetUserId).maybeSingle();
-        if (error) throw error;
-        targetUser = mapSupabaseUser(data);
-      } else {
-        const [dbTargetUser] = await db.select().from(users).where(eq(users.id, targetUserId));
-        targetUser = dbTargetUser;
+      if (!supabaseAdmin?.auth?.admin || getSupabaseServerKeyRole(req) !== 'service_role') {
+        return res.status(503).json({ error: 'Service sécurisé de réinitialisation indisponible.' });
       }
+
+      const { data, error } = await supabaseAdmin
+        .from('users')
+        .select('*')
+        .eq('id', targetUserId)
+        .maybeSingle();
+      if (error) throw error;
+      const targetUser = mapSupabaseUser(data);
+
       if (!targetUser || (!isCentralAdmin && Number(targetUser.schoolId) !== Number(actor?.schoolId))) {
         return res.status(403).json({ error: 'Cet utilisateur appartient à un autre établissement.' });
       }
-      if ((targetUser.role === 'Admin' || targetUser.role === 'Co-admin') && actor?.role !== 'Admin') {
-        return res.status(403).json({ error: 'Seul l’Admin peut réinitialiser un compte de l’administration centrale.' });
+      const targetRole = canonicalizeRole(targetUser.role);
+      if (targetRole === 'Admin' && actorRole !== 'Admin') {
+        return res.status(403).json({ error: 'Seul l’Admin peut réinitialiser un compte Admin.' });
       }
-      const tempPass = `Educo!7${crypto.randomBytes(16).toString('base64url')}`;
-
-      if (supabaseAdmin && targetUser?.uid) {
-        try {
-          await supabaseAdmin.auth.admin.updateUserById(targetUser.uid, {
-            password: tempPass
-          });
-        } catch (e) {
-          console.warn('Supabase reset-password error:', e);
-        }
+      if (targetRole === 'Co-admin' && actorRole !== 'Admin') {
+        return res.status(403).json({ error: 'Seul l’Admin peut réinitialiser un Co-admin.' });
       }
 
-      res.json({
+      const targetEmail = normalizeEmail(targetUser.email);
+      if (!targetUser.uid || !targetEmail) {
+        return res.status(409).json({ error: 'Ce compte ne possède pas une identité Auth récupérable.' });
+      }
+
+      const lockedSecret = `Educo!7${crypto.randomBytes(24).toString('base64url')}`;
+      const { error: authResetError } = await supabaseAdmin.auth.admin.updateUserById(targetUser.uid, {
+        password: lockedSecret,
+      });
+      if (authResetError) throw authResetError;
+
+      const appUrl = String(process.env.PUBLIC_APP_URL || process.env.APP_URL || 'https://educo.loukatech.com').replace(/\/$/, '');
+      let emailSent = false;
+      try {
+        const mail = await sendBrevoEmail({
+          to: [{ email: targetEmail, name: String(targetUser.name || '') }],
+          subject: 'EDUCO — réinitialisation de votre accès',
+          htmlContent: `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
+            <h2 style="color:#1F4A59">Réinitialisation de votre accès EDUCO</h2>
+            <p>Bonjour <strong>${escapeHtml(targetUser.name || 'Utilisateur')}</strong>,</p>
+            <p>Un administrateur a réinitialisé votre accès. Votre ancien mot de passe n’est plus valide.</p>
+            <p>Ouvrez EDUCO puis utilisez <strong>« Mot de passe oublié ? »</strong> avec cette adresse e-mail pour définir votre nouveau mot de passe.</p>
+            <p><a href="${appUrl}/?login=1">Accéder à EDUCO</a></p>
+            <p style="font-size:12px;color:#64748b">EDUCO ne transmet jamais de mot de passe en clair par e-mail.</p>
+          </div>`,
+          tags: ['admin-password-reset'],
+        });
+        emailSent = Boolean(mail?.success);
+      } catch (mailError: any) {
+        console.warn('Admin password reset notification warning:', mailError?.message || mailError);
+      }
+
+      return res.json({
         success: true,
-        message: `Mot de passe réinitialisé avec succès pour ${targetUser?.name || 'l\'utilisateur'}.`,
-        tempPassword: tempPass,
-        email: targetUser?.email
+        message: emailSent
+          ? 'Accès réinitialisé. Les instructions de récupération ont été envoyées à l’utilisateur.'
+          : 'Accès réinitialisé. L’utilisateur doit utiliser « Mot de passe oublié ? » pour définir son nouveau mot de passe.',
+        emailSent,
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error('Admin reset password error:', error?.message || error);
+      return res.status(500).json({ error: 'Impossible de réinitialiser ce compte.' });
     }
   });
 
