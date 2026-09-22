@@ -142,6 +142,7 @@ const AccessTab: React.FC<{ users?: User[]; onSaveUser?: (user: User) => void; }
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedRole, setSelectedRole] = useState('All');
     const [statusMessage, setStatusMessage] = useState<string | null>(null);
+    const [resettingUserId, setResettingUserId] = useState<string | number | null>(null);
 
     const filteredUsers = users.filter(u => {
         const matchesSearch = u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -151,10 +152,27 @@ const AccessTab: React.FC<{ users?: User[]; onSaveUser?: (user: User) => void; }
         return matchesSearch && matchesRole;
     });
 
-    const handleResetPassword = (user: User) => {
-        const tempPassword = `Educo${Math.floor(1000 + Math.random() * 9000)}!`;
-        setStatusMessage(`Mot de passe temporaire pour ${user.name} généré : ${tempPassword} (transmis avec succès)`);
-        setTimeout(() => setStatusMessage(null), 8000);
+    const handleResetPassword = async (user: User) => {
+        if (!user?.id || resettingUserId) return;
+        setResettingUserId(user.id);
+        setStatusMessage(null);
+        try {
+            const response = await fetch(getApiUrl(`/api/users/${user.id}/reset-password`), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('EDUCO_USER_TOKEN') || ''}`,
+                },
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data?.success) throw new Error(data?.error || 'Réinitialisation impossible.');
+            setStatusMessage(data.message || `Accès de ${user.name} réinitialisé. L’utilisateur doit définir un nouveau mot de passe via « Mot de passe oublié ? ».`);
+        } catch (error: any) {
+            setStatusMessage(error?.message || 'Réinitialisation impossible.');
+        } finally {
+            setResettingUserId(null);
+            setTimeout(() => setStatusMessage(null), 8000);
+        }
     };
 
     const handleToggleStatus = (user: User) => {
@@ -261,10 +279,11 @@ const AccessTab: React.FC<{ users?: User[]; onSaveUser?: (user: User) => void; }
                                     <td className="px-4 py-3 text-right space-x-2">
                                         <button
                                             onClick={() => handleResetPassword(u)}
-                                            className="px-2.5 py-1 text-xs bg-amber-50 text-amber-700 hover:bg-amber-100 rounded border border-amber-200 transition-colors"
-                                            title="Générer un mot de passe temporaire"
+                                            disabled={resettingUserId === u.id}
+                                            className="px-2.5 py-1 text-xs bg-amber-50 text-amber-700 hover:bg-amber-100 rounded border border-amber-200 transition-colors disabled:opacity-50"
+                                            title="Réinitialiser l’accès et forcer la récupération sécurisée"
                                         >
-                                            Réinitialiser MDP
+                                            {resettingUserId === u.id ? 'Réinitialisation…' : 'Réinitialiser MDP'}
                                         </button>
                                         <button
                                             onClick={() => handleToggleStatus(u)}
