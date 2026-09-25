@@ -89,6 +89,7 @@ import { getApiUrl } from './src/lib/apiConfig';
 import { getCurrentUser, findUserByEmail, getSchoolSettings, saveUserToDb, deleteUserFromDb, deleteSchoolFromDb, saveActivityLogToDb, fetchActivityLogsFromDb, checkDbConnection, syncInitialData, fetchCurrentSubscription, SchoolSubscriptionInfo, fetchAdminExportData, fetchAdminRegisteredSchools, fetchSchoolOperationalData, saveTransactionToDb, savePaymentToDb, updateTransactionStatusInDb, savePersonnelToDb, saveClassToDb, saveFeeToDb, saveGradeToDb, sendMessageToDb, checkInterSchoolStudentDebt, fetchNotificationsFromDb, dispatchNotificationToRoles, markNotificationAsReadInDb, markAllNotificationsAsReadInDb, deleteNotificationFromDb, clearNotificationsInDb } from './src/services/api';
 import { getAccountCreationKind } from './src/services/userAccountWorkflow';
 import { getMyGovernmentAccount, isGovernmentRole } from './src/services/governmentAccounts';
+import { EDUCO_PORTAL_MODE, getPortalAccessError, isRoleAllowedOnCurrentPortal } from './src/lib/portalConfig';
 import { DbStatus } from './src/services/api';
 import { Database, CheckCircle2, User as UserIcon, Camera, Settings, LogOut, Shield, ChevronDown, Lock, Zap, Sparkles, Key, ShieldCheck, X, AlertCircle, AlertTriangle } from 'lucide-react';
 import LockedFeatureGuard from './components/LockedFeatureGuard';
@@ -230,6 +231,7 @@ export interface SinglePaymentData {
 export type { SchoolSubscriptionInfo };
 
 const App: React.FC = () => {
+  const portalMode = EDUCO_PORTAL_MODE;
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [pendingOtpUser, setPendingOtpUser] = useState<User | null>(null);
   const [otpVerified, setOtpVerified] = useState(() => sessionStorage.getItem('otpVerified') === 'true');
@@ -288,6 +290,18 @@ const App: React.FC = () => {
 
         const userResult = await getCurrentUser();
         if (userResult?.user) {
+          if (!isRoleAllowedOnCurrentPortal(userResult.user.role || '')) {
+            await getSupabaseClient().auth.signOut().catch(() => {});
+            localStorage.removeItem('EDUCO_CURRENT_USER');
+            localStorage.removeItem('EDUCO_USER_TOKEN');
+            sessionStorage.removeItem('EDUCO_SESSION_ACTIVE');
+            sessionStorage.removeItem('otpVerified');
+            setOtpVerified(false);
+            setCurrentUser(null);
+            setPendingOtpUser(null);
+            setInactivityNotice(getPortalAccessError(userResult.user.role || ''));
+            return;
+          }
           localStorage.setItem('EDUCO_CURRENT_USER', JSON.stringify(userResult.user));
           if (!otpVerified) {
             setPendingOtpUser(userResult.user);
@@ -397,6 +411,15 @@ const App: React.FC = () => {
           await syncBrowserSupabaseSession(trimmedEmail, password, loggedUser?.uid ? String(loggedUser.uid) : undefined);
           pendingSupabaseCredentialsRef.current = null;
         }
+      }
+      if (!isRoleAllowedOnCurrentPortal(loggedUser?.role || '')) {
+        pendingSupabaseCredentialsRef.current = null;
+        await getSupabaseClient().auth.signOut().catch(() => {});
+        localStorage.removeItem('EDUCO_CURRENT_USER');
+        localStorage.removeItem('EDUCO_USER_TOKEN');
+        sessionStorage.removeItem('EDUCO_SESSION_ACTIVE');
+        sessionStorage.removeItem('otpVerified');
+        return { success: false, error: getPortalAccessError(loggedUser?.role || '') };
       }
       if (isBiometric && isGovernmentRole(loggedUser?.role || '')) {
         const supabase = getSupabaseClient();
@@ -3112,7 +3135,11 @@ const App: React.FC = () => {
             </button>
           </div>
         )}
-        <LoginPage onLogin={handleLogin} onNavigateToAdmin={() => setActivePage('AdminSpecialLogin')} users={users} />
+        <LoginPage
+          onLogin={handleLogin}
+          onNavigateToAdmin={portalMode === 'education' ? () => setActivePage('AdminSpecialLogin') : undefined}
+          users={users}
+        />
       </div>
     );
   }
