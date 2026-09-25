@@ -9,6 +9,7 @@ import { LoadingDots } from './LoadingDots';
 import { brevoEmailService } from '../src/services/brevoEmailService';
 import { getApiUrl } from '../src/lib/apiConfig';
 import { getNewPasswordError, NEW_PASSWORD_MIN_LENGTH } from '../src/services/passwordPolicy';
+import { EDUCO_PORTAL_MODE, getPortalAccessError, isRoleAllowedOnCurrentPortal } from '../src/lib/portalConfig';
 
 interface LoginPageProps {
   onLogin: (email: string, password: string, isBiometric?: boolean) => Promise<{ success: boolean; error?: string }>;
@@ -17,6 +18,7 @@ interface LoginPageProps {
 }
 
 const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users = [] }) => {
+  const isGovernmentPortal = EDUCO_PORTAL_MODE === 'government';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -118,6 +120,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
       });
       const data = await response.json().catch(() => null);
       if (!response.ok || !data?.success || !data?.token || !data?.user) return setError(data?.error || 'Code invalide ou expiré.');
+      if (!isRoleAllowedOnCurrentPortal(data.user.role || '')) return setError(getPortalAccessError(data.user.role || ''));
       localStorage.setItem('EDUCO_USER_TOKEN', data.token);
       localStorage.setItem('EDUCO_CURRENT_USER', JSON.stringify(data.user));
       sessionStorage.setItem('EDUCO_SESSION_ACTIVE', 'true');
@@ -696,15 +699,25 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
     <div className="flex items-center justify-center min-h-screen bg-[#EBF3F8] dark:bg-slate-950 p-4 transition-colors">
       <div className="w-full max-w-md p-8 space-y-6 bg-white dark:bg-slate-900 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-800">
         <div className="text-center">
+          {isGovernmentPortal ? (
+            <div className="flex justify-center mx-auto mb-4" title="Portail Ministères & Directions">
+              <LogoIcon />
+            </div>
+          ) : (
             <button
               className="flex justify-center mx-auto mb-4 hover:scale-105 transition-transform active:scale-95 duration-200 cursor-pointer"
               onClick={onNavigateToAdmin}
               title="Accès Administration"
             >
-                <LogoIcon />
+              <LogoIcon />
             </button>
-          <h1 className="text-3xl font-extrabold text-[#1F4A59] dark:text-sky-400 tracking-tight">Bienvenue sur EDUCO</h1>
-          <p className="mt-1.5 text-sm text-gray-500 dark:text-slate-400">Connectez-vous pour accéder à votre tableau de bord scolaire</p>
+          )}
+          <h1 className="text-3xl font-extrabold text-[#1F4A59] dark:text-sky-400 tracking-tight">
+            {isGovernmentPortal ? 'EDUCO — Ministères & Directions' : 'Bienvenue sur EDUCO'}
+          </h1>
+          <p className="mt-1.5 text-sm text-gray-500 dark:text-slate-400">
+            {isGovernmentPortal ? 'Connectez-vous avec votre compte institutionnel sécurisé.' : 'Connectez-vous pour accéder à votre tableau de bord scolaire'}
+          </p>
         </div>
 
         {/* Biometric WebAuthn Quick Login */}
@@ -714,10 +727,12 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
           userEmail={loginMode === 'email' ? email : undefined}
         />
 
-        <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl" aria-label="Mode de connexion">
-          <button type="button" onClick={() => { setLoginMode('email'); setError(''); }} aria-pressed={loginMode === 'email'} className={`py-2 text-xs font-bold rounded-lg ${loginMode === 'email' ? 'bg-white dark:bg-slate-700 shadow text-[#1F4A59] dark:text-sky-300' : 'text-slate-500'}`}>E-mail</button>
-          <button type="button" onClick={() => { setLoginMode('phone'); setError(''); }} aria-pressed={loginMode === 'phone'} className={`py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 ${loginMode === 'phone' ? 'bg-white dark:bg-slate-700 shadow text-[#1F4A59] dark:text-sky-300' : 'text-slate-500'}`}><Phone className="w-4 h-4" /> Téléphone</button>
-        </div>
+        {!isGovernmentPortal && (
+          <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl" aria-label="Mode de connexion">
+            <button type="button" onClick={() => { setLoginMode('email'); setError(''); }} aria-pressed={loginMode === 'email'} className={`py-2 text-xs font-bold rounded-lg ${loginMode === 'email' ? 'bg-white dark:bg-slate-700 shadow text-[#1F4A59] dark:text-sky-300' : 'text-slate-500'}`}>E-mail</button>
+            <button type="button" onClick={() => { setLoginMode('phone'); setError(''); }} aria-pressed={loginMode === 'phone'} className={`py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-2 ${loginMode === 'phone' ? 'bg-white dark:bg-slate-700 shadow text-[#1F4A59] dark:text-sky-300' : 'text-slate-500'}`}><Phone className="w-4 h-4" /> Téléphone</button>
+          </div>
+        )}
 
         {error && <p role="alert" className="text-center text-sm text-red-600 bg-red-50 dark:bg-rose-950 border border-red-200 dark:border-rose-800 p-3 rounded-xl">{error}</p>}
         {loginMode === 'email' ? (
@@ -813,28 +828,33 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
         )}
 
         <div className="pt-2 border-t border-gray-100 dark:border-slate-800 space-y-2 text-center text-xs text-gray-600 dark:text-slate-400">
-          <p>
-            Vous êtes un promoteur ?{' '}
-            <button onClick={() => setIsRegistering(true)} className="font-bold text-[#1F4A59] dark:text-sky-400 hover:underline cursor-pointer">
-              Inscrivez votre établissement
-            </button>
-          </p>
-          <p>
-            Vous êtes un parent ?{' '}
-            <button onClick={() => setIsParentRegistering(true)} className="font-bold text-[#1F4A59] dark:text-sky-400 hover:underline cursor-pointer">
-              Créez votre compte parent
-            </button>
-          </p>
-          <p>
-            Vous représentez un ministère ?{' '}
-            <button
-              type="button"
-              onClick={() => { window.location.href = '/?institutional-access=1'; }}
-              className="font-bold text-[#1F4A59] dark:text-sky-400 hover:underline cursor-pointer"
-            >
-              Demander un accès institutionnel
-            </button>
-          </p>
+          {isGovernmentPortal ? (
+            <>
+              <p>Portail réservé aux ministères, cabinets, directions générales, directions et agents habilités.</p>
+              <p>
+                Pas encore de compte institutionnel ?{' '}
+                <button type="button" onClick={() => { window.location.href = '/?institutional-access=1'; }} className="font-bold text-[#1F4A59] dark:text-sky-400 hover:underline cursor-pointer">
+                  Demander un accès institutionnel
+                </button>
+              </p>
+              <p className="text-[11px]">Les écoles et universités utilisent educo.loukatech.com.</p>
+            </>
+          ) : (
+            <>
+              <p>
+                Vous êtes un promoteur ?{' '}
+                <button onClick={() => setIsRegistering(true)} className="font-bold text-[#1F4A59] dark:text-sky-400 hover:underline cursor-pointer">
+                  Inscrivez votre établissement
+                </button>
+              </p>
+              <p>
+                Vous êtes un parent ?{' '}
+                <button onClick={() => setIsParentRegistering(true)} className="font-bold text-[#1F4A59] dark:text-sky-400 hover:underline cursor-pointer">
+                  Créez votre compte parent
+                </button>
+              </p>
+            </>
+          )}
         </div>
       </div>
 
@@ -855,7 +875,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onNavigateToAdmin, users
               <button onClick={() => setModalType('none')} className="btn-primary">Utiliser le mot de passe</button>
             )}
             <button onClick={() => setModalType('none')} className="btn-secondary">Fermer</button>
-            {modalType === 'accountNotFound' && (
+            {modalType === 'accountNotFound' && !isGovernmentPortal && (
               <button onClick={() => { setModalType('none'); setIsRegistering(true); }} className="btn-primary">Créer un compte</button>
             )}
           </div>
