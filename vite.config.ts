@@ -11,6 +11,12 @@ export default defineConfig(({ mode }) => {
   const devApiTarget = (env.VITE_DEV_API_TARGET || DEFAULT_DEV_API_TARGET).replace(/\/$/, '');
   const publicSupabaseUrl = env.VITE_SUPABASE_URL || env.SUPABASE_URL || '';
   const publicSupabaseAnonKey = env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY || '';
+  const educationProjectId = 'prj_Lxz82LCYt1z9WJ48ZSdQRWBNf1k4';
+  const explicitPortalMode = String(env.VITE_EDUCO_PORTAL || '').trim().toLowerCase();
+  const vercelProjectId = String(process.env.VERCEL_PROJECT_ID || '').trim();
+  const portalMode = explicitPortalMode === 'government' || explicitPortalMode === 'education'
+    ? explicitPortalMode
+    : (vercelProjectId && vercelProjectId !== educationProjectId ? 'government' : 'education');
 
   return {
     server: {
@@ -75,6 +81,7 @@ export default defineConfig(({ mode }) => {
       'process.env.SUPABASE_URL': JSON.stringify(publicSupabaseUrl),
       'process.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(publicSupabaseAnonKey),
       'process.env.SUPABASE_ANON_KEY': JSON.stringify(publicSupabaseAnonKey),
+      '__EDUCO_PORTAL_MODE__': JSON.stringify(portalMode),
     },
     resolve: {
       alias: {
